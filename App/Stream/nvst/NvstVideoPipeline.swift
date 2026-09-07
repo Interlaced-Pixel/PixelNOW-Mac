@@ -272,7 +272,13 @@ public final class NvstVideoPipeline: @unchecked Sendable {
                 let stale = Self.dropsStaleFrame(frameIndex: unit.frameIndex, latestSubmittedKeyframeIndex: latestSubmittedKeyframeIndex)
                 if stale { counters.framesSkippedForLatency += 1 }
                 lock.unlock()
-                if stale { return }
+                if stale {
+                    var dropTimings = StageTimings()
+                    dropTimings.hop = Self.milliseconds(from: enqueuedAt, to: DispatchTime.now().uptimeNanoseconds)
+                    sendFrameAck(unit: unit, decodedAt: DispatchTime.now().uptimeNanoseconds, timings: &dropTimings)
+                    record(dropTimings, frameNumber: frameAckNumber, unit: unit)
+                    return
+                }
             }
         }
 
@@ -313,6 +319,10 @@ public final class NvstVideoPipeline: @unchecked Sendable {
             counters.missingParameterSetFrames += 1
             lock.unlock()
             onKeyframeNeeded()
+            let failedAt = DispatchTime.now().uptimeNanoseconds
+            timings.decode = Self.milliseconds(from: started, to: failedAt)
+            sendFrameAck(unit: unit, decodedAt: failedAt, timings: &timings)
+            record(timings, frameNumber: frameAckNumber, unit: unit)
             return
         } catch {
             consecutiveDecodeFailures += 1
@@ -327,6 +337,10 @@ public final class NvstVideoPipeline: @unchecked Sendable {
                 consecutiveDecodeFailures = 0
                 onFatalDecodeError(error.localizedDescription)
             }
+            let failedAt = DispatchTime.now().uptimeNanoseconds
+            timings.decode = Self.milliseconds(from: started, to: failedAt)
+            sendFrameAck(unit: unit, decodedAt: failedAt, timings: &timings)
+            record(timings, frameNumber: frameAckNumber, unit: unit)
             return
         }
     }
@@ -389,7 +403,6 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         guard !pendingCompletions.isEmpty else { lock.unlock(); return }
         let entry = pendingCompletions.removeFirst()
         lock.unlock()
-        guard success else { return }
         let decodedAt = DispatchTime.now().uptimeNanoseconds
         var timings = StageTimings()
         timings.hop = entry.hopMilliseconds

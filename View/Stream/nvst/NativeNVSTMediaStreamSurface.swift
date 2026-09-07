@@ -650,7 +650,7 @@ struct NativeNVSTMediaStreamSurface: View {
         Task {
             await pendingStartTask?.value
             await pendingPath?.cancelStart()
-            await inputDispatcher?.finish()
+            inputDispatcher?.cancel()
             if let pendingPath {
                 try? await pendingPath.setMicrophoneEnabled(false)
                 _ = try? await pendingPath.stop(reason: .userRequested, message: "Native NVST stream view closed.")
@@ -674,7 +674,11 @@ struct NativeNVSTMediaStreamSurface: View {
             isEnding = true
             return dispatcher
         }
-        await inputDispatcher?.finish()
+        if reason == .paused || reason == .userRequested {
+            inputDispatcher?.cancel()
+        } else {
+            await inputDispatcher?.finish()
+        }
         guard let path else {
             await MainActor.run {
                 isEnding = false
