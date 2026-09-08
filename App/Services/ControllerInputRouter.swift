@@ -71,6 +71,8 @@ struct ControllerInputGlyphSet: Equatable {
 final class ControllerInputRouter: NSObject, ObservableObject {
     @Published private(set) var glyphs = ControllerInputGlyphSet.keyboard
     @Published private(set) var isControllerConnected = false
+    @Published private(set) var controllerBatteryLevel: Float? = nil
+    @Published private(set) var controllerBatteryState: GCDeviceBattery.State = .unknown
 
     var onCommand: ((ControllerInputCommand) -> Void)?
 
@@ -78,18 +80,44 @@ final class ControllerInputRouter: NSObject, ObservableObject {
     private var thumbstickRepeatState: [ControllerInputDirection: Date] = [:]
     private let thumbstickRepeatInterval: TimeInterval = 0.18
     private let thumbstickDeadzone: Float = 0.45
+    private var batteryTask: Task<Void, Never>?
 
     override init() {
         super.init()
         installNotifications()
         refreshControllers()
         GCController.startWirelessControllerDiscovery(completionHandler: nil)
+        
+        batteryTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                self?.refreshBattery()
+            }
+        }
     }
 
     deinit {
+        batteryTask?.cancel()
         NotificationCenter.default.removeObserver(self)
         GCController.stopWirelessControllerDiscovery()
         Self.clearHandlersForConnectedControllers()
+    }
+
+    private func refreshBattery() {
+        guard let controller = activeController, let battery = controller.battery else {
+            if controllerBatteryLevel != nil {
+                controllerBatteryLevel = nil
+                controllerBatteryState = .unknown
+            }
+            return
+        }
+        
+        if controllerBatteryLevel != battery.batteryLevel {
+            controllerBatteryLevel = battery.batteryLevel
+        }
+        if controllerBatteryState != battery.batteryState {
+            controllerBatteryState = battery.batteryState
+        }
     }
 
     func sendKeyboardCommand(_ command: ControllerInputCommand) {
@@ -215,10 +243,12 @@ final class ControllerInputRouter: NSObject, ObservableObject {
         guard let controller = activeController else {
             isControllerConnected = false
             glyphs = .keyboard
+            refreshBattery()
             return
         }
         isControllerConnected = true
         glyphs = makeGlyphSet(for: controller)
+        refreshBattery()
     }
 
     private func makeGlyphSet(for controller: GCController) -> ControllerInputGlyphSet {

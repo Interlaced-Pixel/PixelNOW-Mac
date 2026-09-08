@@ -1085,6 +1085,8 @@ private struct CatalogSidebar: View {
     let onSignOut: () -> Void
     let onForget: (LoginAccount) -> Void
 
+    @StateObject private var inputRouter = ControllerInputRouter()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
@@ -1157,6 +1159,13 @@ private struct CatalogSidebar: View {
                     Text(viewModel.isCatalogRefreshInProgress ? "Updating library" : "Up to date")
                         .font(.nvidia(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.52))
+                }
+                
+                if inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
+                    HStack(spacing: 6) {
+                        ControllerBatteryIndicator(level: level, state: inputRouter.controllerBatteryState)
+                    }
+                    .padding(.top, 2)
                 }
             }
             .padding(14)

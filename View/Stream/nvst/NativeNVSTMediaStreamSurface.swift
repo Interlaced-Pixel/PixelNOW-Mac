@@ -279,6 +279,7 @@ struct NativeNVSTMediaStreamSurface: View {
     let onProgress: NativeNVSTMediaStreamProgressHandler?
     let onEnd: NativeNVSTMediaStreamCompletion
     private let sidebarCapabilities = NativeNVSTStreamSidebarCapabilities.standard
+    @StateObject private var inputRouter = ControllerInputRouter()
 
     @State private var path: NativeNVSTStreamingPath?
     @State private var startTask: Task<Void, Never>?
@@ -1271,6 +1272,25 @@ struct NativeNVSTMediaStreamSurface: View {
             if streamControlsVisible { nativeStreamControlsOverlay }
             if !networkPathAvailable && !streamControlsVisible { nativeNetworkRecoveryOverlay }
             if !transientStreamMessage.isEmpty { nativeTransientStreamMessageOverlay.allowsHitTesting(false) }
+            nativeBatteryOverlay
+        }
+    }
+    
+    @ViewBuilder private var nativeBatteryOverlay: some View {
+        if isConnected, inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
+            VStack {
+                HStack {
+                    Spacer()
+                    ControllerBatteryIndicator(level: level, state: inputRouter.controllerBatteryState)
+                        .padding(8)
+                        .background(Color.black.opacity(0.5))
+                        .clipShape(Capsule())
+                        .padding(16)
+                }
+                Spacer()
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut, value: inputRouter.isControllerConnected)
         }
     }
 
