@@ -573,6 +573,9 @@ extension NVSTCoreTransport {
         if bundle.sendControl(.idrRequest()) {
             idrRequestsSent += 1
             logger?("NVST initial IDR request retry sent (#\(idrRequestsSent))")
+            if idrRequestsSent == 10 {
+                logger?("[error] NVST video stream timeout: No video frames received after 10s. The video port hole punch may have failed or UDP is blocked by a firewall.")
+            }
         } else {
             logger?("NVST initial IDR request retry write failed")
         }

@@ -623,17 +623,15 @@ extension NvstWebRtcBundle {
     }
 
     public var isInputChannelOpen: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return openInputChannel?.readyState == .open
+        let channel = lock.withLock { openInputChannel }
+        return channel?.readyState == .open
     }
 
     /// Input is accepted once the control channel — which is where the official client actually
     /// sends remote input — is open and the seat has announced its protocol version.
     public var isInputReady: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return openControlChannel?.readyState == .open && negotiatedInputProtocolVersion != nil
+        let (channel, version) = lock.withLock { (openControlChannel, negotiatedInputProtocolVersion) }
+        return channel?.readyState == .open && version != nil
     }
 
     public var inputProtocolVersion: UInt16? {
@@ -657,25 +655,24 @@ extension NvstWebRtcBundle {
     }
 
     public var isControlChannelOpen: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return openControlChannel?.readyState == .open
+        let channel = lock.withLock { openControlChannel }
+        return channel?.readyState == .open
     }
 
     public var isFeedbackChannelOpen: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return openFeedbackChannel?.readyState == .open
+        let channel = lock.withLock { openFeedbackChannel }
+        return channel?.readyState == .open
     }
 
     public var diagnosticSummary: String {
+        let isFeedbackOpen = lock.withLock { openFeedbackChannel }?.readyState == .open
         lock.lock()
         defer { lock.unlock() }
         let perLabel = inboundMessagesByLabel.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
         let microphone = microphoneNegotiated
-            ? "on(ssrc=\(microphoneSenderSsrc.map(String.init) ?? "?"),gate=\(microphoneCaptureEnabled),tx=\(microphoneSentDataBytes),rr=\(microphoneSeatReportedPackets),codec=\(microphoneOutboundCodec ?? "?"),rec=\(audioDevice?.isRecording == true),track=\(microphoneTrack?.isEnabled == true))"
+            ? "on(ssrc=\(microphoneSenderSsrc.map(String.init) ?? "?"),gate=\(microphoneCaptureEnabled),tx=\(microphoneSentDataBytes),rr=\(microphoneSeatReportedPackets),codec=\(microphoneOutboundCodec ?? "?"))"
             : "off"
-        return "ice=\(iceStateDescription) channels=\(createdChannels.count) feedbackOpen=\(openFeedbackChannel?.readyState == .open) inboundBytes=\(inboundFeedbackBytes) inbound=[\(perLabel)] sendFailures=\(feedbackSendFailures) controlOut=\(controlMessagesSent) controlFailed=\(controlSendFailures) inputOut=\(inputMessagesSent) inputFailed=\(inputSendFailures) mic=\(microphone)"
+        return "ice=\(iceStateDescription) channels=\(createdChannels.count) feedbackOpen=\(isFeedbackOpen) inboundBytes=\(inboundFeedbackBytes) inbound=[\(perLabel)] sendFailures=\(feedbackSendFailures) controlOut=\(controlMessagesSent) controlFailed=\(controlSendFailures) inputOut=\(inputMessagesSent) inputFailed=\(inputSendFailures) mic=\(microphone)"
     }
 
     /// Creates the official channel set in order so each label lands on the stream id the seat

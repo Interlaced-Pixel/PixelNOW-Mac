@@ -298,6 +298,7 @@ public actor NativeNVSTStreamingPath {
         }
 
         try Task.checkCancellation()
+        NativeNVSTMediaTelemetry.capture("nvst.path.allocate", level: .info, message: "Allocating cloud session...", attributes: ["applicationID": configuration.applicationID])
         try await publishProgress(configuration: configuration, step: .allocateCloudSession, message: "Allocating native NVST cloud session...", progress: progress)
         let allocation: NativeNVSTSessionAllocation
         do {
