@@ -62,9 +62,15 @@ struct ControllerBatteryIndicator: View {
     }
     
     private var fillColor: Color {
-        if level <= 0.2 && state != .charging {
+        if state == .charging {
+            return Color.pixelNowGreen
+        }
+        if level <= 0.2 {
             return .red
         }
-        return .green
+        if level <= 0.35 {
+            return .orange
+        }
+        return Color.pixelNowGreen
     }
 }

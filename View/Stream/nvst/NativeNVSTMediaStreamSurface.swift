@@ -1,4 +1,5 @@
 import Foundation
+import GameController
 import SwiftUI
 
 public typealias NativeNVSTMediaStreamProgressCallback = @MainActor @Sendable (_ progress: StreamProgress) -> Void
@@ -45,11 +46,12 @@ struct NativeNVSTStreamHUDActionRow: View {
                 .foregroundStyle(iconColor)
                 .frame(width: 42, height: 38)
                 .background(rowBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
-                    Rectangle()
-                        .stroke(isActive ? NativeNVSTMediaStreamTheme.accent.opacity(0.86) : NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(isActive ? Color.pixelNowGreen.opacity(0.86) : NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
                 }
-                .contentShape(Rectangle())
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -61,12 +63,12 @@ struct NativeNVSTStreamHUDActionRow: View {
     }
 
     private var rowBackground: Color {
-        if isActive { return NativeNVSTMediaStreamTheme.accent }
+        if isActive { return Color.pixelNowGreen }
         return Color.white.opacity(isHovering ? 0.14 : 0.075)
     }
 
     private var iconColor: Color {
-        isActive ? .black.opacity(0.86) : .white.opacity(isHovering ? 0.94 : 0.72)
+        isActive ? .black : .white.opacity(isHovering ? 0.94 : 0.72)
     }
 }
 
@@ -96,8 +98,8 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
                             .font(.nativeNVSTStreamNvidia(size: 11, weight: .bold))
                             .foregroundStyle(.white.opacity(0.82))
                             .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.08))
-                            .overlay { Rectangle().stroke(Color.white.opacity(0.14), lineWidth: 1) }
+                            .background(Color.white.opacity(0.08), in: Circle())
+                            .overlay { Circle().stroke(Color.white.opacity(0.14), lineWidth: 1) }
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
@@ -123,9 +125,9 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
                     .padding(.vertical, 9)
             }
             .frame(width: NativeNVSTMediaStreamTheme.dockWidth(for: proxy.size.width), height: proxy.size.height, alignment: .topLeading)
-            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.985))
+            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.96))
+            .background(.ultraThinMaterial)
             .overlay(alignment: .trailing) { Rectangle().fill(NativeNVSTMediaStreamTheme.divider).frame(width: 1) }
-            .overlay(alignment: .top) { Rectangle().fill(NativeNVSTMediaStreamTheme.accent).frame(height: 2) }
             .shadow(color: .black.opacity(0.58), radius: 28, x: 14, y: 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
@@ -152,10 +154,14 @@ struct NativeNVSTStreamHUDSection<Content: View>: View {
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
             content
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.055))
-        .overlay { Rectangle().stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1) }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
+        }
     }
 }
 
@@ -167,7 +173,7 @@ struct NativeNVSTStreamHUDMetricCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Circle().fill(positive ? NativeNVSTMediaStreamTheme.accent : NativeNVSTMediaStreamTheme.warning).frame(width: 6, height: 6)
+                Circle().fill(positive ? Color.pixelNowGreen : NativeNVSTMediaStreamTheme.warning).frame(width: 6, height: 6)
                 Text(title.uppercased())
                     .font(.nativeNVSTStreamNvidia(size: 9, weight: .bold))
                     .tracking(0.7)
@@ -182,7 +188,11 @@ struct NativeNVSTStreamHUDMetricCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
         .background(Color.white.opacity(0.055))
-        .overlay { Rectangle().stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1) }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
+        }
     }
 }
 
@@ -542,7 +552,7 @@ struct NativeNVSTMediaStreamSurface: View {
                 Text("NATIVE NVST UNAVAILABLE")
                     .font(.nativeNVSTStreamNvidia(size: 16, weight: .bold))
                     .tracking(1.4)
-                    .foregroundStyle(NativeNVSTMediaStreamTheme.accent)
+                    .foregroundStyle(Color.pixelNowGreen)
                 Text(failure.message)
                     .font(.nativeNVSTStreamNvidia(size: 13, weight: .medium))
                     .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
@@ -560,8 +570,11 @@ struct NativeNVSTMediaStreamSurface: View {
             }
             .padding(28)
             .frame(maxWidth: 620)
-            .background(NativeNVSTMediaStreamTheme.panel)
-            .overlay(Rectangle().stroke(NativeNVSTMediaStreamTheme.accent.opacity(0.4), lineWidth: 1))
+            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.94))
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.6), radius: 24, y: 12)
         }
     }
 
@@ -1259,148 +1272,190 @@ struct NativeNVSTMediaStreamSurface: View {
     }
 
     @ViewBuilder private var nativeWindowOverlay: some View {
-        ZStack(alignment: .topLeading) {
-            if nativeStatsVisible && !streamControlsVisible { nativeStatsHUD.allowsHitTesting(false) }
-            if unifiedHUDVisible {
-                ZStack {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-                        .onTapGesture {}
-                    nativeUnifiedHUD
+        ZStack {
+            if streamControlsVisible {
+                nativeStreamControlsOverlay
+                    .transition(.opacity)
+            } else if !networkPathAvailable {
+                nativeNetworkRecoveryOverlay
+                    .transition(.opacity)
+            } else {
+                if unifiedHUDVisible {
+                    ZStack(alignment: .leading) {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                            .onTapGesture {}
+                        nativeUnifiedHUD
+                    }
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
+                VStack(alignment: .trailing, spacing: 10) {
+                    if isConnected, inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
+                        nativeBatteryPill(level: level, state: inputRouter.controllerBatteryState)
+                            .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    }
+                    if nativeStatsVisible {
+                        nativeStatsHUDContent
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
+                }
+                .padding(.top, 16)
+                .padding(.trailing, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.2), value: nativeStatsVisible)
+                .animation(.easeInOut(duration: 0.2), value: inputRouter.isControllerConnected)
+
+                if !transientStreamMessage.isEmpty {
+                    VStack {
+                        nativeTransientStreamMessageOverlay
+                            .padding(.top, 20)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: transientStreamMessage)
                 }
             }
-            if streamControlsVisible { nativeStreamControlsOverlay }
-            if !networkPathAvailable && !streamControlsVisible { nativeNetworkRecoveryOverlay }
-            if !transientStreamMessage.isEmpty { nativeTransientStreamMessageOverlay.allowsHitTesting(false) }
-            nativeBatteryOverlay
         }
     }
-    
-    @ViewBuilder private var nativeBatteryOverlay: some View {
-        if isConnected, inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
-            VStack {
-                HStack {
-                    Spacer()
-                    ControllerBatteryIndicator(level: level, state: inputRouter.controllerBatteryState)
-                        .padding(8)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Capsule())
-                        .padding(16)
-                }
-                Spacer()
-            }
-            .allowsHitTesting(false)
-            .animation(.easeInOut, value: inputRouter.isControllerConnected)
+
+    private func nativeBatteryPill(level: Float, state: GCDeviceBattery.State) -> some View {
+        HStack(spacing: 8) {
+            ControllerBatteryIndicator(level: level, state: state)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color.black.opacity(0.72))
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 4)
     }
 
     private var nativeNetworkRecoveryOverlay: some View {
         ZStack {
-            Color.black.opacity(0.72).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-            VStack(spacing: 14) {
-                ProgressView().controlSize(.large).tint(NativeNVSTMediaStreamTheme.accent)
+            Color.black.opacity(0.75).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+            VStack(spacing: 16) {
+                ProgressView().controlSize(.large).tint(Color.pixelNowGreen)
                 Text("CONNECTION INTERRUPTED")
                     .font(.nativeNVSTStreamNvidia(size: 16, weight: .bold))
                     .tracking(1.4)
-                    .foregroundStyle(NativeNVSTMediaStreamTheme.accent)
+                    .foregroundStyle(Color.pixelNowGreen)
                 Text("Waiting for a usable network path. PixelNOW will resume the same GeForce NOW session automatically.")
                     .font(.nativeNVSTStreamNvidia(size: 12, weight: .medium))
                     .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
                 Button("End Stream", action: endFromStreamControls)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 8)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().stroke(Color.white.opacity(0.20), lineWidth: 1))
             }
-            .padding(30)
-            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.96))
-            .overlay(Rectangle().stroke(NativeNVSTMediaStreamTheme.accent.opacity(0.4), lineWidth: 1))
+            .padding(32)
+            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.92))
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.6), radius: 24, y: 12)
         }
     }
 
     private var nativeTransientStreamMessageOverlay: some View {
-        Text(transientStreamMessage)
-            .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
-            .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color.black.opacity(0.86))
-            .overlay(Rectangle().stroke(NativeNVSTMediaStreamTheme.accent.opacity(0.55), lineWidth: 1))
-            .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, 24)
-            .allowsHitTesting(false)
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
+                .foregroundStyle(Color.pixelNowGreen)
+            Text(transientStreamMessage)
+                .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
+                .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Color.black.opacity(0.78))
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.pixelNowGreen.opacity(0.4), lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+        .frame(maxWidth: 440)
     }
 
-    private var nativeStatsHUD: some View {
+    private var nativeStatsHUDContent: some View {
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
         let streamFramesPerSecond = latestNativeStats?.streamFramesPerSecond ?? Double(profile.fps)
         let resolution = nonEmptyNativeStat(latestNativeStats?.resolution, fallback: "\(profile.resolution.width)x\(profile.resolution.height)")
         let codec = nonEmptyNativeStat(latestNativeStats?.codec, fallback: profile.codec.value.uppercased())
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.pixelNowGreen)
+                    .frame(width: 6, height: 6)
+                Text("STREAM METRICS")
+                    .font(.nativeNVSTStreamNvidia(size: 9, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundStyle(.white.opacity(0.64))
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+
+            HStack(spacing: 6) {
                 nativeStatsCompactBox(value: nativeLiveStatsWholeNumber(latestNativeStats?.gameFramesPerSecond), label: "GAME FPS", color: nativeGameFPSColor(target: streamFramesPerSecond))
-                nativeStatsVerticalDivider
                 nativeStatsCompactBox(value: nativeStatsWholeNumber(streamFramesPerSecond), label: "STREAM FPS", color: NativeNVSTMediaStreamTheme.textPrimary)
-                nativeStatsVerticalDivider
                 nativeStatsCompactBox(value: nativeLiveStatsWholeNumber(latestNativeStats?.latencyMilliseconds), label: "MS", color: nativeLatencyColor)
             }
-            .frame(height: 48)
-
-            nativeStatsHorizontalDivider
+            .frame(height: 50)
 
             VStack(alignment: .leading, spacing: 5) {
                 nativeStatsStandardRow(label: "Frame Loss", value: nativeStatsCount(latestNativeStats?.frameLoss), detail: nativeStatsTotal(latestNativeStats?.totalFrameLoss), color: nativeFrameLossColor)
                 nativeStatsStandardRow(label: "Packet Loss", value: nativeStatsCount(latestNativeStats?.packetLoss), detail: nativeStatsTotal(latestNativeStats?.totalPacketLoss), color: nativePacketLossColor)
-                nativeStatsStandardRow(label: "Bandwidth Used", value: nativeStatsMegabits(latestNativeStats?.bitrateMegabitsPerSecond), detail: "Mbps", color: NativeNVSTMediaStreamTheme.textPrimary)
+                nativeStatsStandardRow(label: "Bandwidth", value: nativeStatsMegabits(latestNativeStats?.bitrateMegabitsPerSecond), detail: "Mbps", color: NativeNVSTMediaStreamTheme.textPrimary)
                 nativeStatsStandardRow(label: "Resolution", value: resolution, detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
                 nativeStatsStandardRow(label: "Codec", value: codec, detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
-                nativeStatsStandardRow(label: "Server Location", value: nonEmptyNativeStat(latestNativeStats?.serverLocation, fallback: "--"), detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
+                nativeStatsStandardRow(label: "Server", value: nonEmptyNativeStat(latestNativeStats?.serverLocation, fallback: "--"), detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
             }
+            .padding(8)
+            .background(Color.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .padding(10)
-        .frame(width: 264, alignment: .topLeading)
-        .background(Color.black.opacity(0.90))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(NativeNVSTMediaStreamTheme.accent)
-                .frame(height: 2)
-        }
-        .overlay(Rectangle().stroke(.white.opacity(0.16), lineWidth: 1))
-        .shadow(color: .black.opacity(0.52), radius: 16, x: 0, y: 8)
-        .padding(.top, 5)
-        .padding(.trailing, 5)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .allowsHitTesting(false)
+        .padding(12)
+        .frame(width: 270, alignment: .topLeading)
+        .background(Color.black.opacity(0.75))
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.52), radius: 18, x: 0, y: 8)
     }
 
     private func nativeStatsCompactBox(value: String, label: String, color: Color) -> some View {
         VStack(spacing: 2) {
             Text(value)
-                .font(.nativeNVSTStreamNvidia(size: 22, weight: .bold))
+                .font(.nativeNVSTStreamNvidia(size: 20, weight: .bold))
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
             Text(label)
-                .font(.nativeNVSTStreamNvidia(size: 9, weight: .bold))
+                .font(.nativeNVSTStreamNvidia(size: 8, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.opacity(0.055))
-    }
-
-    private var nativeStatsVerticalDivider: some View {
-        Rectangle()
-            .fill(.white.opacity(0.18))
-            .frame(width: 1)
-            .padding(.vertical, 4)
-    }
-
-    private var nativeStatsHorizontalDivider: some View {
-        Rectangle()
-            .fill(.white.opacity(0.18))
-            .frame(height: 1)
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
     }
 
     private func nativeStatsStandardRow(label: String, value: String, detail: String?, color: Color) -> some View {
@@ -1410,16 +1465,21 @@ struct NativeNVSTMediaStreamSurface: View {
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text(value)
-                .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
-                .foregroundStyle(color)
-                .lineLimit(1)
-            if let detail {
-                Text(detail)
-                    .font(.nativeNVSTStreamNvidia(size: 10, weight: .medium))
-                    .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
+            HStack(spacing: 4) {
+                Text(value)
+                    .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
+                    .foregroundStyle(color)
                     .lineLimit(1)
+                if let detail {
+                    Text(detail)
+                        .font(.nativeNVSTStreamNvidia(size: 9, weight: .medium))
+                        .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
+                        .lineLimit(1)
+                }
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.white.opacity(0.05), in: Capsule())
         }
     }
 
@@ -1553,6 +1613,9 @@ struct NativeNVSTMediaStreamSurface: View {
             NativeNVSTStreamHUDMetricCard(title: "Mic", value: nativeMicrophoneStatusText, positive: microphoneEnabled && microphoneAvailable)
             NativeNVSTStreamHUDMetricCard(title: "Rec", value: recordingStatusText, positive: recordingStatus.isRecording)
             NativeNVSTStreamHUDMetricCard(title: "AFK", value: antiAFKMouseMovementEnabled ? "On" : "Off", positive: antiAFKMouseMovementEnabled)
+            if inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
+                NativeNVSTStreamHUDMetricCard(title: "Battery", value: String(format: "%.0f%%", level * 100), positive: level > 0.2)
+            }
             if sessionLimit != nil {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     NativeNVSTStreamHUDMetricCard(title: "Session", value: nativeSessionLimitText(at: context.date), positive: nativeSessionLimitIsHealthy(at: context.date))
@@ -1650,7 +1713,8 @@ struct NativeNVSTMediaStreamSurface: View {
                         .padding(.horizontal, 8)
                         .frame(height: 24)
                         .background(Color.white.opacity(0.07))
-                        .overlay { Rectangle().stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1) }
+                        .clipShape(Capsule())
+                        .overlay { Capsule().stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1) }
                 }
                 NativeNVSTStreamHUDActionRow(
                     title: "Create Invite",
@@ -1677,7 +1741,7 @@ struct NativeNVSTMediaStreamSurface: View {
                 }
                 .font(.nativeNVSTStreamNvidia(size: 12, weight: .medium))
                 .pickerStyle(.segmented)
-                .tint(NativeNVSTMediaStreamTheme.accent)
+                .tint(Color.pixelNowGreen)
                 .disabled(!sidebarCapabilities.supports(.videoEnhancement))
                 nativeHUDDetailRow(label: "Active", value: "Native")
                 nativeHUDDetailRow(label: "Target", value: "Native")
@@ -1703,7 +1767,7 @@ struct NativeNVSTMediaStreamSurface: View {
 
     private var nativeStreamControlsOverlay: some View {
         ZStack {
-            Color.black.opacity(0.96).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+            Color.black.opacity(0.85).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             VStack(spacing: 20) {
                 Text("NATIVE NVST")
                     .font(NVIDIAFont.font(size: 12, weight: .bold))
@@ -1733,11 +1797,18 @@ struct NativeNVSTMediaStreamSurface: View {
                 .disabled(isEnding)
                 Text("\(NativeNVSTMediaStreamCommand.shortcutGuide)   Esc Resume")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.36))
+                    .foregroundStyle(.white.opacity(0.50))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                    .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
             }
             .padding(36)
-            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.32), lineWidth: 1))
+            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.92))
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         }
     }
 
