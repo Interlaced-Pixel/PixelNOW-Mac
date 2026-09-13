@@ -6,12 +6,10 @@ import Foundation
 
 public struct NativeNVSTTransportConnection: Equatable, Sendable {
     public let session: StreamSessionDescriptor
-    public let runtimeStatus: NVSTNativeBridgeStatus
     public let startedAt: Date
 
-    public init(session: StreamSessionDescriptor, runtimeStatus: NVSTNativeBridgeStatus, startedAt: Date = Date()) {
+    public init(session: StreamSessionDescriptor, startedAt: Date = Date()) {
         self.session = session
-        self.runtimeStatus = runtimeStatus
         self.startedAt = startedAt
     }
 }

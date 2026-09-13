@@ -118,3 +118,10 @@ RemoteCoOp/panel/state/*
 !RemoteCoOp/panel/state/.gitkeep
 RemoteCoOp/service/*.env
 RemoteCoOp/service/*.local
+/Docs/vendor
+decompile_all.sh
+decompile_dylibs.sh
+disassemble_all.sh
+/Docs
+mangled.txt
+parse_vendor.py

@@ -96,7 +96,7 @@ public extension NativeNVSTSessionProvider {
 }
 
 public protocol NativeNVSTTransport: Sendable {
-    func prepare() async throws -> NVSTNativeBridgeStatus
+    func prepare() async throws
     func connect(allocation: NativeNVSTSessionAllocation, mediaReceiver: any NativeNVSTMediaReceiver) async throws -> NativeNVSTTransportConnection
     var isInputActivated: Bool { get async }
     func send(_ event: UserInputEvent) async throws

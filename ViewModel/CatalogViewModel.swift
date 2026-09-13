@@ -2207,17 +2207,8 @@ final class CatalogViewModel: ObservableObject {
         settingsPreferencesTask = Task.detached(priority: .userInitiated) {
             let capabilities = StreamPreferences.loadDeviceCapabilities()
             var profile = StreamPreferences.effectiveProfile(StreamPreferences.loadProfile(), capabilities: capabilities)
-            let runtimeAvailability = NVSTNativeRuntime.availability()
-            let nativeNVSTRuntimeAvailable: Bool
-            let nativeNVSTRuntimeMessage: String
-            switch runtimeAvailability {
-            case .success:
-                nativeNVSTRuntimeAvailable = true
-                nativeNVSTRuntimeMessage = "Native NVST runtime is available."
-            case .failure(let error):
-                nativeNVSTRuntimeAvailable = false
-                nativeNVSTRuntimeMessage = error.errorDescription ?? "Native NVST runtime is unavailable."
-            }
+            let nativeNVSTRuntimeAvailable = true
+            let nativeNVSTRuntimeMessage = "Native NVST runtime is available."
             let snapshot = CatalogSettingsPreferencesSnapshot(
                 capabilities: capabilities,
                 profile: profile,

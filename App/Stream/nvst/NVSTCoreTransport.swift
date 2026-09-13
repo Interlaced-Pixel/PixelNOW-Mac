@@ -235,14 +235,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         self.controlTimeout = controlTimeout
     }
 
-    public func prepare() async throws -> NVSTNativeBridgeStatus {
-
-        NVSTNativeBridgeStatus(
-            libraryURL: Bundle.main.bundleURL,
-            bundledArtifactURLs: [],
-            resolvedSymbols: [],
-            runtimeAvailable: true
-        )
+    public func prepare() async throws {
+        // Bifrost-free transport requires no native library loading.
     }
 
     public var isInputActivated: Bool { didActivateInput }
@@ -306,8 +300,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         logger?("NVST Bifrost-free session established (steps: \(negotiated.steps.joined(separator: " → ")))")
 
         startHeartbeat()
-        let status = try await prepare()
-        let established = NativeNVSTTransportConnection(session: allocation.session, runtimeStatus: status)
+        try await prepare()
+        let established = NativeNVSTTransportConnection(session: allocation.session)
         connection = established
         return established
     }
