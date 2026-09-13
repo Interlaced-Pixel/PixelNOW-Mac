@@ -98,6 +98,7 @@ public extension NativeNVSTSessionProvider {
 public protocol NativeNVSTTransport: Sendable {
     func prepare() async throws -> NVSTNativeBridgeStatus
     func connect(allocation: NativeNVSTSessionAllocation, mediaReceiver: any NativeNVSTMediaReceiver) async throws -> NativeNVSTTransportConnection
+    var isInputActivated: Bool { get async }
     func send(_ event: UserInputEvent) async throws
     func sendNow(_ event: UserInputEvent)
     func sendAbsoluteMouseMove(_ event: NativeNVSTAbsoluteMouseEvent) async throws
@@ -124,6 +125,8 @@ public protocol NativeNVSTTransport: Sendable {
 }
 
 public extension NativeNVSTTransport {
+    var isInputActivated: Bool { false }
+
     func sendNow(_ event: UserInputEvent) {
         Task { try? await send(event) }
     }
@@ -362,6 +365,9 @@ public actor NativeNVSTStreamingPath {
         transport.sendNow(event)
     }
 
+    public var isInputActivated: Bool {
+        get async { await transport.isInputActivated }
+    }
     public func sendAbsoluteMouseMove(_ event: NativeNVSTAbsoluteMouseEvent) async throws {
         guard activeSession != nil else { throw NativeNVSTError.notRunning }
         try await transport.sendAbsoluteMouseMove(event)

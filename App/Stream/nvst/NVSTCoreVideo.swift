@@ -377,27 +377,33 @@ extension NVSTCoreTransport {
     }
 
     func handleRemoteCursor(_ cursor: NvstRemoteCursor) {
-        if !didDisableCursorCapture, let bundle {
+        cancelCursorCaptureWatchdog()
+        if !didDisableCursorCapture {
             didDisableCursorCapture = true
-            let sent = bundle.sendControl(NvstInputActivation.mouseCursorCapture(isEnabled: false))
-            logger?("NVST seat cursor notifications started; server-composited cursor disabled sent=\(sent)")
+            let sent = bundle?.sendControl(NvstInputActivation.mouseCursorCapture(isEnabled: false)) ?? false
+            logger?("NVST seat cursor notifications started (\(cursor.summary)); server-composited cursor disabled sent=\(sent)")
+            notifySeatCompositesCursor(false)
         }
-        guard cursor.isVisible != remoteCursorVisible else { return }
+        guard let isVisible = cursor.visibility(following: remoteCursorVisible),
+              isVisible != remoteCursorVisible else { return }
         let previous = remoteCursorVisible
-        remoteCursorVisible = cursor.isVisible
+        remoteCursorVisible = isVisible
 
         logger?(String(format: "NVST remote cursor %@ -> %@ at %.3fs",
                        previous.map { $0 ? "visible" : "hidden" } ?? "unknown",
-                       cursor.isVisible ? "visible" : "hidden",
+                       isVisible ? "visible" : "hidden",
                        Double(clock.elapsedMicroseconds()) / 1_000_000))
         if let notify = onRemoteCursorVisibilityChanged {
-            let isVisible = cursor.isVisible
             Task { @MainActor in notify(isVisible) }
         }
     }
 
     public func setRemoteCursorVisibilityHandler(_ handler: (@MainActor @Sendable (Bool) -> Void)?) {
         onRemoteCursorVisibilityChanged = handler
+    }
+
+    public func setRemoteCursorCaptureHandler(_ handler: (@MainActor @Sendable (Bool) -> Void)?) {
+        onRemoteCursorCaptureChanged = handler
     }
 
     public func setHapticEventHandler(_ handler: (@MainActor @Sendable ([NvstHapticEvent]) -> Void)?) {
@@ -628,6 +634,7 @@ extension NVSTCoreTransport {
 
         sent.append("cursorCapture=\(bundle.sendControl(NvstInputActivation.mouseCursorCapture(isEnabled: true)))")
         sent.append("cursorTrack=\(bundle.sendControl(NvstInputActivation.mimicRemoteCursor(isEnabled: true)))")
+        startCursorCaptureWatchdog()
         sent.append("window=\(bundle.sendControl(.windowStateChange()))")
         sent.append("system=\(bundle.sendControl(.systemStateChange()))")
         sent.append("enableOn=\(bundle.sendControl(NvstInputActivation.enableInput(counter: UInt32((videoPipeline?.snapshot.frameAcksSent ?? 0) + 1))))")

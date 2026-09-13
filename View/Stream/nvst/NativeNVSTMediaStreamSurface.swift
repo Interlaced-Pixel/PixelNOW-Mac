@@ -275,6 +275,23 @@ private final class NativeNVSTInputFailureReporter: @unchecked Sendable {
     }
 }
 
+private final class DesktopMacroFrameHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latestBuffer: CVPixelBuffer?
+
+    func store(_ buffer: CVPixelBuffer) {
+        lock.lock()
+        latestBuffer = buffer
+        lock.unlock()
+    }
+
+    func retrieve() -> CVPixelBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestBuffer
+    }
+}
+
 @MainActor
 struct NativeNVSTMediaStreamSurface: View {
     private struct FailurePresentation: Identifiable {
@@ -331,7 +348,9 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var recordingStatus = WebRTCStreamRecordingStatus.idle
     @State private var recordingNotificationTask: Task<Void, Never>?
     @State private var desktopMacroEngine: DesktopMacroEngine?
-    @State private var desktopMacroState: DesktopMacroState = .idle
+    @State private var desktopAutomationSnapshot: DesktopAutomationSnapshot?
+    @State private var desktopAutomationOverlayDismissed = false
+    @State private var macroFrameHolder = DesktopMacroFrameHolder()
     private let nativeInputFailureReporter = NativeNVSTInputFailureReporter()
 
     var body: some View {
@@ -397,8 +416,10 @@ struct NativeNVSTMediaStreamSurface: View {
         nativeAudioDeviceMonitor = audioDeviceMonitor
         let coreSink = nativeView.attachNVSTCoreRenderer(targetFps: Int32(max(30, profile.fps))).frameSink
         let diagnosticLog = NvstDiagnosticLog()
+        let frameHolder = macroFrameHolder
         let transport = NVSTCoreTransport(
             pixelBufferSink: { pixelBuffer, presentationTime, isKeyframe in
+                frameHolder.store(pixelBuffer)
                 coreSink.render(pixelBuffer: pixelBuffer, presentationTime: presentationTime, isKeyframe: isKeyframe)
             },
             configuredFps: profile.fps,
@@ -411,6 +432,9 @@ struct NativeNVSTMediaStreamSurface: View {
         Task {
             await transport.setRemoteCursorVisibilityHandler { [weak nativeView] isVisible in
                 nativeView?.applyServerCursorVisibility(isVisible)
+            }
+            await transport.setRemoteCursorCaptureHandler { [weak nativeView] isCompositing in
+                nativeView?.seatCompositesCursor = isCompositing
             }
             await transport.setHapticEventHandler { [weak nativeView] events in
                 for event in events {
@@ -990,6 +1014,7 @@ struct NativeNVSTMediaStreamSurface: View {
         recordingNotificationTask = nil
         desktopMacroEngine?.cancel()
         desktopMacroEngine = nil
+        desktopAutomationSnapshot = nil
         transientStreamMessageTask?.cancel()
         transientStreamMessageTask = nil
         transientStreamMessage = ""
@@ -1002,20 +1027,55 @@ struct NativeNVSTMediaStreamSurface: View {
     private func startDesktopMacroExecution() {
         guard isDesktopLaunch, isConnected, let dispatcher = inputDispatcher else { return }
         desktopMacroEngine?.cancel()
+        desktopAutomationOverlayDismissed = false
+        desktopAutomationSnapshot = .initial
         let timings = DesktopMacroTimings(
             initialDelay: StreamPreferences.loadDesktopMacroInitialDelay(),
             keystrokeDelay: StreamPreferences.loadDesktopMacroKeystrokeDelay(),
             navigationDelay: StreamPreferences.loadDesktopMacroNavigationDelay(),
             downloadDelay: StreamPreferences.loadDesktopMacroDownloadDelay()
         )
-        let engine = DesktopMacroEngine { event in
-            dispatcher.enqueue(event)
-        }
+        let frameHolder = macroFrameHolder
+        let engine = DesktopMacroEngine(
+            sendEvent: { event in
+                dispatcher.enqueue(event)
+            },
+            sendAbsoluteMove: { move in
+                dispatcher.enqueueAbsoluteMove(move)
+            },
+            frameProvider: {
+                frameHolder.retrieve()
+            },
+            carrierGameExecutableHint: configuration.title
+        )
         desktopMacroEngine = engine
-        engine.execute(timings: timings) { state in
-            desktopMacroState = state
-            showNativeTransientStreamMessage(state.displayMessage)
+        guard let activePath = path else { return }
+        Task { @MainActor [weak engine] in
+            let activated = await waitForInputActivation(path: activePath)
+            guard let engine, !Task.isCancelled else { return }
+            guard activated else {
+                var snap = DesktopAutomationSnapshot.initial
+                snap.statuses[.detectSteamAndDismissFriends] = .failed("NVST input channel did not activate in time.")
+                snap.error = "NVST input channel did not activate in time."
+                desktopAutomationSnapshot = snap
+                showNativeTransientStreamMessage("NVST input channel did not activate in time.")
+                return
+            }
+            engine.execute(timings: timings) { snapshot in
+                desktopAutomationSnapshot = snapshot
+                showNativeTransientStreamMessage(snapshot.detailMessage)
+            }
         }
+    }
+
+    private func waitForInputActivation(path: NativeNVSTStreamingPath, timeoutSeconds: Double = 12, pollIntervalMs: Int = 150) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            guard !Task.isCancelled, isConnected, !isEnding, !didEnd else { return false }
+            if await path.isInputActivated { return true }
+            try? await Task.sleep(for: .milliseconds(pollIntervalMs))
+        }
+        return await path.isInputActivated
     }
 
     private var recordingIsBusy: Bool {
@@ -1288,6 +1348,28 @@ struct NativeNVSTMediaStreamSurface: View {
                         nativeUnifiedHUD
                     }
                     .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
+                if isDesktopLaunch, let snapshot = desktopAutomationSnapshot, !desktopAutomationOverlayDismissed {
+                    VStack {
+                        DesktopAutomationChecklistOverlay(
+                            snapshot: snapshot,
+                            onCancel: {
+                                desktopMacroEngine?.cancel()
+                            },
+                            onReset: {
+                                startDesktopMacroExecution()
+                            },
+                            onDismiss: {
+                                desktopAutomationOverlayDismissed = true
+                            }
+                        )
+                        Spacer()
+                    }
+                    .padding(.top, 24)
+                    .padding(.leading, 24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 VStack(alignment: .trailing, spacing: 10) {
@@ -1656,12 +1738,17 @@ struct NativeNVSTMediaStreamSurface: View {
                 )
                 if isDesktopLaunch {
                     NativeNVSTStreamHUDActionRow(
-                        title: "Run Desktop Macro",
-                        subtitle: desktopMacroState.displayMessage,
+                        title: desktopAutomationSnapshot != nil ? "Desktop Setup" : "Run Desktop Macro",
+                        subtitle: desktopAutomationSnapshot?.detailMessage ?? "Start SalsaNOW Setup",
                         systemName: "desktopcomputer",
-                        isActive: desktopMacroState != .idle && desktopMacroState != .completed,
+                        isActive: desktopAutomationSnapshot != nil && !(desktopAutomationSnapshot?.isComplete ?? false),
                         isDisabled: !isConnected,
-                        action: startDesktopMacroExecution
+                        action: {
+                            desktopAutomationOverlayDismissed = false
+                            if desktopAutomationSnapshot == nil || desktopAutomationSnapshot?.isCancelled == true || desktopAutomationSnapshot?.error != nil {
+                                startDesktopMacroExecution()
+                            }
+                        }
                     )
                 }
                 NativeNVSTStreamHUDActionRow(

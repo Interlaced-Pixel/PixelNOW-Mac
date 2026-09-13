@@ -95,9 +95,19 @@ public final class GameLaunchBridge {
             return
         }
         configureServices(token: token, userId: userId)
-        let gameValue = game.swiftValue
+
+        if Self.isDesktopLaunchGame(game) {
+            let appId = game.launchAppId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !appId.isEmpty else {
+                completion(false, "Desktop launch is missing a resolved app ID.", nil)
+                return
+            }
+            prepareResolvedLaunchPlan(game: game, selectedVariant: selectedVariant, appId: appId, token: token, userId: userId, idpId: idpId, completion: completion)
+            return
+        }
+
         let gameBox = GameLaunchBridgeSendableValue(game)
-        GameService.shared.resolveLaunchAppId(game: gameValue, variantIndex: selectedVariantIndex) { [weak self] appId in
+        GameService.shared.resolveLaunchAppId(game: game.swiftValue, variantIndex: selectedVariantIndex) { [weak self] appId in
             Task { @MainActor in
                 guard let self else { return }
                 let game = gameBox.value
@@ -105,6 +115,10 @@ public final class GameLaunchBridge {
                 self.prepareResolvedLaunchPlan(game: game, selectedVariant: selectedVariant, appId: appId, token: token, userId: userId, idpId: idpId, completion: completion)
             }
         }
+    }
+
+    private static func isDesktopLaunchGame(_ game: CatalogGameObject) -> Bool {
+        game.id.hasPrefix("desktop-salsanow") || game.shortName == "SalsaNOW Desktop"
     }
 
     private func prepareResolvedLaunchPlan(game: CatalogGameObject, selectedVariant: CatalogGameVariantObject?, appId: String, token: String, userId: String, idpId: String, completion: @escaping GameLaunchPlanCompletion) {

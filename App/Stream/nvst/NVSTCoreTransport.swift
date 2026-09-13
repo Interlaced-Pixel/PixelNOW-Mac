@@ -245,6 +245,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         )
     }
 
+    public var isInputActivated: Bool { didActivateInput }
     public func connect(allocation: NativeNVSTSessionAllocation, mediaReceiver: any NativeNVSTMediaReceiver) async throws -> NativeNVSTTransportConnection {
         guard connection == nil else { throw NativeNVSTError.alreadyRunning }
         isTornDown = false
@@ -283,7 +284,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         self.reserver = reserver
         let logger = self.logger
         let negotiator = NvstRtspNegotiator(reserver: reserver, logger: logger)
-        let input = negotiationInput(sessionID: allocation.session.id, endpoints: endpoints, profile: profile)
+        let payload = NativeNVSTSessionPayload(allocation: allocation)
+        let input = negotiationInput(sessionID: payload.sessionIdentifier, endpoints: endpoints, profile: profile)
 
         let negotiated: NvstRtspSession
         do {
@@ -484,6 +486,39 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var didDisableCursorCapture = false
 
     public internal(set) var onRemoteCursorVisibilityChanged: (@MainActor @Sendable (Bool) -> Void)?
+    public internal(set) var onRemoteCursorCaptureChanged: (@MainActor @Sendable (Bool) -> Void)?
+    var cursorCaptureWatchdogTask: Task<Void, Never>?
+
+    static let cursorCaptureWatchdogDelay: Duration = .seconds(3)
+
+    func startCursorCaptureWatchdog() {
+        guard !isTornDown, cursorCaptureWatchdogTask == nil else { return }
+        cursorCaptureWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.cursorCaptureWatchdogDelay)
+            guard !Task.isCancelled else { return }
+            await self?.disableCursorCaptureAfterSilentSeat()
+        }
+    }
+
+    func cancelCursorCaptureWatchdog() {
+        cursorCaptureWatchdogTask?.cancel()
+        cursorCaptureWatchdogTask = nil
+    }
+
+    func disableCursorCaptureAfterSilentSeat() {
+        cancelCursorCaptureWatchdog()
+        guard !isTornDown, !didDisableCursorCapture else { return }
+        didDisableCursorCapture = true
+        let sent = bundle?.sendControl(NvstInputActivation.mouseCursorCapture(isEnabled: false)) ?? false
+        notifySeatCompositesCursor(false)
+        let seconds = Self.cursorCaptureWatchdogDelay.components.seconds
+        logger?("NVST no seat cursor notification in \(seconds)s; server-composited cursor disabled sent=\(sent)")
+    }
+
+    func notifySeatCompositesCursor(_ isCompositing: Bool) {
+        guard let notify = onRemoteCursorCaptureChanged else { return }
+        Task { @MainActor in notify(isCompositing) }
+    }
 
     public internal(set) var onHapticEvents: (@MainActor @Sendable ([NvstHapticEvent]) -> Void)?
     var hapticEventsReceived: UInt64 = 0
@@ -554,6 +589,7 @@ extension NVSTCoreTransport {
 
     func teardown(reason: String) async {
         isTornDown = true
+        cancelCursorCaptureWatchdog()
         heartbeatTask?.cancel()
         heartbeatTask = nil
         invalidationFlushTask?.cancel()

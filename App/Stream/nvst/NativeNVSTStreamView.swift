@@ -38,6 +38,11 @@ private final class NativeNVSTRendererWindow: NSWindow {
 
 @MainActor
 public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClient {
+    static let invisibleCursor: NSCursor = {
+        let image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
+        return NSCursor(image: image, hotSpot: .zero)
+    }()
+
     public var onInputEvent: ((UserInputEvent) -> Void)?
     public var onAbsoluteMouseMove: ((NativeNVSTAbsoluteMouseEvent) -> Void)?
     public var onGamepadTopologyChanged: ((NativeNVSTGamepadTopology) -> Void)?
@@ -53,6 +58,9 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
     public private(set) var isPointerLocked = false
     public private(set) var isEmittingNeutralizingAbsolutePosition = false
     public var isCursorCaptured: Bool { isPointerLocked }
+    public var isFrontmostInputTarget: Bool {
+        NSApplication.shared.isActive && window?.isKeyWindow == true
+    }
     public var locksPointerWhenRelativeModeSelected = false
     public var mouseInputMode: NativeNVSTStreamMouseInputMode = .relative {
         willSet {
@@ -67,9 +75,10 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
             guard oldValue != mouseInputMode else { return }
             if mouseInputMode == .absolute {
                 disablePointerLock()
-            } else if directMouseInputEnabled {
-                synchronizeRelativePointerCapture()
+            } else {
+                restoreInputFocus()
             }
+            applyLocalCursorPolicy()
         }
     }
     public var remoteInputEnabled = true {
@@ -84,11 +93,39 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
                 gamepadMonitor.refreshInputState()
                 restoreInputFocus()
             }
+            applyLocalCursorPolicy()
         }
     }
     public var directMouseInputEnabled = true {
         didSet {
-            if !directMouseInputEnabled { setPointerLocked(false) }
+            guard oldValue != directMouseInputEnabled else { return }
+            if !directMouseInputEnabled, mouseInputMode == .absolute { setPointerLocked(false) }
+            applyLocalCursorPolicy()
+        }
+    }
+    public var cursorPolicy: OPNCursorPolicy = .auto {
+        didSet {
+            guard oldValue != cursorPolicy else { return }
+            applyLocalCursorPolicy()
+        }
+    }
+    public internal(set) var manualPointerCaptureOverride = false
+    public internal(set) var remoteCursorWantsPointer: Bool? {
+        didSet {
+            guard oldValue != remoteCursorWantsPointer else { return }
+            applyLocalCursorPolicy()
+        }
+    }
+    public internal(set) var seatCompositesCursor = true {
+        didSet {
+            guard oldValue != seatCompositesCursor else { return }
+            applyLocalCursorPolicy()
+        }
+    }
+    public var localOverlayCapturesInput = false {
+        didSet {
+            guard oldValue != localOverlayCapturesInput else { return }
+            applyLocalCursorPolicy()
         }
     }
     public var hidesCursorWhilePointerLocked = true {
@@ -97,6 +134,8 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
             updatePointerLockCursorVisibility()
         }
     }
+    private var hidesLocalCursorOverVideo = false
+    private var lastEmittedAbsoluteMouseEvent: NativeNVSTAbsoluteMouseEvent?
     private var trackingArea: NSTrackingArea?
     private var keyEquivalentMonitor: Any?
     private var pointerLockMonitor: Any?
@@ -334,26 +373,81 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
     }
 
     public func restoreInputFocus() {
-        guard remoteInputEnabled, NSApplication.shared.isActive, window?.isKeyWindow == true else { return }
+        guard remoteInputEnabled, !localOverlayCapturesInput, isFrontmostInputTarget else { return }
         window?.makeFirstResponder(self)
-        if locksPointerWhenRelativeModeSelected, mouseInputMode == .relative, directMouseInputEnabled {
+        if locksPointerWhenRelativeModeSelected, mouseInputMode == .relative {
             setPointerLocked(true)
         }
     }
 
-    public func applyServerCursorVisibility(_ visible: Bool) {
-        mouseInputMode = visible || !directMouseInputEnabled ? .absolute : .relative
-        if mouseInputMode == .relative {
-            synchronizeRelativePointerCapture()
-        } else {
+    public func setRemoteCursorVisible(_ isVisible: Bool) {
+        remoteCursorWantsPointer = isVisible
+        guard !manualPointerCaptureOverride else { return }
+        let mode: NativeNVSTStreamMouseInputMode = isVisible ? .absolute : .relative
+        mouseInputMode = mode
+        if mode == .relative {
+            if remoteInputEnabled { setPointerLocked(true) }
+        } else if isPointerLocked {
             setPointerLocked(false)
         }
     }
 
+    public func applyServerCursorVisibility(_ visible: Bool) {
+        setRemoteCursorVisible(visible)
+    }
+
+    public func setManualPointerCapture(_ captured: Bool) {
+        setPointerLocked(captured)
+        manualPointerCaptureOverride = captured && isPointerLocked
+    }
+
     public func synchronizeRelativePointerCapture() {
-        guard remoteInputEnabled, directMouseInputEnabled, mouseInputMode == .relative else { return }
+        guard remoteInputEnabled, mouseInputMode == .relative else { return }
         window?.makeFirstResponder(self)
         setPointerLocked(true)
+    }
+
+    static func hidesLocalCursorOverVideo(policy: OPNCursorPolicy,
+                                          mode: NativeNVSTStreamMouseInputMode,
+                                          isPointerLocked: Bool,
+                                          remoteInputEnabled: Bool,
+                                          localOverlayCapturesInput: Bool,
+                                          seatCompositesCursor: Bool,
+                                          remoteCursorWantsPointer: Bool?,
+                                          isApplicationActive: Bool,
+                                          isWindowKey: Bool) -> Bool {
+        guard !isPointerLocked, mode == .absolute, remoteInputEnabled, !localOverlayCapturesInput,
+              isApplicationActive, isWindowKey else { return false }
+        switch policy {
+        case .local: return false
+        case .stream: return true
+        case .auto: return seatCompositesCursor || remoteCursorWantsPointer == false
+        }
+    }
+
+    func applyLocalCursorPolicy() {
+        let hides = Self.hidesLocalCursorOverVideo(
+            policy: cursorPolicy,
+            mode: mouseInputMode,
+            isPointerLocked: isPointerLocked,
+            remoteInputEnabled: remoteInputEnabled,
+            localOverlayCapturesInput: localOverlayCapturesInput,
+            seatCompositesCursor: seatCompositesCursor,
+            remoteCursorWantsPointer: remoteCursorWantsPointer,
+            isApplicationActive: NSApplication.shared.isActive,
+            isWindowKey: window?.isKeyWindow == true
+        )
+        guard hides != hidesLocalCursorOverVideo else { return }
+        hidesLocalCursorOverVideo = hides
+        window?.invalidateCursorRects(for: self)
+    }
+
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        guard hidesLocalCursorOverVideo else { return }
+        let content = videoContentFrame()
+        guard content.width > 0, content.height > 0 else { return }
+        addCursorRect(content, cursor: Self.invisibleCursor)
     }
 
     private func synchronizeSDLKeyboardFocus() {
@@ -597,6 +691,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         if handlePushToTalk(event, isPressed: true) { return }
         if handlePasteShortcut(event) { return }
         if handleCommand(event) { return }
+        if forwardCommandShortcut(event) { return }
         if handleTextInput(event) { return }
         emitKey(event, isPressed: true)
     }
@@ -639,7 +734,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard remoteInputEnabled else { return handleCommand(event) || super.performKeyEquivalent(with: event) }
-        return handlePasteShortcut(event) || handleCommand(event) || super.performKeyEquivalent(with: event)
+        return handlePasteShortcut(event) || handleCommand(event) || forwardCommandShortcut(event) || super.performKeyEquivalent(with: event)
     }
 
     private func emitMouseMove(_ event: NSEvent) {
@@ -688,6 +783,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         updatePointerLockCursorVisibility()
         installPointerLockMonitor()
         installPointerLockNotifications()
+        applyLocalCursorPolicy()
         notifyPointerLockChanged(true)
     }
 
@@ -710,6 +806,9 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
             NSCursor.unhide()
             pointerLockCursorHidden = false
         }
+        manualPointerCaptureOverride = false
+        if remoteCursorWantsPointer == true, mouseInputMode != .absolute { mouseInputMode = .absolute }
+        applyLocalCursorPolicy()
         notifyPointerLockChanged(false)
     }
 
@@ -775,10 +874,18 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         let windowToken = center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleFocusLoss() }
         }
-        let becameKeyToken = center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.restoreInputFocus() }
+        let appActiveToken = center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: NSApplication.shared, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleFocusGain() }
         }
-        pointerLockNotificationTokens = [appToken, windowToken, becameKeyToken]
+        let becameKeyToken = center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleFocusGain() }
+        }
+        pointerLockNotificationTokens = [appToken, windowToken, appActiveToken, becameKeyToken]
+    }
+
+    func handleFocusGain() {
+        restoreInputFocus()
+        applyLocalCursorPolicy()
     }
 
     private func removePointerLockNotifications() {
@@ -823,21 +930,35 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         return Int16(packetDetents * 120)
     }
 
+    private static func isSamePointerPosition(_ lhs: NativeNVSTAbsoluteMouseEvent?, _ rhs: NativeNVSTAbsoluteMouseEvent?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.viewportWidth == rhs.viewportWidth && lhs.viewportHeight == rhs.viewportHeight
+    }
+
     private func emitAbsoluteMousePosition(_ event: NSEvent) {
         guard !isPointerLocked, mouseInputMode == .absolute else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard let absoluteEvent = absoluteMouseEvent(at: point, timestamp: Self.timestamp()) else { return }
+        guard !Self.isSamePointerPosition(lastEmittedAbsoluteMouseEvent, absoluteEvent) else { return }
+        lastEmittedAbsoluteMouseEvent = absoluteEvent
         onAbsoluteMouseMove?(absoluteEvent)
     }
 
     func absoluteMouseEvent(at point: CGPoint, timestamp: MediaTimestamp) -> NativeNVSTAbsoluteMouseEvent? {
         let contentFrame = videoContentFrame()
         guard contentFrame.width > 0, contentFrame.height > 0, point.x.isFinite, point.y.isFinite else { return nil }
-        let x = floor(point.x - contentFrame.minX)
-        let y = floor(contentFrame.maxY - point.y)
+        let backingScale = max(1, window?.backingScaleFactor ?? 1)
+        let viewportWidth = max(1, (contentFrame.width * backingScale).rounded())
+        let viewportHeight = max(1, (contentFrame.height * backingScale).rounded())
+        let clampedX = min(max(0, point.x - contentFrame.minX), contentFrame.width)
+        let clampedY = min(max(0, contentFrame.maxY - point.y), contentFrame.height)
+        let pixelX = min(max(0, floor(clampedX * backingScale)), viewportWidth - 1)
+        let pixelY = min(max(0, floor(clampedY * backingScale)), viewportHeight - 1)
         return NativeNVSTAbsoluteMouseEvent(
-            x: Int32(clamping: Int(min(max(0, x), contentFrame.width - 1))),
-            y: Int32(clamping: Int(min(max(0, y), contentFrame.height - 1))),
+            x: Int32(clamping: Int(pixelX)),
+            y: Int32(clamping: Int(pixelY)),
+            viewportWidth: Int32(clamping: Int(viewportWidth)),
+            viewportHeight: Int32(clamping: Int(viewportHeight)),
             timestamp: timestamp
         )
     }
@@ -874,6 +995,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         textInputState.cancel()
         activeGamepadStates.removeAll()
         preciseScrollRemainder = 0
+        lastEmittedAbsoluteMouseEvent = nil
         for event in keyboardEvents {
             onInputEvent?(.keyboard(KeyboardEvent(
                 deviceID: event.deviceID,
@@ -896,6 +1018,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         let viewPoint = convert(windowPoint, from: nil)
         guard let event = absoluteMouseEvent(at: viewPoint, timestamp: timestamp) else { return }
+        lastEmittedAbsoluteMouseEvent = event
         isEmittingNeutralizingAbsolutePosition = true
         defer { isEmittingNeutralizingAbsolutePosition = false }
         onAbsoluteMouseMove?(event)
@@ -918,7 +1041,10 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
     private func releasePressedMouseButtons(_ buttons: Set<MouseButton>, timestamp: MediaTimestamp) {
         pressedMouseButtons.subtract(buttons)
         for button in buttons.sorted(by: { Self.mouseButtonOrder($0) < Self.mouseButtonOrder($1) }) {
-            if mouseInputMode == .absolute { emitCurrentAbsoluteMousePosition(timestamp: timestamp) }
+            if mouseInputMode == .absolute {
+                lastEmittedAbsoluteMouseEvent = nil
+                emitCurrentAbsoluteMousePosition(timestamp: timestamp)
+            }
             onInputEvent?(.mouse(.button(deviceID: "mouse", button: button, isPressed: false, timestamp: timestamp)))
         }
     }
@@ -977,6 +1103,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
             if routesToApplication { self.releaseRemotelyPressedKeyIfNeeded(event) }
             if self.handlePasteShortcut(event) { return nil }
             if self.handleCommand(event) { return nil }
+            if self.forwardCommandShortcut(event) { return nil }
             if routesToApplication { return event }
             if event.type == .keyDown {
                 if !self.handleTextInput(event) { self.emitKey(event, isPressed: true) }
@@ -984,6 +1111,57 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
                 self.emitKey(event, isPressed: false)
             }
             return nil
+        }
+    }
+
+    private func forwardCommandShortcut(_ event: NSEvent) -> Bool {
+        guard remoteInputEnabled, event.type == .keyDown else { return false }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad])
+        guard modifiers == .command || modifiers == [.command, .shift] else { return false }
+
+        switch event.keyCode {
+        case 12, 4, 46, 43: // Q, H, M, Comma (system app menu shortcuts)
+            return false
+        case 0, 1, 3, 6, 7, 8, 9, 11, 13, 14, 15, 16, 17, 31, 32, 34, 35, 37, 38, 45:
+            // A, S, F, Z, X, C, V, B, W, E, R, Y, T, O, U, I, P, L, J, N
+            let timestamp = Self.timestamp()
+            let ctrlModifier: KeyboardModifiers = modifiers.contains(.shift) ? [.control, .shift] : [.control]
+
+            onInputEvent?(.keyboard(KeyboardEvent(
+                deviceID: "keyboard",
+                keyCode: 59,
+                scanCode: 59,
+                modifiers: ctrlModifier,
+                isPressed: true,
+                timestamp: timestamp
+            )))
+            onInputEvent?(.keyboard(KeyboardEvent(
+                deviceID: "keyboard",
+                keyCode: UInt16(event.keyCode),
+                scanCode: UInt16(event.keyCode),
+                modifiers: ctrlModifier,
+                isPressed: true,
+                timestamp: timestamp
+            )))
+            onInputEvent?(.keyboard(KeyboardEvent(
+                deviceID: "keyboard",
+                keyCode: UInt16(event.keyCode),
+                scanCode: UInt16(event.keyCode),
+                modifiers: ctrlModifier,
+                isPressed: false,
+                timestamp: timestamp
+            )))
+            onInputEvent?(.keyboard(KeyboardEvent(
+                deviceID: "keyboard",
+                keyCode: 59,
+                scanCode: 59,
+                modifiers: [],
+                isPressed: false,
+                timestamp: timestamp
+            )))
+            return true
+        default:
+            return false
         }
     }
 
@@ -1029,6 +1207,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         if hasMarkedText || modifiers.contains(.option) { return true }
         if inputSourceID?.localizedCaseInsensitiveContains("inputmethod") == true { return true }
         guard let characters = event.characters, !characters.isEmpty else { return true }
+        if characters.unicodeScalars.contains(where: { $0.value >= 0xF700 && $0.value <= 0xF8FF }) { return false }
         return !characters.unicodeScalars.allSatisfy(\.isASCII)
     }
 

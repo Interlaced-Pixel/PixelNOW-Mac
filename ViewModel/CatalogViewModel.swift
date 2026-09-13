@@ -642,6 +642,8 @@ final class CatalogViewModel: ObservableObject {
     }
 
     func launchDesktop() {
+        desktopLaunchInProgress = true
+
         let customAppId = desktopCustomAppId.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedAppId: String
 
@@ -649,27 +651,9 @@ final class CatalogViewModel: ObservableObject {
             resolvedAppId = valid.stringValue
             Log.info(.launch, "Using custom configured GFN appId for desktop launch: \(resolvedAppId)")
         } else {
-            let steamCandidates = allKnownGames.filter { game in
-                game.variants.contains { variant in
-                    variant.appStore.lowercased().contains("steam")
-                }
-            }
-
-            let explicitInstallToPlay = steamCandidates.filter { game in
-                game.variants.contains { variant in
-                    variant.appStore.lowercased().contains("steam") && variant.installTimeInMinutes > 0
-                }
-            }
-
-            if let randomGame = explicitInstallToPlay.randomElement() ?? steamCandidates.randomElement(),
-               let variant = randomGame.variants.first(where: { $0.appStore.lowercased().contains("steam") }),
-               let valid = LaunchAppId.resolve(variant.id.isEmpty ? randomGame.launchAppId : variant.id) {
-                resolvedAppId = valid.stringValue
-                Log.info(.launch, "Selected random Install-to-Play game for desktop launch: \(randomGame.title) (appId=\(resolvedAppId))")
-            } else {
-                resolvedAppId = "100346011"
-                Log.info(.launch, "Using default Install-to-Play appId for desktop launch: \(resolvedAppId)")
-            }
+            // Battle for Wesnoth via Steam on GFN (GFN appId 106269727, Steam appId 599390).
+            resolvedAppId = "106269727"
+            Log.info(.launch, "Launching desktop via Battle for Wesnoth carrier (appId=\(resolvedAppId))")
         }
 
         let desktopGame = CatalogGameObject()
@@ -680,8 +664,8 @@ final class CatalogViewModel: ObservableObject {
         desktopGame.shortName = "SalsaNOW Desktop"
         desktopGame.gameDescription = "Full Windows desktop environment powered by SalsaNOW on GeForce NOW."
         desktopGame.isInLibrary = true
-        desktopGame.imageUrl = "https://salsanowfiles.work/RepoImages/SalsaNOW_Banner.png"
-        desktopGame.heroImageUrl = "https://salsanowfiles.work/RepoImages/SalsaNOW_Banner.png"
+        desktopGame.imageUrl = ""
+        desktopGame.heroImageUrl = ""
 
         let variant = CatalogGameVariantObject()
         variant.id = resolvedAppId
@@ -957,6 +941,9 @@ final class CatalogViewModel: ObservableObject {
         guard activeStreamConfiguration != nil else { return }
         streamProgressGeneration += 1
         cancelActiveStreamAdPlayback()
+        if activeStreamConfiguration?.metadata["isDesktopLaunch"] == "true" {
+            desktopLaunchInProgress = false
+        }
         activeStreamConfiguration = nil
         activeStreamProgress = nil
         isActiveStreamLaunchOverlayVisible = false
@@ -981,6 +968,9 @@ final class CatalogViewModel: ObservableObject {
         activeStreamProgress = nil
         isActiveStreamLaunchOverlayVisible = false
         streamProgressGeneration += 1
+        if finishedConfiguration?.metadata["isDesktopLaunch"] == "true" {
+            desktopLaunchInProgress = false
+        }
         clearLaunchFlow()
         launchMessage = ""
         if let replacementConfiguration, let report, let conflict = StreamSessionConflict(reportMetadata: report.metadata) {

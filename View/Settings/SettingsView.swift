@@ -1191,9 +1191,9 @@ private struct ExperimentalFeaturesSettingsPage: View {
                 SettingsDivider()
                 SettingsTextFieldRow(
                     title: "Custom GFN App ID",
-                    subtitle: "Leave blank to auto-detect a random Install-to-Play game from your library.",
+                    subtitle: "Leave blank to use default carrier (Battle for Wesnoth, GFN App ID: 106269727).",
                     text: viewModel.desktopCustomAppId,
-                    placeholder: "e.g. 100346011",
+                    placeholder: "e.g. 106269727",
                     action: viewModel.setDesktopCustomAppId
                 )
                 SettingsDivider()
