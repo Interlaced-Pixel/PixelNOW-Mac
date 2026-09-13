@@ -409,7 +409,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             return
         }
 
-        let image = enhancedImage(CIImage(cvPixelBuffer: pixelBuffer).oriented(.downMirrored))
+        let image = enhancedImage(CIImage(cvPixelBuffer: pixelBuffer))
         let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
         let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
         let outputWidth = currentDrawable.texture.width
