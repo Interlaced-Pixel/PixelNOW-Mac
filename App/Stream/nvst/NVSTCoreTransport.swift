@@ -86,6 +86,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var bundleProbe: NvstBundleIceProbe?
     var bundle: NvstWebRtcBundle?
     var feedbackSender: NvstFeedbackSender?
+    var qosManager: NvstQosManager?
+    var streamProcessor: NvstStreamProcessor?
     var decoder: NvstVideoToolboxDecoder?
 
     var videoPipeline: NvstVideoPipeline?
@@ -460,6 +462,14 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
             "bundle": bundle?.diagnosticSummary ?? "-",
             "bundleProbe": bundleProbe?.snapshot.summary ?? "-",
         ]
+    }
+
+    public func sendRecoveryMode(enabled: Bool) async {
+        guard let sender = feedbackSender else { return }
+        if enabled {
+            sender.requestKeyframe()
+            try? sender.sendKeyframeRequestNow()
+        }
     }
 
     var inputSendTotalMs = 0.0

@@ -94,6 +94,12 @@ public final class NVSTCoreVideoRenderer {
             lock.unlock()
         }
 
+        func setPresentationMode(_ mode: OPNVideoPresentationMode) {
+            lock.lock()
+            latestRenderDiagnostics.presentationMode = mode.label
+            lock.unlock()
+        }
+
         public func render(pixelBuffer: CVPixelBuffer, presentationTime: CMTime, isKeyframe: Bool) {
             lock.lock()
             _ = contentDetector.update(with: pixelBuffer)
@@ -167,13 +173,16 @@ public final class NVSTCoreVideoRenderer {
     }
 
     func writeOffscreenRenderSnapshot(to url: URL) -> CGSize? {
-        nil
+        sink.writeLatestFrameJPEG(to: url)
     }
 
     func requestRenderSnapshot(to url: URL) {
+        _ = writeOffscreenRenderSnapshot(to: url)
     }
 
     func setPresentationMode(_ mode: OPNVideoPresentationMode) {
+        sink.setPresentationMode(mode)
+        videoView.isMetalFXEnabled = mode != .lowestLatency
     }
 
     public func detach() {

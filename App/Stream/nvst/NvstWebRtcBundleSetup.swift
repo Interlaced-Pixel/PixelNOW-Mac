@@ -526,7 +526,7 @@ extension NvstWebRtcBundle {
     }
 
     /// Writes one NVST command packet to `control_channel_reliable`.
-    public func sendControl(_ command: NvstControlCommand) -> Bool {
+    public func sendControl(_ command: NvstStreamingCommand) -> Bool {
         lock.lock()
         let channel = openControlChannel
         lock.unlock()
@@ -534,7 +534,7 @@ extension NvstWebRtcBundle {
             lock.withLock {
                 controlSendFailures += 1
                 recordControlAttempt(code: command.code.rawValue,
-                                     bytes: UInt64(command.payload.count + NvstControlCommand.headerLength),
+                                     bytes: UInt64(command.payload.count + NvstStreamingCommand.headerLength),
                                      sent: false)
             }
             return false
@@ -614,7 +614,7 @@ extension NvstWebRtcBundle {
 
     /// Writes to `control_channel_partially_reliable`, which is where the captured official client
     /// sends its QoS reports (SCTP stream 6).
-    public func sendPartiallyReliableControl(_ command: NvstControlCommand) -> Bool {
+    public func sendPartiallyReliableControl(_ command: NvstStreamingCommand) -> Bool {
         lock.lock()
         let channel = openPartiallyReliableControlChannel
         lock.unlock()

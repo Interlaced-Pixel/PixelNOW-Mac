@@ -72,7 +72,7 @@ extension NvstWebRtcBundle {
                 onInputProtocolNegotiated?(version)
             }
         }
-        let (parsedCommands, _) = NvstControlCommand.parse(buffer.data)
+        let (parsedCommands, _) = NvstStreamingCommand.parse(buffer.data)
         for command in parsedCommands {
             dispatchInboundCommand(command)
         }
@@ -81,7 +81,7 @@ extension NvstWebRtcBundle {
         logInboundMessage(buffer, on: dataChannel)
     }
 
-    private func dispatchInboundCommand(_ command: NvstControlCommand) {
+    private func dispatchInboundCommand(_ command: NvstStreamingCommand) {
         if command.code == .inputProtocolVersion, command.payload.count >= 2 {
             var payload = NvstByteReader(command.payload)
             if let version = try? payload.u16LE() {
@@ -132,7 +132,7 @@ extension NvstWebRtcBundle {
 
     private func logInboundMessage(_ buffer: RTCDataBuffer, on dataChannel: RTCDataChannel) {
 
-        let (commands, trailing) = NvstControlCommand.parse(buffer.data)
+        let (commands, trailing) = NvstStreamingCommand.parse(buffer.data)
         let decoded = commands.map(\.summary).joined(separator: " | ")
 
         for command in commands where command.isTextual {
@@ -155,7 +155,7 @@ extension NvstWebRtcBundle {
 
     static let maxLoggedHapticChanges = 400
 
-    func describeHapticCommand(_ command: NvstControlCommand, events: [NvstHapticEvent]) {
+    func describeHapticCommand(_ command: NvstStreamingCommand, events: [NvstHapticEvent]) {
         let signature = events.map { "\($0.gamepadIndex):\($0.leftMotor):\($0.rightMotor)" }.joined(separator: ",")
         let (shouldLog, ordinal): (Bool, Int) = lock.withLock {
             hapticCommandCount += 1
@@ -207,7 +207,7 @@ extension NvstWebRtcBundle {
         return peerConnection
     }
 
-    func describeCursorCommand(_ command: NvstControlCommand, decision: Bool) {
+    func describeCursorCommand(_ command: NvstStreamingCommand, decision: Bool) {
         let hex = command.payload.prefix(16).map { String(format: "%02x", $0) }.joined()
         let key = "\(command.code.rawValue)/\(hex)/\(decision)"
         let shouldLog: Bool = lock.withLock {
@@ -221,7 +221,7 @@ extension NvstWebRtcBundle {
                        command.code.rawValue, command.payload.count, decision ? "y" : "n", hex, cursorNotificationCount))
     }
 
-    func describeCursorCommandIfUnparsed(_ command: NvstControlCommand) {
+    func describeCursorCommandIfUnparsed(_ command: NvstStreamingCommand) {
         guard command.code == NvstRemoteCursor.bitmapCursorCode else { return }
         let hex = command.payload.prefix(16).map { String(format: "%02x", $0) }.joined()
         let shouldLog: Bool = lock.withLock {

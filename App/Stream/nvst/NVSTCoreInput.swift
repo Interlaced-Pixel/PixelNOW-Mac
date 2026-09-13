@@ -21,7 +21,7 @@ extension NVSTCoreTransport {
                 gamepadPacketsDroppedForUnannouncedPad += 1
                 return
             }
-            let bitmap = NvstGamepadPacket.connectedBitmap(for: connectedGamepadIndices)
+            let bitmap = NvstGamepadEvent.connectedBitmap(for: connectedGamepadIndices)
             if registeredGamepadBitmap != bitmap {
                 sendGamepadRegistration(bitmap: bitmap, bundle: bundle, reason: "pad \(padIndex) input")
             }
@@ -30,16 +30,16 @@ extension NVSTCoreTransport {
 
             let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, Self.leftStickDeadzone)
             let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, Self.rightStickDeadzone)
-            let packet = NvstGamepadPacket(
+            let packet = NvstGamepadEvent(
                 sequence: sequence,
                 timestampMicroseconds: sessionElapsedMicroseconds(),
                 buttons: Self.wireButtons(state.buttons),
-                leftTrigger: NvstGamepadPacket.trigger(state.leftTrigger),
-                rightTrigger: NvstGamepadPacket.trigger(state.rightTrigger),
-                leftStickX: NvstGamepadPacket.axis(lx),
-                leftStickY: NvstGamepadPacket.axis(ly),
-                rightStickX: NvstGamepadPacket.axis(rx),
-                rightStickY: NvstGamepadPacket.axis(ry),
+                leftTrigger: NvstGamepadEvent.trigger(state.leftTrigger),
+                rightTrigger: NvstGamepadEvent.trigger(state.rightTrigger),
+                leftStickX: NvstGamepadEvent.axis(lx),
+                leftStickY: NvstGamepadEvent.axis(ly),
+                rightStickX: NvstGamepadEvent.axis(rx),
+                rightStickY: NvstGamepadEvent.axis(ry),
                 gamepadIndex: UInt16(padIndex),
                 connectedBitmap: bitmap
             )
@@ -75,16 +75,16 @@ extension NVSTCoreTransport {
             let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, Self.leftStickDeadzone)
             let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, Self.rightStickDeadzone)
             let bitmap: UInt8 = 1 << padIndex
-            let packet = NvstGamepadPacket(
+            let packet = NvstGamepadEvent(
                 sequence: sequence,
                 timestampMicroseconds: clock.elapsedMicroseconds(),
                 buttons: Self.wireButtons(state.buttons),
-                leftTrigger: NvstGamepadPacket.trigger(state.leftTrigger),
-                rightTrigger: NvstGamepadPacket.trigger(state.rightTrigger),
-                leftStickX: NvstGamepadPacket.axis(lx),
-                leftStickY: NvstGamepadPacket.axis(ly),
-                rightStickX: NvstGamepadPacket.axis(rx),
-                rightStickY: NvstGamepadPacket.axis(ry),
+                leftTrigger: NvstGamepadEvent.trigger(state.leftTrigger),
+                rightTrigger: NvstGamepadEvent.trigger(state.rightTrigger),
+                leftStickX: NvstGamepadEvent.axis(lx),
+                leftStickY: NvstGamepadEvent.axis(ly),
+                rightStickX: NvstGamepadEvent.axis(rx),
+                rightStickY: NvstGamepadEvent.axis(ry),
                 gamepadIndex: UInt16(padIndex),
                 connectedBitmap: UInt16(bitmap)
             )
@@ -123,7 +123,7 @@ extension NVSTCoreTransport {
                                             sequence: UInt16(truncatingIfNeeded: sequence),
                                             timestampMicroseconds: elapsed)
         let sendStart = DispatchTime.now().uptimeNanoseconds
-        let accepted = bundle.sendControl(NvstControlCommand(code: NvstRemoteInput.commandCode, payload: framed))
+        let accepted = bundle.sendControl(NvstStreamingCommand(code: NvstRemoteInput.commandCode, payload: framed))
         let duration = Double(DispatchTime.now().uptimeNanoseconds &- sendStart) / 1_000_000
         if accepted {
             inputState.noteSend(durationMs: duration)
@@ -140,7 +140,7 @@ extension NVSTCoreTransport {
                                             sequence: inputSequence,
                                             timestampMicroseconds: sessionElapsedMicroseconds())
         let sendStart = DispatchTime.now().uptimeNanoseconds
-        let accepted = bundle.sendControl(NvstControlCommand(code: NvstRemoteInput.commandCode, payload: framed))
+        let accepted = bundle.sendControl(NvstStreamingCommand(code: NvstRemoteInput.commandCode, payload: framed))
         noteInputSend(from: sendStart)
         guard accepted else {
             throw NativeNVSTError.transportFailed("The NVST control channel rejected the input packet.")
@@ -164,7 +164,7 @@ extension NVSTCoreTransport {
         var writer = NvstByteWriter(capacity: 8)
         writer.u32LE(0)
         writer.u32LE(bitrateKbps)
-        let command = NvstControlCommand(code: .maxBitrateChange, payload: writer.data)
+        let command = NvstStreamingCommand(code: .maxBitrateChange, payload: writer.data)
         guard bundle.sendControl(command) else {
             throw NativeNVSTError.transportFailed(
                 "Failed to send maximum bitrate change (\(bitrateKbps) kbps) over control channel")
@@ -260,7 +260,7 @@ extension NVSTCoreTransport {
         var writer = NvstByteWriter(capacity: 8)
         writer.u32LE(0)
         writer.u32LE(UInt32(mode.rawValue))
-        let command = NvstControlCommand(code: .qosPreferenceChange, payload: writer.data)
+        let command = NvstStreamingCommand(code: .qosPreferenceChange, payload: writer.data)
         guard bundle.sendControl(command) else {
             throw NativeNVSTError.transportFailed(
                 "Failed to send dynamic streaming mode change (\(mode)) over control channel")
@@ -273,7 +273,7 @@ extension NVSTCoreTransport {
         var writer = NvstByteWriter(capacity: 8)
         writer.u32LE(0)
         writer.u32LE(enabled ? 1 : 0)
-        let command = NvstControlCommand(code: .l4sStateChange, payload: writer.data)
+        let command = NvstStreamingCommand(code: .l4sStateChange, payload: writer.data)
         guard bundle.sendControl(command) else {
             throw NativeNVSTError.transportFailed(
                 "Failed to send L4S state change (\(enabled)) over control channel")
@@ -289,7 +289,7 @@ extension NVSTCoreTransport {
         guard let bundle, bundle.isInputReady else {
             throw NativeNVSTError.transportFailed("NVST input is not negotiated yet.")
         }
-        let bitmap = NvstGamepadPacket.connectedBitmap(for: indices)
+        let bitmap = NvstGamepadEvent.connectedBitmap(for: indices)
         guard registeredGamepadBitmap != bitmap else { return }
         sendGamepadRegistration(bitmap: bitmap, bundle: bundle, reason: "topology \(indices.sorted())")
     }
@@ -353,22 +353,22 @@ extension NVSTCoreTransport {
     static func wireButtons(_ buttons: GamepadButtons) -> UInt16 {
         var mask: UInt16 = 0
         let mapping: [(GamepadButtons, UInt16)] = [
-            (.south, NvstGamepadPacket.Button.a),
-            (.east, NvstGamepadPacket.Button.b),
-            (.west, NvstGamepadPacket.Button.x),
-            (.north, NvstGamepadPacket.Button.y),
-            (.leftShoulder, NvstGamepadPacket.Button.leftShoulder),
-            (.rightShoulder, NvstGamepadPacket.Button.rightShoulder),
-            (.select, NvstGamepadPacket.Button.back),
-            (.start, NvstGamepadPacket.Button.start),
-            (.dpadUp, NvstGamepadPacket.Button.dPadUp),
-            (.dpadDown, NvstGamepadPacket.Button.dPadDown),
-            (.dpadLeft, NvstGamepadPacket.Button.dPadLeft),
-            (.dpadRight, NvstGamepadPacket.Button.dPadRight),
-            (.leftStick, NvstGamepadPacket.Button.leftThumb),
-            (.rightStick, NvstGamepadPacket.Button.rightThumb),
+            (.south, NvstGamepadEvent.Button.a),
+            (.east, NvstGamepadEvent.Button.b),
+            (.west, NvstGamepadEvent.Button.x),
+            (.north, NvstGamepadEvent.Button.y),
+            (.leftShoulder, NvstGamepadEvent.Button.leftShoulder),
+            (.rightShoulder, NvstGamepadEvent.Button.rightShoulder),
+            (.select, NvstGamepadEvent.Button.back),
+            (.start, NvstGamepadEvent.Button.start),
+            (.dpadUp, NvstGamepadEvent.Button.dPadUp),
+            (.dpadDown, NvstGamepadEvent.Button.dPadDown),
+            (.dpadLeft, NvstGamepadEvent.Button.dPadLeft),
+            (.dpadRight, NvstGamepadEvent.Button.dPadRight),
+            (.leftStick, NvstGamepadEvent.Button.leftThumb),
+            (.rightStick, NvstGamepadEvent.Button.rightThumb),
 
-            (.mode, NvstGamepadPacket.Button.guide),
+            (.mode, NvstGamepadEvent.Button.guide),
         ]
         for (ours, theirs) in mapping where buttons.contains(ours) { mask |= theirs }
         return mask

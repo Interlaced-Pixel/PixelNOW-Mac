@@ -35,6 +35,11 @@ extension NVSTCoreTransport {
             sendsReceiverReports: true,
             existingDescriptor: descriptor
         )
+        let qosManager = NvstQosManager()
+        let streamProcessor = NvstStreamProcessor(qosManager: qosManager)
+        receiver.streamProcessor = streamProcessor
+        self.qosManager = qosManager
+        self.streamProcessor = streamProcessor
         let logger = self.logger
 
         let (mediaFrames, mediaContinuation) = AsyncStream<NativeNVSTVideoFrame>.makeStream(
@@ -150,6 +155,9 @@ extension NVSTCoreTransport {
             }
             clock.start()
             installBundleHandlers(bundle, sender: sender, logger: logger)
+            self.qosManager?.setCommandSink { [weak bundle] command in
+                _ = bundle?.sendPartiallyReliableControl(command)
+            }
             self.bundle = bundle
             activeBundleHolder.set(bundle)
             let microphone = bundle.microphoneNegotiation
@@ -257,12 +265,12 @@ extension NVSTCoreTransport {
 
     func startControlKeepAlive() {
         guard !isTornDown, controlKeepAliveTask == nil else { return }
-        logger?("NVST control keepalive started (\(Int(NvstControlCommand.pingBackIntervalSeconds))s)")
+        logger?("NVST control keepalive started (\(Int(NvstStreamingCommand.pingBackIntervalSeconds))s)")
         controlKeepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.sendControlKeepAlive()
-                try? await Task.sleep(for: .seconds(NvstControlCommand.pingBackIntervalSeconds))
+                try? await Task.sleep(for: .seconds(NvstStreamingCommand.pingBackIntervalSeconds))
             }
         }
     }
@@ -323,6 +331,9 @@ extension NVSTCoreTransport {
             intervalBits: UInt32(clamping: deltaBytes * 8),
             isWarmedUp: sessionStartedAt.map { now.timeIntervalSince($0) >= NvstQosReport.warmUpSeconds } ?? false
         )
+
+        qosManager?.obtainFeedback(buffer: report.payload, rtpStats: receiver.stats)
+        qosManager?.queueSendEcnFeedbackEvent()
 
         if bundle.sendPartiallyReliableControl(report.command) {
             qosReportsSent += 1
@@ -627,7 +638,7 @@ extension NVSTCoreTransport {
         sent.append("enableOff=\(bundle.sendControl(NvstInputActivation.enableInput(counter: 1, isEnabled: false)))")
 
         if connectedGamepadIndices.isEmpty { connectedGamepadIndices = [0] }
-        let activationBitmap = NvstGamepadPacket.connectedBitmap(for: connectedGamepadIndices)
+        let activationBitmap = NvstGamepadEvent.connectedBitmap(for: connectedGamepadIndices)
         sent.append("descriptor=\(bundle.sendControl(NvstInputActivation.deviceDescriptor(timestampMicroseconds: sessionElapsedMicroseconds(), connectedBitmap: activationBitmap)))")
 
         registeredGamepadBitmap = activationBitmap
