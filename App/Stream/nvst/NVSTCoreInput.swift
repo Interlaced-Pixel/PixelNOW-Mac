@@ -543,4 +543,9 @@ extension NVSTCoreTransport {
         guard let bundle else { throw NativeNVSTError.notRunning }
         bundle.setRemoteAudioMuted(muted)
     }
+
+    public func setLocalAudioPlaybackVolume(_ volume: Double) async throws {
+        guard let bundle else { throw NativeNVSTError.notRunning }
+        bundle.setRemoteAudioVolume(volume)
+    }
 }

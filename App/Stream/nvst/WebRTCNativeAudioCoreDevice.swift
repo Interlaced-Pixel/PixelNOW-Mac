@@ -26,6 +26,49 @@ enum LibWebRTCAudio {
         }
         return device
     }
+
+    static func preferredInputDevice(_ uniqueId: String) -> AudioDeviceID {
+        let fallback = defaultAudioDevice(kAudioHardwarePropertyDefaultInputDevice)
+        guard !uniqueId.isEmpty else { return fallback }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize) == noErr else { return fallback }
+        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        guard count > 0 else { return fallback }
+        var devices = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &devices) == noErr else { return fallback }
+        for device in devices where deviceHasInput(device) {
+            if deviceUID(device) == uniqueId { return device }
+        }
+        return fallback
+    }
+
+    private static func deviceHasInput(_ device: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        return AudioObjectGetPropertyDataSize(device, &address, 0, nil, &dataSize) == noErr && dataSize > 0
+    }
+
+    private static func deviceUID(_ device: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Unmanaged<CFString>?
+        var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &dataSize, &value) == noErr,
+              let value else { return nil }
+        return value.takeUnretainedValue() as String
+    }
 }
 
 protocol OPNCoreAudioRTCDeviceOwner: AnyObject {
@@ -44,6 +87,7 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
     var outputDevice = AudioDeviceID(kAudioObjectUnknown)
     private var inputDevice = AudioDeviceID(kAudioObjectUnknown)
     private var recordingScratch = [Int16]()
+    private let preferredInputDeviceId: String
     let monitorsDefaultDeviceChanges: Bool
 
     var selfDeviceChangeGeneration: UInt64 = 0
@@ -51,6 +95,7 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
     private var lastMicrophoneLevelReportNanoseconds: UInt64 = 0
 
     var isPlayoutMuted = false
+    var playoutVolume = 1.0
 
     private(set) var deviceInputSampleRate = 48_000.0
     private(set) var inputIOBufferDuration: TimeInterval = 0.01
@@ -70,8 +115,9 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
         audioQueue.sync { outputDevice != AudioDeviceID(kAudioObjectUnknown) }
     }
 
-    init(owner: (any OPNCoreAudioRTCDeviceOwner)?, monitorsDefaultDeviceChanges: Bool = false) {
+    init(owner: (any OPNCoreAudioRTCDeviceOwner)?, preferredInputDeviceId: String = "", monitorsDefaultDeviceChanges: Bool = false) {
         self.owner = owner
+        self.preferredInputDeviceId = preferredInputDeviceId
         self.monitorsDefaultDeviceChanges = monitorsDefaultDeviceChanges
         super.init()
         updateDeviceParameters()
@@ -166,6 +212,7 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
         if status == noErr {
             owner?.handleGameAudioFrame(UnsafeRawPointer(outputData), frameCount: frameCount, sampleRate: deviceOutputSampleRate, channels: UInt32(outputNumberOfChannels))
 
+            applyPlayoutVolume(to: outputData)
             if isPlayoutMuted { clearAudioBufferList(outputData) }
         }
         return status
@@ -358,7 +405,7 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
     }
 
     private func updateDeviceParameters() {
-        inputDevice = LibWebRTCAudio.defaultAudioDevice(kAudioHardwarePropertyDefaultInputDevice)
+        inputDevice = LibWebRTCAudio.preferredInputDevice(preferredInputDeviceId)
         outputDevice = LibWebRTCAudio.defaultAudioDevice(kAudioHardwarePropertyDefaultOutputDevice)
         let preferredInputSampleRate = delegate?.preferredInputSampleRate ?? 0
         let preferredOutputSampleRate = delegate?.preferredOutputSampleRate ?? 0
@@ -428,6 +475,20 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
         guard let bufferList else { return }
         for buffer in UnsafeMutableAudioBufferListPointer(bufferList) where buffer.mData != nil && buffer.mDataByteSize > 0 {
             memset(buffer.mData, 0, Int(buffer.mDataByteSize))
+        }
+    }
+
+    private func applyPlayoutVolume(to bufferList: UnsafeMutablePointer<AudioBufferList>?) {
+        guard let bufferList, playoutVolume < 1 else { return }
+        let gain = min(max(playoutVolume, 0), 1)
+        for buffer in UnsafeMutableAudioBufferListPointer(bufferList) {
+            guard let data = buffer.mData, buffer.mDataByteSize >= 2 else { continue }
+            let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size
+            let samples = data.bindMemory(to: Int16.self, capacity: sampleCount)
+            for index in 0..<sampleCount {
+                let scaled = (Double(samples[index]) * gain).rounded()
+                samples[index] = Int16(min(max(scaled, Double(Int16.min)), Double(Int16.max)))
+            }
         }
     }
 }

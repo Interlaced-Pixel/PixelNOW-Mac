@@ -297,25 +297,27 @@ public enum NativeNVSTDynamicStreamingMode: UInt32, Equatable, Sendable {
 
 public struct NativeNVSTMicrophoneConfiguration: Equatable, Sendable {
     public let volume: Double
+    public let deviceId: String
     public let voiceActivityEnabled: Bool
     public let captureRequested: Bool
     public let initiallyEnabled: Bool
 
-    public init(volume: Double, voiceActivityEnabled: Bool, captureRequested: Bool, initiallyEnabled: Bool) {
+    public init(volume: Double, deviceId: String = "", voiceActivityEnabled: Bool, captureRequested: Bool, initiallyEnabled: Bool) {
         self.volume = min(max(volume.isFinite ? volume : 1, 0), 1)
+        self.deviceId = deviceId
         self.captureRequested = captureRequested
         self.voiceActivityEnabled = voiceActivityEnabled && captureRequested
         self.initiallyEnabled = initiallyEnabled && captureRequested
     }
 
-    public static func settings(volume: Double, mode: String) -> NativeNVSTMicrophoneConfiguration {
+    public static func settings(volume: Double, deviceId: String = "", mode: String) -> NativeNVSTMicrophoneConfiguration {
         switch mode.lowercased() {
         case "voice-activity":
-            NativeNVSTMicrophoneConfiguration(volume: volume, voiceActivityEnabled: true, captureRequested: true, initiallyEnabled: true)
+            NativeNVSTMicrophoneConfiguration(volume: volume, deviceId: deviceId, voiceActivityEnabled: true, captureRequested: true, initiallyEnabled: true)
         case "push-to-talk":
-            NativeNVSTMicrophoneConfiguration(volume: volume, voiceActivityEnabled: false, captureRequested: true, initiallyEnabled: false)
+            NativeNVSTMicrophoneConfiguration(volume: volume, deviceId: deviceId, voiceActivityEnabled: false, captureRequested: true, initiallyEnabled: false)
         default:
-            NativeNVSTMicrophoneConfiguration(volume: volume, voiceActivityEnabled: false, captureRequested: false, initiallyEnabled: false)
+            NativeNVSTMicrophoneConfiguration(volume: volume, deviceId: deviceId, voiceActivityEnabled: false, captureRequested: false, initiallyEnabled: false)
         }
     }
 }

@@ -328,6 +328,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var microphoneDesiredEnabled = false
     @State private var microphoneStatus = NativeNVSTMicrophoneStatus.disabled
     @State private var microphoneMode = "disabled"
+    @State private var showStreamMicToggle = true
     @State private var microphonePendingStates: [Bool] = []
     @State private var microphoneUpdateTask: Task<Void, Never>?
     @State private var antiAFKMouseMovementEnabled = false
@@ -390,8 +391,14 @@ struct NativeNVSTMediaStreamSurface: View {
         nativeView.remoteInputEnabled = false
         nativeView.setNativeNVSTVideoVisible(false)
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
+        let resolved = resolvedMediaSettings(for: profile)
         microphoneMode = profile.microphoneMode.lowercased()
-        let microphoneConfiguration = NativeNVSTMicrophoneConfiguration.settings(volume: profile.microphoneVolume, mode: microphoneMode)
+        showStreamMicToggle = resolved.showStreamMicToggle
+        let microphoneConfiguration = NativeNVSTMicrophoneConfiguration.settings(
+            volume: profile.microphoneVolume,
+            deviceId: profile.microphoneDeviceId,
+            mode: microphoneMode
+        )
         microphoneStatus = .disabled
         microphoneAvailable = false
         microphoneEnabled = false
@@ -399,7 +406,7 @@ struct NativeNVSTMediaStreamSurface: View {
         microphonePendingStates.removeAll()
         let initialMicrophoneEnabled = microphoneConfiguration.initiallyEnabled && profile.streamMicrophoneEnabled
         antiAFKMouseMovementEnabled = profile.antiAFKMouseMovementEnabled
-        networkGovernor = NativeNVSTNetworkGovernor(maximumBitrateKbps: UInt32(max(1, profile.maxBitrateMbps) * 1_000), l4sEnabled: profile.enableL4S)
+        networkGovernor = NativeNVSTNetworkGovernor(maximumBitrateKbps: UInt32(max(1, resolved.maxBitrateMbps) * 1_000), l4sEnabled: resolved.enableL4S)
         nativeStreamHealth = NativeNVSTStreamHealthMonitor()
         lastAcceptedStreamInputAt = Date()
         beginStreamingPerformanceMode()
@@ -414,7 +421,17 @@ struct NativeNVSTMediaStreamSurface: View {
         }
         audioDeviceMonitor.start()
         nativeAudioDeviceMonitor = audioDeviceMonitor
-        let coreSink = nativeView.attachNVSTCoreRenderer(targetFps: Int32(max(30, profile.fps))).frameSink
+        let renderer = nativeView.attachNVSTCoreRenderer(targetFps: Int32(max(30, resolved.fps)))
+        renderer.setVideoEnhancement(
+            mode: resolved.upscalingMode,
+            sharpness: resolved.upscalingSharpness,
+            denoise: resolved.upscalingDenoise,
+            targetHeight: resolved.upscalingTargetHeight,
+            pillarboxFillMode: 0,
+            pillarboxFillDim: 0,
+            pillarboxFillColor: 0
+        )
+        let coreSink = renderer.frameSink
         let diagnosticLog = NvstDiagnosticLog()
         let frameHolder = macroFrameHolder
         let transport = NVSTCoreTransport(
@@ -422,14 +439,21 @@ struct NativeNVSTMediaStreamSurface: View {
                 frameHolder.store(pixelBuffer)
                 coreSink.render(pixelBuffer: pixelBuffer, presentationTime: presentationTime, isKeyframe: isKeyframe)
             },
-            configuredFps: profile.fps,
-            configuredMaxBitrateKbps: profile.maxBitrateMbps * 1_000,
+            configuredFps: resolved.fps,
+            configuredMaxBitrateKbps: resolved.maxBitrateMbps * 1_000,
+            configuredPrefilterMode: resolved.prefilterMode,
+            configuredPrefilterSharpness: resolved.prefilterSharpness,
+            configuredPrefilterDenoise: resolved.prefilterDenoise,
+            configuredPrefilterModel: resolved.prefilterModel,
+            configuredColorQuality: resolved.colorQuality,
+            configuredGameVolume: resolved.gameVolume,
+            configuredL4SEnabled: resolved.enableL4S,
             logger: { message in
                 NativeNVSTMediaTelemetry.capture("nvst.core", level: .info, message: message)
                 diagnosticLog.append(message)
             }
         )
-        Task {
+        Task { [weak nativeView] in
             await transport.setRemoteCursorVisibilityHandler { [weak nativeView] isVisible in
                 nativeView?.applyServerCursorVisibility(isVisible)
             }
@@ -831,13 +855,15 @@ struct NativeNVSTMediaStreamSurface: View {
             return
         }
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
+        let resolved = resolvedMediaSettings(for: profile)
         view.directMouseInputEnabled = profile.directMouseInput
         view.locksPointerWhenRelativeModeSelected = true
         view.hidesCursorWhilePointerLocked = true
         if path == nil { view.mouseInputMode = .absolute }
         view.setStreamContentSize(width: profile.resolution.width, height: profile.resolution.height)
+        view.configureNativeNVSTPresentation(requestedHDR: resolved.enableHdr, codecSupportsHDR: resolved.enableHdr)
         view.remoteInputEnabled = isConnected && !unifiedHUDVisible && !streamControlsVisible
-        let pushToTalkEnabled = profile.microphoneMode.caseInsensitiveCompare("push-to-talk") == .orderedSame
+        let pushToTalkEnabled = profile.microphoneShortcutEnabled && profile.microphoneMode.caseInsensitiveCompare("push-to-talk") == .orderedSame
         view.configurePushToTalk(
             keyCode: pushToTalkEnabled ? profile.microphonePushToTalkKeyCode : nil,
             modifierMask: profile.microphonePushToTalkModifierMask
@@ -847,10 +873,21 @@ struct NativeNVSTMediaStreamSurface: View {
         configureInput(for: view)
     }
 
+    private func resolvedMediaSettings(for profile: StreamPreferenceProfile) -> WebRTCMediaResolvedStreamSettings {
+        WebRTCMediaStreamSettingsResolver.resolve(
+            profile: webRTCMediaProfile(from: profile),
+            capabilities: webRTCMediaCapabilities(from: StreamPreferences.loadDeviceCapabilities()),
+            cloudVariables: webRTCMediaCloudVariables(from: StreamPreferences.loadCachedCloudVariables()),
+            libWebRTCAvailable: true
+        )
+    }
+
     private func configureInput(for view: NativeNVSTStreamView) {
+        let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
+        let suppressInputWhenInactive = profile.suppressInputWhenInactive
         view.onInputEvent = { [weak view] event in
             guard let view, isConnected, !unifiedHUDVisible, !streamControlsVisible, !isEnding, !didEnd else { return }
-            if view.remoteInputEnabled && !NativeNVSTInputDispatcher.isNeutralizing(event) {
+            if suppressInputWhenInactive && view.remoteInputEnabled && !NativeNVSTInputDispatcher.isNeutralizing(event) {
                 guard NSApplication.shared.isActive, view.streamWindowHasInputFocus else {
                     NativeNVSTMediaTelemetry.capture(
                         "nvst.input.focus_lost",
@@ -1127,12 +1164,13 @@ struct NativeNVSTMediaStreamSurface: View {
         )
         recordingStatus = .starting
         Task {
-            do {
-                try await path.startRecording(configuration: recordingConfiguration)
+            let started = await path.startRecording(configuration: recordingConfiguration)
+            if started {
                 NativeNVSTMediaTelemetry.capture("nvst.ui.recording.start", level: .info, message: "Stream recording start requested.", attributes: ["applicationID": configuration.applicationID])
-            } catch {
-                recordingStatus = .failed(error.localizedDescription)
-                showNativeTransientStreamMessage("Recording failed: \(error.localizedDescription)")
+            } else {
+                let message = "Recording is unavailable because the native stream is no longer active."
+                recordingStatus = .failed(message)
+                showNativeTransientStreamMessage(message)
             }
         }
     }
@@ -1712,14 +1750,16 @@ struct NativeNVSTMediaStreamSurface: View {
     private var nativeHUDControlsPanel: some View {
         NativeNVSTStreamHUDSection(label: "CONTROLS", spacing: 8) {
             HStack(spacing: 8) {
-                NativeNVSTStreamHUDActionRow(
-                    title: microphoneEnabled ? "Mute microphone" : "Unmute microphone",
-                    subtitle: nativeMicrophoneStatusText,
-                    systemName: microphoneEnabled ? "mic.slash.fill" : "mic.fill",
-                    isActive: microphoneEnabled && microphoneAvailable,
-                    isDisabled: !sidebarCapabilities.supports(.microphone) || !microphoneAvailable || microphoneUpdateTask != nil,
-                    action: toggleNativeMicrophone
-                )
+                if showStreamMicToggle {
+                    NativeNVSTStreamHUDActionRow(
+                        title: microphoneEnabled ? "Mute microphone" : "Unmute microphone",
+                        subtitle: nativeMicrophoneStatusText,
+                        systemName: microphoneEnabled ? "mic.slash.fill" : "mic.fill",
+                        isActive: microphoneEnabled && microphoneAvailable,
+                        isDisabled: !sidebarCapabilities.supports(.microphone) || !microphoneAvailable || microphoneUpdateTask != nil,
+                        action: toggleNativeMicrophone
+                    )
+                }
                 NativeNVSTStreamHUDActionRow(
                     title: recordingCanStop ? "Stop Recording" : "Record",
                     subtitle: recordingStatusText,

@@ -109,7 +109,6 @@ struct CatalogView: View {
 
     @Binding private var pendingGameShortcut: GFNGameShortcut?
 
-    @AppStorage(InterfacePreferences.controllerModeEnabledKey) private var controllerModeEnabled = false
     @StateObject private var viewModel: CatalogViewModel
     @State private var showsMainMenu = false
     @State private var windowTopInset = CatalogVendorLayout.windowTopInset

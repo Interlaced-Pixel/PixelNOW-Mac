@@ -169,6 +169,7 @@ public final class NVSTCoreVideoRenderer {
                                     pillarboxFillMode: Int,
                                     pillarboxFillDim: Int,
                                     pillarboxFillColor: Int) {
+        videoView.configureEnhancement(sharpness: sharpness, denoise: denoise)
         setMetalFXEnabled(mode == 3 || mode > 0)
     }
 

@@ -77,7 +77,7 @@ extension NvstWebRtcBundle {
         }
 
         startWebRtcLoggingIfRequested()
-        let factory = makePeerConnectionFactory()
+        let factory = makePeerConnectionFactory(preferredInputDeviceId: microphone?.deviceId ?? "")
         let configuration = Self.bundleConfiguration()
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
@@ -451,8 +451,12 @@ extension NvstWebRtcBundle {
     ///
     /// With no default output device there is nothing to bind to and playout would never start, so
     /// libwebrtc's own device takes over: audio still plays, recordings are silent.
-    private func makePeerConnectionFactory() -> RTCPeerConnectionFactory {
-        let audioDevice = OPNCoreAudioRTCDevice(owner: self, monitorsDefaultDeviceChanges: true)
+    private func makePeerConnectionFactory(preferredInputDeviceId: String) -> RTCPeerConnectionFactory {
+        let audioDevice = OPNCoreAudioRTCDevice(
+            owner: self,
+            preferredInputDeviceId: preferredInputDeviceId,
+            monitorsDefaultDeviceChanges: true
+        )
         guard audioDevice.hasUsableOutputDevice else {
             logger?("NVST bundle found no default output device; using libwebrtc's audio device (recording will have no audio)")
             return RTCPeerConnectionFactory(encoderFactory: nil, decoderFactory: nil)

@@ -312,6 +312,12 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         rendererWindow.contentView?.layer?.wantsExtendedDynamicRangeContent = usesEDR
     }
 
+    public func configureNativeNVSTPresentation(requestedHDR: Bool, codecSupportsHDR: Bool) {
+        nativeNVSTRendererWindow.hdrPresentationRequested = requestedHDR
+        nativeNVSTRendererWindow.codecSupportsHDR = codecSupportsHDR
+        updateNativeNVSTPresentation()
+    }
+
     static func nativeNVSTPresentationUsesEDR(requestedHDR: Bool, codecSupportsHDR: Bool, screenSupportsEDR: Bool) -> Bool {
         requestedHDR && codecSupportsHDR && screenSupportsEDR
     }

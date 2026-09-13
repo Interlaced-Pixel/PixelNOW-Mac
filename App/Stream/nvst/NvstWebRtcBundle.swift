@@ -32,10 +32,12 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
     /// the decision to carry mic audio is made once, before the answer is created.
     public struct MicrophoneSetup: Equatable, Sendable {
         public let volume: Double
+        public let deviceId: String
         public let initiallyEnabled: Bool
 
-        public init(volume: Double, initiallyEnabled: Bool) {
+        public init(volume: Double, deviceId: String = "", initiallyEnabled: Bool) {
             self.volume = min(max(volume.isFinite ? volume : 1, 0), 1)
+            self.deviceId = deviceId
             self.initiallyEnabled = initiallyEnabled
         }
     }
@@ -178,6 +180,13 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
         let device = audioDevice
         lock.unlock()
         device?.isPlayoutMuted = muted
+    }
+
+    public func setRemoteAudioVolume(_ volume: Double) {
+        lock.lock()
+        let device = audioDevice
+        lock.unlock()
+        device?.playoutVolume = min(max(volume.isFinite ? volume : 1, 0), 1)
     }
 
     var negotiatedInputProtocolVersion: UInt16?

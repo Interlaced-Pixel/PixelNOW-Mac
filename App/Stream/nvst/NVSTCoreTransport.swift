@@ -208,6 +208,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     private let configuredPrefilterModel: Int?
 
     let configuredColorQuality: String?
+    let configuredGameVolume: Double?
+    let configuredL4SEnabled: Bool
 
     var configuredAudioChannels: Int = 2
 
@@ -219,6 +221,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
                 configuredPrefilterDenoise: Int? = nil,
                 configuredPrefilterModel: Int? = nil,
                 configuredColorQuality: String? = nil,
+                configuredGameVolume: Double? = nil,
+                configuredL4SEnabled: Bool = false,
                 logger: (@Sendable (String) -> Void)? = nil,
                 controlTimeout: Duration = .seconds(20),
                 remoteCoOpVideoRelay: RemoteCoOpHostVideoRelay = RemoteCoOpHostVideoRelay(),
@@ -233,6 +237,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         self.configuredPrefilterDenoise = configuredPrefilterDenoise
         self.configuredPrefilterModel = configuredPrefilterModel
         self.configuredColorQuality = configuredColorQuality
+        self.configuredGameVolume = configuredGameVolume
+        self.configuredL4SEnabled = configuredL4SEnabled
         self.logger = logger
         self.controlTimeout = controlTimeout
     }

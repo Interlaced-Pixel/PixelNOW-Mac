@@ -10,6 +10,8 @@ struct CatalogShell: View {
 
     @StateObject private var homeStore = CatalogSelectionStore()
     @StateObject private var libraryStore = CatalogSelectionStore()
+    @StateObject private var controllerInputRouter = ControllerInputRouter()
+    @AppStorage(InterfacePreferences.controllerModeEnabledKey) private var controllerModeEnabled = false
     @State private var backgroundIndex = 0
     @FocusState private var catalogHasFocus: Bool
 
@@ -30,6 +32,7 @@ struct CatalogShell: View {
                     SettingsView(
                         viewModel: viewModel,
                         accounts: accounts,
+                        controllerInputRouter: controllerInputRouter,
                         onSwitch: onSwitch,
                         onAddAccount: onAddAccount,
                         onSignOut: onSignOut,
@@ -101,6 +104,7 @@ struct CatalogShell: View {
             }
         }
         .onAppear {
+            controllerInputRouter.onCommand = handleControllerCommand
             if let selected = viewModel.selectedGame {
                 homeStore.setInitiallySelectedIdentity(CatalogSelectionStore.gameIdentity(selected))
                 libraryStore.setInitiallySelectedIdentity(CatalogSelectionStore.gameIdentity(selected))
@@ -109,6 +113,9 @@ struct CatalogShell: View {
                 homeStore.load(from: viewModel.catalogSections)
             }
             catalogHasFocus = true
+        }
+        .onDisappear {
+            controllerInputRouter.onCommand = nil
         }
         .onChange(of: viewModel.catalogSections) { _, newSections in
             homeStore.load(from: newSections)
@@ -144,6 +151,53 @@ struct CatalogShell: View {
         } else {
             viewModel.beginMarkSelectedVariantOwnedFlow()
         }
+    }
+
+    private func handleControllerCommand(_ command: ControllerInputCommand) {
+        guard controllerModeEnabled else { return }
+        switch command {
+        case .move(.left):
+            if viewModel.selectedMainPage == .games { activeStore.selectPrevious() }
+        case .move(.right):
+            if viewModel.selectedMainPage == .games { activeStore.selectNext() }
+        case .move(.up):
+            if viewModel.selectedMainPage == .games { activeStore.jump(by: -1) }
+        case .move(.down):
+            if viewModel.selectedMainPage == .games { activeStore.jump(by: 1) }
+        case .confirm:
+            if viewModel.selectedMainPage == .games, let game = activeStore.selectedGame {
+                performPrimaryAction(for: game)
+            }
+        case .back:
+            if viewModel.selectedMainPage != .games {
+                viewModel.showGames()
+            } else if viewModel.isBrowseMode {
+                viewModel.clearSearchAndFilters()
+            } else {
+                viewModel.showCatalogDestination(.home)
+            }
+        case .search:
+            viewModel.showSearch()
+        case .actions:
+            if viewModel.selectedMainPage == .games, viewModel.isBrowseMode {
+                viewModel.clearSearchAndFilters()
+            } else {
+                viewModel.refresh()
+            }
+        case .menu:
+            viewModel.showSettings()
+        case .pageLeft:
+            selectCatalogDestination(offset: -1)
+        case .pageRight:
+            selectCatalogDestination(offset: 1)
+        }
+    }
+
+    private func selectCatalogDestination(offset: Int) {
+        guard viewModel.selectedMainPage == .games,
+              let currentIndex = CatalogDestination.allCases.firstIndex(of: viewModel.selectedCatalogDestination) else { return }
+        let nextIndex = (currentIndex + offset + CatalogDestination.allCases.count) % CatalogDestination.allCases.count
+        viewModel.showCatalogDestination(CatalogDestination.allCases[nextIndex])
     }
 }
 

@@ -121,6 +121,7 @@ private enum SettingsFormat {
 struct SettingsView: View {
     @ObservedObject var viewModel: CatalogViewModel
     let accounts: [LoginAccount]
+    @ObservedObject var controllerInputRouter: ControllerInputRouter
     let onSwitch: (LoginAccount) -> Void
     let onAddAccount: () -> Void
     let onSignOut: () -> Void
@@ -132,6 +133,7 @@ struct SettingsView: View {
             SettingsContent(
                 viewModel: viewModel,
                 accounts: accounts,
+                controllerInputRouter: controllerInputRouter,
                 onSwitch: onSwitch,
                 onAddAccount: onAddAccount,
                 onSignOut: onSignOut,
@@ -231,6 +233,7 @@ private struct SettingsSidebar: View {
 private struct SettingsContent: View {
     @ObservedObject var viewModel: CatalogViewModel
     let accounts: [LoginAccount]
+    @ObservedObject var controllerInputRouter: ControllerInputRouter
     let onSwitch: (LoginAccount) -> Void
     let onAddAccount: () -> Void
     let onSignOut: () -> Void
@@ -269,7 +272,7 @@ private struct SettingsContent: View {
                 onForget: onForget
             )
         case .interface:
-            InterfaceSettingsPage(viewModel: viewModel)
+            InterfaceSettingsPage(viewModel: viewModel, inputRouter: controllerInputRouter)
         case .connections:
             ConnectionsSettingsPage(viewModel: viewModel)
         case .gameplay:
@@ -747,7 +750,7 @@ private struct SettingsStatisticTile: View {
 
 private struct InterfaceSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
-    @StateObject private var inputRouter = ControllerInputRouter()
+    @ObservedObject var inputRouter: ControllerInputRouter
     @AppStorage(InterfacePreferences.controllerModeEnabledKey) private var controllerModeEnabled = false
 
     var body: some View {

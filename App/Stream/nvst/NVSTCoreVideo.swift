@@ -125,6 +125,7 @@ extension NVSTCoreTransport {
             return nil
         }
         return NvstWebRtcBundle.MicrophoneSetup(volume: configuration.volume,
+                                                deviceId: configuration.deviceId,
                                                 initiallyEnabled: configuration.initiallyEnabled)
     }
 
@@ -160,6 +161,9 @@ extension NVSTCoreTransport {
             }
             self.bundle = bundle
             activeBundleHolder.set(bundle)
+            if let configuredGameVolume {
+                bundle.setRemoteAudioVolume(configuredGameVolume)
+            }
             let microphone = bundle.microphoneNegotiation
             microphoneNegotiated = microphone.negotiated
             microphoneSenderSsrc = microphone.senderSsrc
@@ -228,6 +232,9 @@ extension NVSTCoreTransport {
             Task {
                 await self?.startControlKeepAlive()
                 await self?.announceClientState()
+                if self?.configuredL4SEnabled == true {
+                    try? await self?.setL4SEnabled(true)
+                }
                 await self?.requestInitialKeyframe()
                 await self?.activateInputIfNegotiated()
             }

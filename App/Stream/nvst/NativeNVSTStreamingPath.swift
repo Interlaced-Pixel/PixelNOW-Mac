@@ -107,6 +107,7 @@ public protocol NativeNVSTTransport: Sendable {
     func setMicrophoneConfiguration(_ configuration: NativeNVSTMicrophoneConfiguration) async throws
     func microphoneStatus() async -> NativeNVSTMicrophoneStatus
     func setLocalAudioPlaybackMuted(_ muted: Bool) async throws
+    func setLocalAudioPlaybackVolume(_ volume: Double) async throws
     func togglePerformanceOverlay() async throws
     func performanceSnapshot() async -> NativeNVSTPerformanceSnapshot?
     func setMaximumBitrateKbps(_ bitrateKbps: UInt32) async throws
@@ -151,6 +152,7 @@ public extension NativeNVSTTransport {
     func setMicrophoneConfiguration(_ configuration: NativeNVSTMicrophoneConfiguration) async throws {}
     func microphoneStatus() async -> NativeNVSTMicrophoneStatus { .disabled }
     func setLocalAudioPlaybackMuted(_ muted: Bool) async throws { throw NativeNVSTError.notRunning }
+    func setLocalAudioPlaybackVolume(_ volume: Double) async throws { throw NativeNVSTError.notRunning }
 
     func startRecording(configuration: WebRTCStreamRecordingConfiguration) async {}
     func stopRecording() async {}
@@ -392,6 +394,11 @@ public actor NativeNVSTStreamingPath {
     public func setLocalAudioPlaybackMuted(_ muted: Bool) async throws {
         guard activeSession != nil else { throw NativeNVSTError.notRunning }
         try await transport.setLocalAudioPlaybackMuted(muted)
+    }
+
+    public func setLocalAudioPlaybackVolume(_ volume: Double) async throws {
+        guard activeSession != nil else { throw NativeNVSTError.notRunning }
+        try await transport.setLocalAudioPlaybackVolume(volume)
     }
 
     @discardableResult

@@ -257,6 +257,8 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var intermediateOutputTexture: (any MTLTexture)?
 
     public var isMetalFXEnabled = true
+    private var enhancementSharpness = 10
+    private var enhancementDenoise = 0
 
     public init(frame frameRect: NSRect, targetFps: Int32) {
         self.targetFps = min(max(Int(targetFps), 30), 240)
@@ -328,6 +330,11 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     public func setSize(_ size: CGSize) {
         guard size.width >= 1, size.height >= 1 else { return }
         updateDrawableSize()
+    }
+
+    public func configureEnhancement(sharpness: Int, denoise: Int) {
+        enhancementSharpness = min(max(sharpness, 0), 15)
+        enhancementDenoise = min(max(denoise, 0), 20)
     }
 
     public func detach() {
@@ -402,7 +409,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             return
         }
 
-        let image = CIImage(cvPixelBuffer: pixelBuffer).oriented(.downMirrored)
+        let image = enhancedImage(CIImage(cvPixelBuffer: pixelBuffer).oriented(.downMirrored))
         let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
         let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
         let outputWidth = currentDrawable.texture.width
@@ -455,5 +462,21 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         ciContext.render(scaledImage, to: currentDrawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
         commandBuffer.present(currentDrawable)
         commandBuffer.commit()
+    }
+
+    private func enhancedImage(_ image: CIImage) -> CIImage {
+        var result = image
+        if enhancementDenoise > 0, let filter = CIFilter(name: "CINoiseReduction") {
+            filter.setValue(result, forKey: kCIInputImageKey)
+            filter.setValue(Float(enhancementDenoise) / 20 * 0.04, forKey: "inputNoiseLevel")
+            filter.setValue(Float(1 - enhancementDenoise / 20) * 0.5, forKey: "inputSharpness")
+            if let output = filter.outputImage { result = output }
+        }
+        if enhancementSharpness > 0, let filter = CIFilter(name: "CISharpenLuminance") {
+            filter.setValue(result, forKey: kCIInputImageKey)
+            filter.setValue(Float(enhancementSharpness) / 15 * 2, forKey: "inputSharpness")
+            if let output = filter.outputImage { result = output }
+        }
+        return result
     }
 }
