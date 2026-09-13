@@ -691,15 +691,14 @@ extension NativeNVSTStreamingPath {
 
         // Soft Recovery Phase
         NativeNVSTMediaTelemetry.capture("nvst.path.recovery.soft", level: .info, message: "Requesting in-stream soft recovery.", attributes: ["sessionId": session.id, "reason": reason])
+        let baselineDecodedFrameCount = await transport.performanceSnapshot()?.decodedFrameCount ?? 0
         await transport.sendRecoveryMode(enabled: true)
 
-        // Wait a short time to see if soft recovery succeeded (e.g. keyframe arrived)
-        // If the transport doesn't yield a failure again within a short time, we assume success for now.
-        // For actual parity, we should observe the incoming stream for a new IDR frame.
         try? await Task.sleep(for: .seconds(2))
         await transport.sendRecoveryMode(enabled: false)
         let softRecoverySnapshot = await transport.performanceSnapshot()
-        if softRecoverySnapshot?.streamFramesPerSecond ?? 0 > 0 {
+        if let softRecoverySnapshot,
+           softRecoverySnapshot.decodedFrameCount > baselineDecodedFrameCount {
             NativeNVSTMediaTelemetry.capture("nvst.path.recovery.soft-succeeded", level: .info, message: "In-stream NVST recovery restored video delivery.", attributes: ["sessionId": session.id])
             return true
         }

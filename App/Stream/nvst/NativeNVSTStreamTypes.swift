@@ -30,6 +30,8 @@ public struct NativeNVSTPerformanceSnapshot: Equatable, Sendable {
     /// Mean client-side decode cost per frame. Distinct from `latencyMilliseconds`, which is the
     /// network round trip.
     public let decodeMilliseconds: Double
+    /// Total decoded frame completions observed by VideoToolbox for this session.
+    public let decodedFrameCount: UInt64
     public let bitrateMegabitsPerSecond: Double
     public let bandwidthUtilizationPercent: Double
     public let resolution: String
@@ -66,6 +68,7 @@ public struct NativeNVSTPerformanceSnapshot: Equatable, Sendable {
                 totalPacketLoss: UInt64,
                 packetLossPercent: Double = -1,
                 decodeMilliseconds: Double = -1,
+                decodedFrameCount: UInt64 = 0,
                 bitrateMegabitsPerSecond: Double,
                 bandwidthUtilizationPercent: Double,
                 resolution: String,
@@ -98,6 +101,7 @@ public struct NativeNVSTPerformanceSnapshot: Equatable, Sendable {
         self.totalPacketLoss = totalPacketLoss
         self.packetLossPercent = packetLossPercent
         self.decodeMilliseconds = decodeMilliseconds
+        self.decodedFrameCount = decodedFrameCount
         self.bitrateMegabitsPerSecond = bitrateMegabitsPerSecond
         self.bandwidthUtilizationPercent = bandwidthUtilizationPercent
         self.resolution = resolution

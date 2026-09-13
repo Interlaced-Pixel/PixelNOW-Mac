@@ -237,6 +237,7 @@ extension NVSTCoreTransport {
             totalPacketLoss: stats.droppedPackets,
             packetLossPercent: lossPercent,
             decodeMilliseconds: decodeMilliseconds,
+            decodedFrameCount: decoder?.decodedFrameCount ?? 0,
             bitrateMegabitsPerSecond: instantMbps,
             bandwidthUtilizationPercent: 0,
 

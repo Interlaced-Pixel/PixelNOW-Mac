@@ -1286,6 +1286,13 @@ struct NativeNVSTMediaStreamSurface: View {
                 if isConnected, !isEnding, !didEnd,
                    let failure = nativeStreamHealth.observe(snapshot: snapshot, rendererReady: nativeView?.nativeNVSTRendererSurfaceReady == true) {
                     NativeNVSTMediaTelemetry.capture("nvst.stream.health.failed", level: .error, message: failure.message, attributes: ["applicationID": configuration.applicationID])
+                    if failure == .streamStalled {
+                        let recovered = await path.recoverInPlace(reason: failure.message)
+                        if recovered {
+                            nativeStreamHealth = NativeNVSTStreamHealthMonitor()
+                            continue
+                        }
+                    }
                     _ = await finish(reason: .failed, message: failure.message)
                     return
                 }
