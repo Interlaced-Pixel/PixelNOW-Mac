@@ -428,3 +428,7 @@ When instructed to create a new GitHub release, strictly follow these steps in o
 4. **Compile:** Compile the release configuration of the app using `xcodebuild -scheme PixelNOW -project PixelNOW.xcodeproj -configuration Release clean build`.
 5. **Compress:** Do NOT use the standard `zip` command as it breaks the macOS code signature. Navigate to the release build directory and use `ditto` to compress the app bundle: `ditto -c -k --keepParent PixelNOW.app PixelNOW-<version>-macOS.zip`
 6. **Upload to GitHub:** Use the GitHub CLI to create the release and upload the compressed app bundle: `gh release create v<version> PixelNOW-<version>-macOS.zip -F <patch_notes_file> -t "PixelNOW <version>"`
+
+# Workspace Cleanliness
+- **No Leftover Trash:** Never leave random, unneeded artifacts (e.g., temporary scripts, `build.log`, `.txt` dumps) in the workspace root or project directories. Clean them up immediately after use. If you absolutely need a scratchpad or temporary file, place it strictly in the designated artifact scratch directory (`<appDataDir>/brain/<conversation-id>/scratch/`).
+- **No Python Scripts:** Do not generate or execute Python scripts to accomplish tasks (like parsing files or patching code). Rely on existing tools, native shell commands (`awk`, `sed`, `grep`), or perform the task directly.
