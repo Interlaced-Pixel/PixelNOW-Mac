@@ -138,7 +138,7 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
     /// `OPN_NVST_WEBRTC_LOG=1` forwards libwebrtc's own ICE/DTLS/SCTP logging into our log, which is
     /// the only way to see *why* an association drops rather than just that it did.
     static var forwardsWebRtcLogging: Bool {
-        ProcessInfo.processInfo.environment["OPN_NVST_WEBRTC_LOG"] == "1"
+        true
     }
 
     static let interestingLogFragments = ["ice", "dtls", "sctp", "candidate", "consent", "transport", "srtp", "stun"]

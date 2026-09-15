@@ -305,10 +305,10 @@ public enum WebRTCMediaStreamSettingsResolver {
         let controllerCount = capabilities.connectedGamepadCount
         let prefilterMode = resolvedPrefilterMode(profile: profile, cloudVariables: cloudVariables)
         let upscalingMode = normalizedUpscalingMode(profile.upscalingMode)
-        let requestedMaxBitrateMbps = profile.enablePowerSaver ? min(profile.maxBitrateMbps, 15) : profile.maxBitrateMbps
+        let requestedMaxBitrateMbps = profile.maxBitrateMbps
         return WebRTCMediaResolvedStreamSettings(
             resolution: profile.resolution.value,
-            fps: profile.enablePowerSaver ? min(profile.fps, 30) : profile.fps,
+            fps: profile.fps,
             codec: codec,
             colorQuality: colorQuality,
             maxBitrateMbps: max(1, min(requestedMaxBitrateMbps, cloudVariables.maxBitrateMbps > 0 ? cloudVariables.maxBitrateMbps : Int.max)),

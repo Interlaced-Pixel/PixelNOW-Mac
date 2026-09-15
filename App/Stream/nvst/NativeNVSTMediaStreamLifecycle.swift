@@ -6,7 +6,7 @@ public typealias NativeNVSTMediaStreamCommandHandler = @MainActor @Sendable (_ c
 
 enum NativeNVSTAntiAFKInputPolicy {
     static let pollInterval = Duration.seconds(60)
-    static let idleThresholdSeconds: TimeInterval = 210
+    static let idleThresholdSeconds: TimeInterval = 120
 
     static func randomMouseDelta() -> (x: Int16, y: Int16) {
         var x = Int16(Int.random(in: -5...5))
