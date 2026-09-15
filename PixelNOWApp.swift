@@ -164,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var applicationUpdateCheckTimer: Timer?
     private var updateCheckTask: Task<Void, Never>?
     private var updateInstallTask: Task<Void, Never>?
+    private var updateProgressController: UpdateProgressController?
     private var streamShortcutMonitor: Any?
     private var isCompletingUserApprovedTermination = false
 
@@ -322,6 +323,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopAutomaticApplicationUpdateChecks(cancelActiveCheck: true)
         updateInstallTask?.cancel()
         updateInstallTask = nil
+        updateProgressController?.dismiss()
+        updateProgressController = nil
     }
 
     private func stopAutomaticApplicationUpdateChecks(cancelActiveCheck: Bool) {
@@ -408,18 +411,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func installUpdate(_ release: GitHubRelease) {
         guard updateInstallTask == nil else { return }
-        updateInstallTask = Task { @MainActor in
+
+        let controller = UpdateProgressController()
+        updateProgressController = controller
+
+        controller.show(release: release) { [weak self] in
+            self?.updateInstallTask?.cancel()
+            self?.updateInstallTask = nil
+            self?.updateProgressController = nil
+        }
+
+        updateInstallTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             defer { updateInstallTask = nil }
             do {
-                let launchedInstaller = try await githubUpdater.installRelease(release)
+                let launchedInstaller = try await githubUpdater.installRelease(release) { [weak controller] state in
+                    Task { @MainActor in
+                        controller?.updateProgress(state)
+                    }
+                }
                 guard launchedInstaller else {
-                    showUpdateInstallFailed(message: "PixelNOW could not launch the update installer.")
+                    controller.showError("PixelNOW could not launch the update installer.")
                     return
                 }
+                try? await Task.sleep(nanoseconds: 600_000_000)
                 NSApp.terminate(self)
             } catch is CancellationError {
+                controller.dismiss()
+                self.updateProgressController = nil
             } catch {
-                showUpdateInstallFailed(message: error.localizedDescription.isEmpty ? "PixelNOW could not install the downloaded update." : error.localizedDescription)
+                controller.showError(error.localizedDescription.isEmpty ? "PixelNOW could not install the downloaded update." : error.localizedDescription)
             }
         }
     }

@@ -9,8 +9,45 @@ struct GitHubRelease: Sendable {
     let assetDownloadURL: String
 }
 
+public enum UpdateStage: Sendable, Equatable {
+    case initialStart
+    case downloading(fractionCompleted: Double, bytesWritten: Int64, totalBytesExpected: Int64)
+    case extracting
+    case relaunching
+
+    public var stageIndex: Int {
+        switch self {
+        case .initialStart: 0
+        case .downloading: 1
+        case .extracting: 2
+        case .relaunching: 3
+        }
+    }
+}
+
+public struct UpdateProgressState: Sendable, Equatable {
+    public let stage: UpdateStage
+    public let overallFraction: Double
+    public let title: String
+    public let detail: String
+
+    public init(stage: UpdateStage, overallFraction: Double, title: String, detail: String) {
+        self.stage = stage
+        self.overallFraction = overallFraction
+        self.title = title
+        self.detail = detail
+    }
+
+    public static let initial = UpdateProgressState(
+        stage: .initialStart,
+        overallFraction: 0.05,
+        title: "Starting update...",
+        detail: "Connecting to GitHub..."
+    )
+}
+
 actor GitHubUpdater {
-    private enum UpdateError: LocalizedError {
+    fileprivate enum UpdateError: LocalizedError {
         case invalidResponse(String)
         case noReleaseAsset
         case notBundledApp
@@ -91,7 +128,10 @@ actor GitHubUpdater {
         return release
     }
 
-    func installRelease(_ release: GitHubRelease) async throws -> Bool {
+    func installRelease(
+        _ release: GitHubRelease,
+        onProgress: (@Sendable (UpdateProgressState) -> Void)? = nil
+    ) async throws -> Bool {
         let bundleURL = Bundle.main.bundleURL
         guard bundleURL.pathExtension.lowercased() == "app" else {
             throw UpdateError.notBundledApp
@@ -100,26 +140,91 @@ actor GitHubUpdater {
             throw UpdateError.invalidResponse("The release asset download URL is invalid.")
         }
 
+        onProgress?(UpdateProgressState(
+            stage: .initialStart,
+            overallFraction: 0.05,
+            title: "Starting update...",
+            detail: "Connecting to GitHub..."
+        ))
+
         var request = URLRequest(url: downloadURL)
         logInfo("Downloading update archive version=\(release.version) asset=\(release.assetName)")
         let networkStart = NetworkLog.start(&request, operation: "updater.archiveDownload")
         let archiveURL: URL
-        let response: URLResponse
         do {
-            (archiveURL, response) = try await session.download(for: request)
-            NetworkLog.finish(request, operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: response, error: nil)
+            archiveURL = try await downloadArchiveWithProgress(request: request) { bytesWritten, totalBytesExpected in
+                let fraction: Double
+                let detail: String
+                if totalBytesExpected > 0 {
+                    fraction = min(max(Double(bytesWritten) / Double(totalBytesExpected), 0.0), 1.0)
+                    let writtenStr = ByteCountFormatter.string(fromByteCount: bytesWritten, countStyle: .file)
+                    let totalStr = ByteCountFormatter.string(fromByteCount: totalBytesExpected, countStyle: .file)
+                    let percentage = Int(fraction * 100)
+                    detail = "\(writtenStr) of \(totalStr) (\(percentage)%)"
+                } else {
+                    fraction = 0.0
+                    let writtenStr = ByteCountFormatter.string(fromByteCount: bytesWritten, countStyle: .file)
+                    detail = "\(writtenStr) downloaded"
+                }
+                let overall = 0.05 + (0.75 * fraction)
+                onProgress?(UpdateProgressState(
+                    stage: .downloading(fractionCompleted: fraction, bytesWritten: bytesWritten, totalBytesExpected: totalBytesExpected),
+                    overallFraction: overall,
+                    title: "Downloading update...",
+                    detail: detail
+                ))
+            }
+            NetworkLog.finish(request, operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: responseArchivePlaceholder(url: archiveURL), error: nil)
         } catch {
             NetworkLog.finish(request, operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: nil, error: error)
             throw error
         }
-        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            throw UpdateError.downloadFailed("GitHub did not return the update archive.")
-        }
 
-        return try stageAndLaunchInstaller(downloadedArchiveURL: archiveURL, release: release, currentBundleURL: bundleURL)
+        return try stageAndLaunchInstaller(
+            downloadedArchiveURL: archiveURL,
+            release: release,
+            currentBundleURL: bundleURL,
+            onProgress: onProgress
+        )
     }
 
-    private func stageAndLaunchInstaller(downloadedArchiveURL: URL, release: GitHubRelease, currentBundleURL: URL) throws -> Bool {
+    private func responseArchivePlaceholder(url: URL) -> URLResponse {
+        HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) ?? URLResponse()
+    }
+
+    private func downloadArchiveWithProgress(
+        request: URLRequest,
+        onProgress: @Sendable @escaping (Int64, Int64) -> Void
+    ) async throws -> URL {
+        let delegateQueue = OperationQueue()
+        delegateQueue.maxConcurrentOperationCount = 1
+
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 600
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+
+        let holder = DownloadTaskHolder()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let delegate = UpdateDownloadDelegate(onProgress: onProgress, continuation: continuation)
+                let downloadSession = URLSession(configuration: configuration, delegate: delegate, delegateQueue: delegateQueue)
+                let task = downloadSession.downloadTask(with: request)
+                holder.set(task: task, session: downloadSession)
+                task.resume()
+            }
+        } onCancel: {
+            holder.cancel()
+        }
+    }
+
+    private func stageAndLaunchInstaller(
+        downloadedArchiveURL: URL,
+        release: GitHubRelease,
+        currentBundleURL: URL,
+        onProgress: (@Sendable (UpdateProgressState) -> Void)? = nil
+    ) throws -> Bool {
         let fileManager = FileManager.default
         let stagingURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let archiveCopyURL = stagingURL.appendingPathComponent(release.assetName, isDirectory: false)
@@ -127,7 +232,15 @@ actor GitHubUpdater {
 
         try fileManager.createDirectory(at: extractURL, withIntermediateDirectories: true)
         try fileManager.copyItem(at: downloadedArchiveURL, to: archiveCopyURL)
+        try? fileManager.removeItem(at: downloadedArchiveURL.deletingLastPathComponent())
         logInfo("Staging update archive version=\(release.version) asset=\(release.assetName)")
+
+        onProgress?(UpdateProgressState(
+            stage: .extracting,
+            overallFraction: 0.82,
+            title: "Extracting update...",
+            detail: "Unpacking update archive..."
+        ))
 
         let extractProcess = Process()
         extractProcess.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
@@ -137,6 +250,13 @@ actor GitHubUpdater {
         guard extractProcess.terminationStatus == 0 else {
             throw UpdateError.extractionFailed
         }
+
+        onProgress?(UpdateProgressState(
+            stage: .extracting,
+            overallFraction: 0.90,
+            title: "Validating update...",
+            detail: "Verifying code signature and bundle integrity..."
+        ))
 
         guard let newBundleURL = findAppBundle(in: extractURL) else {
             throw UpdateError.validationFailed("The update archive did not contain an app bundle.")
@@ -171,6 +291,13 @@ actor GitHubUpdater {
         """
         try script.write(to: scriptURL, atomically: true, encoding: String.Encoding.utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+
+        onProgress?(UpdateProgressState(
+            stage: .relaunching,
+            overallFraction: 1.0,
+            title: "Relaunching PixelNOW...",
+            detail: "Starting updated version..."
+        ))
 
         let installerProcess = Process()
         installerProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -355,3 +482,84 @@ actor GitHubUpdater {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
+
+private final class DownloadTaskHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionDownloadTask?
+    private var session: URLSession?
+
+    func set(task: URLSessionDownloadTask, session: URLSession) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.task = task
+        self.session = session
+    }
+
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        task?.cancel()
+        session?.invalidateAndCancel()
+    }
+}
+
+private final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let onProgress: @Sendable (Int64, Int64) -> Void
+    private var continuation: CheckedContinuation<URL, Error>?
+    private let lock = NSLock()
+    private var hasResumed = false
+
+    init(
+        onProgress: @Sendable @escaping (Int64, Int64) -> Void,
+        continuation: CheckedContinuation<URL, Error>
+    ) {
+        self.onProgress = onProgress
+        self.continuation = continuation
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        onProgress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        session.finishTasksAndInvalidate()
+        lock.lock()
+        defer { lock.unlock() }
+        guard !hasResumed else { return }
+        hasResumed = true
+
+        if let httpResponse = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(httpResponse.statusCode) {
+            continuation?.resume(throwing: GitHubUpdater.UpdateError.downloadFailed("GitHub did not return the update archive."))
+            continuation = nil
+            return
+        }
+
+        do {
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let destinationURL = tempDir.appendingPathComponent("update-\(UUID().uuidString).zip")
+            try FileManager.default.moveItem(at: location, to: destinationURL)
+            continuation?.resume(returning: destinationURL)
+            continuation = nil
+        } catch {
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error else { return }
+        session.finishTasksAndInvalidate()
+        lock.lock()
+        defer { lock.unlock() }
+        guard !hasResumed else { return }
+        hasResumed = true
+        if (error as? URLError)?.code == .cancelled {
+            continuation?.resume(throwing: CancellationError())
+        } else {
+            continuation?.resume(throwing: error)
+        }
+        continuation = nil
+    }
+}
+
