@@ -478,16 +478,17 @@ public final class NvstVideoPipeline: @unchecked Sendable {
             // and 31–71 Mbps with either value (84–107 and 31–67 the run before). The seat's
             // frame controller is not steering off this field; the plateau is seat-side.
             let clientMicroseconds = Int((timings.hop + timings.decode) * 1000)
+            let pacedMeasuredMicroseconds = min(UInt32(clamping: clientMicroseconds), frameTimeMicroseconds)
             let pacing = NvstFramePacingReport(
                 frameNumber: frameAckNumber,
                 targetFrameTimeMicroseconds: frameTimeMicroseconds,
-                measuredFrameTimeMicroseconds: UInt32(clamping: clientMicroseconds),
+                measuredFrameTimeMicroseconds: pacedMeasuredMicroseconds,
                 displayVsyncMicroseconds: displayVsyncMicroseconds,
                 groupCount: UInt32(clamping: framesSincePacingReport)
             )
             framesSincePacingReport = 0
             if bundle.sendPartiallyReliableControl(pacing.command) { pacingSent = 1 } else { pacingFailed = 1 }
-            logFeedbackSample(interFrame: measuredInterFrame, measuredFrameTimeMicroseconds: clientMicroseconds,
+            logFeedbackSample(interFrame: measuredInterFrame, measuredFrameTimeMicroseconds: Int(pacedMeasuredMicroseconds),
                               clientMicroseconds: clientMicroseconds, hopMs: timings.hop, decodeMs: timings.decode)
         }
         let acked = bundle.sendPartiallyReliableControl(ack.command)

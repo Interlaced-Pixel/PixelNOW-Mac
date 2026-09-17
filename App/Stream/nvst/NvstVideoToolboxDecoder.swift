@@ -159,7 +159,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
             session,
             sampleBuffer: sampleBuffer,
 
-            flags: [._EnableAsynchronousDecompression],
+            flags: [._EnableAsynchronousDecompression, ._1xRealTimePlayback],
             infoFlagsOut: &flagsOut,
             outputHandler: { [weak self] status, _, imageBuffer, presentationTime, _ in
                 guard let self else { return }
