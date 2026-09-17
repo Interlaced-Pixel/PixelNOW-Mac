@@ -43,6 +43,8 @@ public struct OPNVideoRenderDiagnosticsSnapshot: Equatable, Sendable {
 public final class NVSTCoreVideoRenderer {
     private let videoView: NVSTMetalVideoView
     private let sink: NVSTCoreVideoSink
+    private var isMetalFXConfiguredByUser: Bool = false
+    private var currentPresentationMode: OPNVideoPresentationMode = .balanced
 
     public final class NVSTCoreVideoSink: @unchecked Sendable {
         private weak var videoView: NVSTMetalVideoView?
@@ -151,8 +153,13 @@ public final class NVSTCoreVideoRenderer {
         videoView.isHidden = !visible
     }
 
+    private func applyMetalFXState() {
+        videoView.isMetalFXEnabled = isMetalFXConfiguredByUser && (currentPresentationMode != .lowestLatency)
+    }
+
     public func setMetalFXEnabled(_ enabled: Bool) {
-        videoView.isMetalFXEnabled = enabled
+        isMetalFXConfiguredByUser = enabled
+        applyMetalFXState()
     }
 
     public func layoutVideoView() {
@@ -170,7 +177,7 @@ public final class NVSTCoreVideoRenderer {
                                     pillarboxFillDim: Int,
                                     pillarboxFillColor: Int) {
         videoView.configureEnhancement(sharpness: sharpness, denoise: denoise)
-        setMetalFXEnabled(mode == 3 || mode > 0)
+        setMetalFXEnabled(mode == 3)
     }
 
     func writeOffscreenRenderSnapshot(to url: URL) -> CGSize? {
@@ -182,8 +189,9 @@ public final class NVSTCoreVideoRenderer {
     }
 
     func setPresentationMode(_ mode: OPNVideoPresentationMode) {
+        currentPresentationMode = mode
         sink.setPresentationMode(mode)
-        videoView.isMetalFXEnabled = mode != .lowestLatency
+        applyMetalFXState()
     }
 
     public func detach() {

@@ -256,6 +256,10 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
 
     private var nvstCoreRenderer: NVSTCoreVideoRenderer?
 
+    public var currentNVSTCoreRenderer: NVSTCoreVideoRenderer? {
+        nvstCoreRenderer
+    }
+
     public func attachNVSTCoreRenderer(targetFps: Int32) -> NVSTCoreVideoRenderer {
         nvstCoreRenderer?.detach()
         let renderer = NVSTCoreVideoRenderer(parentView: videoSurface, targetFps: targetFps)

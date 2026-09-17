@@ -260,7 +260,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var intermediateSourceTexture: (any MTLTexture)?
     private var intermediateOutputTexture: (any MTLTexture)?
 
-    public var isMetalFXEnabled = true
+    public var isMetalFXEnabled = false
     private var enhancementSharpness = 10
     private var enhancementDenoise = 0
 

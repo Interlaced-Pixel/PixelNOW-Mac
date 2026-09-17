@@ -352,6 +352,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var desktopAutomationSnapshot: DesktopAutomationSnapshot?
     @State private var desktopAutomationOverlayDismissed = false
     @State private var macroFrameHolder = DesktopMacroFrameHolder()
+    @State private var streamUpscalingMode = 0
     private let nativeInputFailureReporter = NativeNVSTInputFailureReporter()
 
     var body: some View {
@@ -392,6 +393,7 @@ struct NativeNVSTMediaStreamSurface: View {
         nativeView.setNativeNVSTVideoVisible(false)
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
         let resolved = resolvedMediaSettings(for: profile)
+        streamUpscalingMode = resolved.upscalingMode
         microphoneMode = profile.microphoneMode.lowercased()
         showStreamMicToggle = resolved.showStreamMicToggle
         let microphoneConfiguration = NativeNVSTMicrophoneConfiguration.settings(
@@ -1869,7 +1871,13 @@ struct NativeNVSTMediaStreamSurface: View {
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
         return NativeNVSTStreamHUDSection(label: "VIDEO") {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("MetalFX Upscaling", selection: Binding.constant(0)) {
+                Picker("MetalFX Upscaling", selection: Binding(
+                    get: { streamUpscalingMode },
+                    set: { newValue in
+                        streamUpscalingMode = newValue
+                        nativeView?.currentNVSTCoreRenderer?.setMetalFXEnabled(newValue == 3)
+                    }
+                )) {
                     Text("Off").tag(0)
                     Text("MetalFX").tag(3)
                 }
@@ -1877,8 +1885,8 @@ struct NativeNVSTMediaStreamSurface: View {
                 .pickerStyle(.segmented)
                 .tint(Color.pixelNowGreen)
                 .disabled(!sidebarCapabilities.supports(.videoEnhancement))
-                nativeHUDDetailRow(label: "Active", value: "Native")
-                nativeHUDDetailRow(label: "Target", value: "Native")
+                nativeHUDDetailRow(label: "Active", value: streamUpscalingMode == 3 ? "MetalFX" : "Off")
+                nativeHUDDetailRow(label: "Target", value: streamUpscalingMode == 3 ? "MetalFX" : "Native")
                 nativeHUDDetailRow(label: "Resolution", value: "\(profile.resolution.width) x \(profile.resolution.height)")
                 nativeHUDDetailRow(label: "Frame Rate", value: "\(profile.fps) FPS")
                 nativeHUDDetailRow(label: "Codec", value: profile.codec.value.uppercased())
