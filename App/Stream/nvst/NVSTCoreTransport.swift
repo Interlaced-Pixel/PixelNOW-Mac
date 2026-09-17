@@ -626,6 +626,8 @@ extension NVSTCoreTransport {
         initialKeyframeTask?.cancel()
         initialKeyframeTask = nil
         logCountersSync()
+        bundle?.refreshTransportStatistics()
+        feedbackSender?.flush()
         feedbackSender?.stop()
         feedbackSender = nil
 
