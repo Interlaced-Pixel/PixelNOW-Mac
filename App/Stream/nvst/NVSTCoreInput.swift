@@ -110,7 +110,8 @@ extension NVSTCoreTransport {
             x: UInt16(clamping: event.x),
             y: UInt16(clamping: event.y),
             viewportWidth: UInt16(clamping: event.viewportWidth),
-            viewportHeight: UInt16(clamping: event.viewportHeight)
+            viewportHeight: UInt16(clamping: event.viewportHeight),
+            flags: NvstRemoteInput.extendedAbsoluteFlag
         )
         sendFramedRemoteInputNow(packet, bundle: bundle)
     }

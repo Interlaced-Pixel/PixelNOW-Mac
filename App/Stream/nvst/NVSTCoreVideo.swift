@@ -404,22 +404,30 @@ extension NVSTCoreTransport {
             logger?("NVST seat cursor notifications started (\(cursor.summary)); server-composited cursor disabled sent=\(sent)")
             notifySeatCompositesCursor(false)
         }
-        guard let isVisible = cursor.visibility(following: remoteCursorVisible),
-              isVisible != remoteCursorVisible else { return }
-        let previous = remoteCursorVisible
-        remoteCursorVisible = isVisible
+        let isVisible = cursor.visibility(following: remoteCursorVisible)
+        if let isVisible, isVisible != remoteCursorVisible {
+            let previous = remoteCursorVisible
+            remoteCursorVisible = isVisible
 
-        logger?(String(format: "NVST remote cursor %@ -> %@ at %.3fs",
-                       previous.map { $0 ? "visible" : "hidden" } ?? "unknown",
-                       isVisible ? "visible" : "hidden",
-                       Double(clock.elapsedMicroseconds()) / 1_000_000))
-        if let notify = onRemoteCursorVisibilityChanged {
-            Task { @MainActor in notify(isVisible) }
+            logger?(String(format: "NVST remote cursor %@ -> %@ at %.3fs",
+                           previous.map { $0 ? "visible" : "hidden" } ?? "unknown",
+                           isVisible ? "visible" : "hidden",
+                           Double(clock.elapsedMicroseconds()) / 1_000_000))
+            if let notify = onRemoteCursorVisibilityChanged {
+                Task { @MainActor in notify(isVisible) }
+            }
+        }
+        if let notifyCursor = onRemoteCursorChanged {
+            Task { @MainActor in notifyCursor(cursor) }
         }
     }
 
     public func setRemoteCursorVisibilityHandler(_ handler: (@MainActor @Sendable (Bool) -> Void)?) {
         onRemoteCursorVisibilityChanged = handler
+    }
+
+    public func setRemoteCursorHandler(_ handler: (@MainActor @Sendable (NvstRemoteCursor) -> Void)?) {
+        onRemoteCursorChanged = handler
     }
 
     public func setRemoteCursorCaptureHandler(_ handler: (@MainActor @Sendable (Bool) -> Void)?) {

@@ -135,6 +135,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         }
     }
     private var hidesLocalCursorOverVideo = false
+    private var currentServerCursor: NSCursor?
     private var lastEmittedAbsoluteMouseEvent: NativeNVSTAbsoluteMouseEvent?
     private var trackingArea: NSTrackingArea?
     private var keyEquivalentMonitor: Any?
@@ -402,6 +403,17 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         }
     }
 
+    public func applyServerCursor(_ cursor: NvstRemoteCursor) {
+        let isVisible = cursor.isVisible
+        let newCursor = cursor.nativeCursor
+        let cursorShapeChanged = (currentServerCursor != newCursor)
+        currentServerCursor = newCursor
+        setRemoteCursorVisible(isVisible)
+        if cursorShapeChanged {
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
     public func applyServerCursorVisibility(_ visible: Bool) {
         setRemoteCursorVisible(visible)
     }
@@ -454,10 +466,13 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
 
     public override func resetCursorRects() {
         super.resetCursorRects()
-        guard hidesLocalCursorOverVideo else { return }
         let content = videoContentFrame()
         guard content.width > 0, content.height > 0 else { return }
-        addCursorRect(content, cursor: Self.invisibleCursor)
+        if hidesLocalCursorOverVideo {
+            addCursorRect(content, cursor: Self.invisibleCursor)
+        } else if let cursor = currentServerCursor {
+            addCursorRect(content, cursor: cursor)
+        }
     }
 
     private func synchronizeSDLKeyboardFocus() {
@@ -790,6 +805,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         pointerLockRestoreLocation = restoreLocation
         window?.acceptsMouseMovedEvents = true
         window?.makeFirstResponder(self)
+        applyWindowMouseConfinement(true)
         updatePointerLockCursorVisibility()
         installPointerLockMonitor()
         installPointerLockNotifications()
@@ -799,6 +815,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
 
     private func disablePointerLock() {
         guard isPointerLocked else { return }
+        applyWindowMouseConfinement(false)
         let associationResult = cursorAssociationHandler(true)
         cursorAssociationGeneration &+= 1
         let releaseGeneration = cursorAssociationGeneration
@@ -820,6 +837,18 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         if remoteCursorWantsPointer == true, mouseInputMode != .absolute { mouseInputMode = .absolute }
         applyLocalCursorPolicy()
         notifyPointerLockChanged(false)
+    }
+
+    private func applyWindowMouseConfinement(_ confined: Bool) {
+        guard let win = window else { return }
+        let selector = Selector(("setMouseConfinementRect:"))
+        guard win.responds(to: selector) else { return }
+        let targetRect = confined ? convert(bounds, to: nil) : CGRect.zero
+        typealias ConfinementFn = @convention(c) (AnyObject, Selector, NSRect) -> Void
+        if let method = win.method(for: selector) {
+            let fn = unsafeBitCast(method, to: ConfinementFn.self)
+            fn(win, selector, targetRect)
+        }
     }
 
     private func retryCursorAssociation(generation: UInt, delay: TimeInterval = 0.01) {

@@ -496,6 +496,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var didDisableCursorCapture = false
 
     public internal(set) var onRemoteCursorVisibilityChanged: (@MainActor @Sendable (Bool) -> Void)?
+    public internal(set) var onRemoteCursorChanged: (@MainActor @Sendable (NvstRemoteCursor) -> Void)?
     public internal(set) var onRemoteCursorCaptureChanged: (@MainActor @Sendable (Bool) -> Void)?
     var cursorCaptureWatchdogTask: Task<Void, Never>?
 

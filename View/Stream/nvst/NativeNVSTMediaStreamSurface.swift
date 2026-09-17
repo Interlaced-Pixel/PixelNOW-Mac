@@ -459,6 +459,9 @@ struct NativeNVSTMediaStreamSurface: View {
             await transport.setRemoteCursorVisibilityHandler { [weak nativeView] isVisible in
                 nativeView?.applyServerCursorVisibility(isVisible)
             }
+            await transport.setRemoteCursorHandler { [weak nativeView] cursor in
+                nativeView?.applyServerCursor(cursor)
+            }
             await transport.setRemoteCursorCaptureHandler { [weak nativeView] isCompositing in
                 nativeView?.seatCompositesCursor = isCompositing
             }
