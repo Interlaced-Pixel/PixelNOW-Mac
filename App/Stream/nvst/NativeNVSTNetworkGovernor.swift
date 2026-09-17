@@ -23,6 +23,7 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
         guard snapshot.available else { return [] }
 
         let currentBitrate = resolvedBitrateKbps(from: snapshot)
+        let hasSeverePacketLoss = snapshot.packetLossPercent >= 10
         let hasPacketLoss = snapshot.packetLossPercent >= 0 && snapshot.packetLossPercent >= 2
         let hasCongestion = snapshot.jitterMilliseconds >= 0 && snapshot.jitterMilliseconds >= 35
         let frameRateCollapsed = snapshot.negotiatedFramesPerSecond > 0
@@ -32,7 +33,7 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
             && snapshot.bandwidthUtilizationPercent < 70
 
         var adjustments: [NativeNVSTNetworkAdjustment] = []
-        if hasPacketLoss || hasCongestion || frameRateCollapsed {
+        if hasSeverePacketLoss {
             let reducedBitrate = max(1_000, UInt32(Double(currentBitrate) * 0.8))
             if reducedBitrate < currentBitrate {
                 adjustments.append(.maximumBitrateKbps(reducedBitrate))
@@ -40,16 +41,23 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
             }
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
+        } else if hasPacketLoss || hasCongestion || frameRateCollapsed {
+            appendMode(.preferFrameRate, to: &adjustments)
+            appendL4S(false, to: &adjustments)
         } else if bandwidthIsAvailable {
-            let recoveredBitrate = min(maximumBitrateKbps, max(currentBitrate, UInt32(Double(currentBitrate) * 1.1)))
-            if recoveredBitrate > currentBitrate {
-                adjustments.append(.maximumBitrateKbps(recoveredBitrate))
-                currentBitrateKbps = recoveredBitrate
+            if let active = currentBitrateKbps, active < maximumBitrateKbps {
+                let recoveredBitrate = min(maximumBitrateKbps, max(active, UInt32(Double(active) * 1.1)))
+                if recoveredBitrate > active {
+                    adjustments.append(.maximumBitrateKbps(recoveredBitrate))
+                    currentBitrateKbps = recoveredBitrate
+                }
             }
             appendMode(.preferResolution, to: &adjustments)
             appendL4S(configuredL4sEnabled, to: &adjustments)
         } else {
-            currentBitrateKbps = currentBitrate
+            if currentBitrateKbps == nil {
+                currentBitrateKbps = currentBitrate
+            }
         }
         return adjustments
     }
