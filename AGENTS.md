@@ -14,6 +14,7 @@ These rules override speed, scope reduction, and momentum. They apply to every t
 5. **Verify, do not assume.** A green build is not proof that every requirement is satisfied. Re-check the original instruction list before declaring done.
 6. **Always manually verify code.** After implementing changes, verify the work builds correctly or functions as expected before concluding the task.
 7. **Follow instructions to the letter.** User instructions are mandatory constraints, not suggestions. Do not reinterpret them into a smaller task without explicit approval.
+8. **Granular, ordered commits.** Follow the multi-commit, dependency-ordered, detailed commit standards. Never create single monolithic commits for multi-phase or multi-domain work.
 
 # Operational Protocol
 Execute every task in this order:
@@ -416,9 +417,45 @@ Exposes tools:
 - **Zero Warnings:** Code must pass the strictest linter and compiler settings cleanly.
 
 # Commit Standards
-- Commit all completed work before considering a task done.
-- Push completed commits to the current branch's upstream remote after committing.
-- Prefix every message with a conventional tag: `fix:`, `feat:`, `chore:`, `docs:`, `refactor:`, `test:`, or `style:`.
+
+Every commit in this repository must adhere to strict granularity, dependency ordering, and detailed documentation. Single monolithic commits covering multiple components or phases are strictly prohibited.
+
+## 1. Granular & Atomic Commits
+- **No Monolithic Commits:** Never combine multi-phase, multi-component, or multi-domain changes into a single large commit.
+- **Atomic Isolation:** Break work into individual commits by phase, subsystem, or logical layer (e.g., core types, wire framing, pipeline integration, telemetry, submodule bump).
+- **Compilable States:** Every intermediate commit must build cleanly on its own without breaking the tree.
+
+## 2. Strict Chronological Dependency Ordering
+Commits must be created in logical dependency order from foundational primitives up to high-level consumers:
+1. **ABI & Primitives:** Core memory layouts, struct strides, enums, raw values, and low-level data structures.
+2. **Wire & Protocol:** Protocol framing, packet payload builders/parsers, stream configurations, and opcodes.
+3. **Telemetry & Feedback:** Feedback loops, metrics collectors, latency timers, and QoS dispatchers.
+4. **Pipelines & Controllers:** High-level pipeline wiring, decoders/renderers, governors, and business logic.
+5. **Submodule References & Glue:** Submodule pointer updates and parent repository integration commits.
+
+*Cross-Repository / Submodule Rule:* When changes span both a submodule (e.g., `GFN/`) and the parent repository (`PixelNOW`), all submodule commits must be created, verified, and pushed upstream first. The parent repository then commits its changes and updates the submodule pointer in subsequent commits.
+
+## 3. Commit Message Structure & Detail
+Every commit message must follow this exact structure:
+
+```
+<type>(<scope>): <concise imperative summary>
+
+- <detailed bullet itemizing specific structs, enums, or functions modified/added>
+- <exact byte layouts, ABI strides, bit flags, raw values, or opcodes changed>
+- <algorithmic or architectural rationale for behavior adjustments>
+- <component interactions or integrations wired up>
+```
+
+- **Header Tag:** Prefix with a standard conventional type: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `perf:`, `test:`, or `style:`. Include an explicit parenthetical scope indicating the subsystem (e.g., `feat(nvst):`, `fix(video):`, `chore(submodule):`).
+- **Subject Line:** Concise, present-tense, imperative mood, under 72 characters, no trailing period.
+- **Blank Line:** Exactly one blank line between the header and the bulleted body.
+- **Detailed Body:** Bulleted list itemizing every affected symbol, memory stride (e.g., `120-byte ABI layout`), opcode (e.g., `0x0327`), algorithm threshold (e.g., `loss >= 10%`), and cross-component hook. Never use empty bodies or vague one-liners (e.g., "fix various bugs").
+
+## 4. Push and Traceability Discipline
+- **Traceability Table:** Always provide a requirement-by-requirement status table (`Requirement | Status | Evidence`) before committing, pushing, or declaring completion.
+- **Build Verification:** Verify compilation (`xcodebuild build` or project build command) before committing.
+- **Push Policy:** Push all completed commits to the current branch's upstream remote (`git push origin <branch>`).
 
 # Release Process
 When instructed to create a new GitHub release, strictly follow these steps in order:
