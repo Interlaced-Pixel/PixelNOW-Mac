@@ -161,10 +161,7 @@ extension NVSTCoreTransport {
 
     public func setMaximumBitrateKbps(_ bitrateKbps: UInt32) async throws {
         guard let bundle else { throw NativeNVSTError.notRunning }
-        var writer = NvstByteWriter(capacity: 8)
-        writer.u32LE(0)
-        writer.u32LE(bitrateKbps)
-        let command = NvstStreamingCommand(code: .maxBitrateChange, payload: writer.data)
+        let command = NvstStreamingCommand.maxBitrateChange(maxBitrateKbps: bitrateKbps, streamIndex: 0)
         guard bundle.sendControl(command) else {
             throw NativeNVSTError.transportFailed(
                 "Failed to send maximum bitrate change (\(bitrateKbps) kbps) over control channel")
