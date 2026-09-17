@@ -177,6 +177,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     private var lastKeyframeRequestAt: UInt64?
     /// Consecutive frames seen with the queue over the threshold.
     private var backlogStreak = 0
+    private var consecutiveSmallFrames = 0
 
     /// One entry per submitted unit awaiting its asynchronous decode completion, in submission
     /// order — VideoToolbox's own serial guarantee for this session means completions arrive in
@@ -554,6 +555,23 @@ public final class NvstVideoPipeline: @unchecked Sendable {
             renderUs: UInt32(clamping: Int((timings.ack * 1000).rounded())),
             queueDelayUs: UInt32(clamping: Int((timings.hop * 1000).rounded()))
         )
+
+        lock.lock()
+        if unit.bytes.count <= 300 {
+            consecutiveSmallFrames += 1
+            let count = consecutiveSmallFrames
+            lock.unlock()
+            if count % 60 == 0 {
+                logger?("NVST diagnostic: \(count) consecutive small frames received (<= 300 bytes). The stream may be frozen on the server side.")
+            }
+        } else {
+            let count = consecutiveSmallFrames
+            consecutiveSmallFrames = 0
+            lock.unlock()
+            if count >= 60 {
+                logger?("NVST diagnostic: Stream un-frozen. Received a frame of \(unit.bytes.count) bytes.")
+            }
+        }
 
         guard shouldLog else { return }
         logger?(String(format: "NVST SLOW FRAME #%u total=%.1fms hop=%.1f decode=%.1f ack=%.1f bytes=%d key=%@",

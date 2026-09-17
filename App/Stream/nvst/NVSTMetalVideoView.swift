@@ -251,6 +251,10 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var ciContext: CIContext?
     private let upscaler: NVSTMetalFXUpscaler
     private let bufferHolder = NVSTPixelBufferHolder()
+    private var drawnFrames = 0
+    private var uniqueFramesDrawn = 0
+    private var lastDrawLogTime = Date()
+    private var lastDrawnTime: CMTime?
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
     private var intermediateSourceTexture: (any MTLTexture)?
@@ -402,11 +406,27 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     }
 
     public func draw(in view: MTKView) {
-        guard let (pixelBuffer, _) = bufferHolder.get(),
+        guard let (pixelBuffer, time) = bufferHolder.get(),
               let currentDrawable = metalView.currentDrawable,
               let commandBuffer = commandQueue?.makeCommandBuffer(),
               let ciContext else {
             return
+        }
+
+        drawnFrames += 1
+        if lastDrawnTime != time {
+            uniqueFramesDrawn += 1
+            lastDrawnTime = time
+        }
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastDrawLogTime)
+        if elapsed >= 5.0 {
+            let fps = Double(drawnFrames) / elapsed
+            let uniqueFps = Double(uniqueFramesDrawn) / elapsed
+            NSLog("NVSTMetalVideoView draw() FPS: %.1f, Unique frames FPS: %.1f", fps, uniqueFps)
+            drawnFrames = 0
+            uniqueFramesDrawn = 0
+            lastDrawLogTime = now
         }
 
         let image = enhancedImage(CIImage(cvPixelBuffer: pixelBuffer))
