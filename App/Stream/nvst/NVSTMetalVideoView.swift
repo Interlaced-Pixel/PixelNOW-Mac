@@ -485,6 +485,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     }
 
     private func enhancedImage(_ image: CIImage) -> CIImage {
+        guard isMetalFXEnabled else { return image }
         var result = image
         if enhancementDenoise > 0, let filter = CIFilter(name: "CINoiseReduction") {
             filter.setValue(result, forKey: kCIInputImageKey)
@@ -494,7 +495,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         }
         if enhancementSharpness > 0, let filter = CIFilter(name: "CISharpenLuminance") {
             filter.setValue(result, forKey: kCIInputImageKey)
-            filter.setValue(Float(enhancementSharpness) / 15 * 2, forKey: "inputSharpness")
+            filter.setValue(Float(enhancementSharpness) / 15 * 0.4, forKey: "inputSharpness")
             if let output = filter.outputImage { result = output }
         }
         return result

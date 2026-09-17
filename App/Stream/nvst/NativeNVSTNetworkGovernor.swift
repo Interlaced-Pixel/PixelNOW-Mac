@@ -14,7 +14,8 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
     private var l4sEnabled: Bool
 
     init(maximumBitrateKbps: UInt32, l4sEnabled: Bool) {
-        self.maximumBitrateKbps = max(1_000, maximumBitrateKbps)
+        self.maximumBitrateKbps = max(10_000, maximumBitrateKbps)
+        self.currentBitrateKbps = self.maximumBitrateKbps
         self.configuredL4sEnabled = l4sEnabled
         self.l4sEnabled = l4sEnabled
     }
@@ -22,42 +23,35 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
     mutating func evaluate(_ snapshot: NativeNVSTPerformanceSnapshot) -> [NativeNVSTNetworkAdjustment] {
         guard snapshot.available else { return [] }
 
-        let currentBitrate = resolvedBitrateKbps(from: snapshot)
+        let activeBitrate = currentBitrateKbps ?? maximumBitrateKbps
+        let bitrateFloor = min(maximumBitrateKbps, max(15_000, maximumBitrateKbps / 3))
         let hasSeverePacketLoss = snapshot.packetLossPercent >= 10
-        let hasPacketLoss = snapshot.packetLossPercent >= 0 && snapshot.packetLossPercent >= 2
-        let hasCongestion = snapshot.jitterMilliseconds >= 0 && snapshot.jitterMilliseconds >= 35
-        let frameRateCollapsed = snapshot.negotiatedFramesPerSecond > 0
-            && snapshot.streamFramesPerSecond >= 0
-            && snapshot.streamFramesPerSecond < snapshot.negotiatedFramesPerSecond * 0.8
-        let bandwidthIsAvailable = snapshot.bandwidthUtilizationPercent >= 0
-            && snapshot.bandwidthUtilizationPercent < 70
+        let hasPacketLoss = snapshot.packetLossPercent >= 2
+        let hasCongestion = snapshot.jitterMilliseconds >= 35
+        let bandwidthIsAvailable = snapshot.packetLossPercent < 1 && snapshot.jitterMilliseconds < 25
 
         var adjustments: [NativeNVSTNetworkAdjustment] = []
         if hasSeverePacketLoss {
-            let reducedBitrate = max(1_000, UInt32(Double(currentBitrate) * 0.8))
-            if reducedBitrate < currentBitrate {
+            let reducedBitrate = max(bitrateFloor, UInt32(Double(activeBitrate) * 0.85))
+            if reducedBitrate < activeBitrate {
                 adjustments.append(.maximumBitrateKbps(reducedBitrate))
                 currentBitrateKbps = reducedBitrate
             }
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
-        } else if hasPacketLoss || hasCongestion || frameRateCollapsed {
+        } else if hasPacketLoss || hasCongestion {
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
         } else if bandwidthIsAvailable {
-            if let active = currentBitrateKbps, active < maximumBitrateKbps {
-                let recoveredBitrate = min(maximumBitrateKbps, max(active, UInt32(Double(active) * 1.1)))
-                if recoveredBitrate > active {
+            if activeBitrate < maximumBitrateKbps {
+                let recoveredBitrate = min(maximumBitrateKbps, max(activeBitrate, UInt32(Double(activeBitrate) * 1.15)))
+                if recoveredBitrate > activeBitrate {
                     adjustments.append(.maximumBitrateKbps(recoveredBitrate))
                     currentBitrateKbps = recoveredBitrate
                 }
             }
             appendMode(.preferResolution, to: &adjustments)
             appendL4S(configuredL4sEnabled, to: &adjustments)
-        } else {
-            if currentBitrateKbps == nil {
-                currentBitrateKbps = currentBitrate
-            }
         }
         return adjustments
     }
