@@ -321,7 +321,7 @@ public enum WebRTCMediaStreamSettingsResolver {
             enableReflex: cloudVariables.allowReflex,
             transportMode: normalizedTransportMode(profile.transportMode),
             streamingQualityProfile: min(max(profile.streamingQualityProfile, 0), 4),
-            enableCloudGsync: profile.enableCloudGsync,
+            enableCloudGsync: profile.fps > 60 && capabilities.maxDisplayRefreshRate > 60 && profile.enableCloudGsync,
             fallbackToLogicalResolution: profile.fallbackToLogicalResolution,
             hudStreamingMode: min(max(profile.hudStreamingMode, 0), 2),
             sdrColorSpace: min(max(profile.sdrColorSpace, 0), 2),

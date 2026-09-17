@@ -449,7 +449,9 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         // What we can actually measure: how long this frame spent between leaving the reassembler
         // and finishing decode. The capture's five marks are a rising series from one frame origin,
         // so a single measured latency repeated across them is the honest reading of it.
+        let pacedInterFrame = min(measuredInterFrame, frameTimeMicroseconds)
         let latencyMilliseconds = Float(timings.hop + timings.decode)
+        let ackLatency = min(latencyMilliseconds, Float(frameTimeMicroseconds) / 1000.0)
         let ack = NvstFrameAck(
             frameNumber: frameAckNumber,
             // Session-relative, not epoch. Only the delta matters to the pacer, and the remote-input
@@ -457,9 +459,9 @@ public final class NvstVideoPipeline: @unchecked Sendable {
             // session one; the capture's own value is ~20000, which is session scale.
             clientTimeMilliseconds: Double(clock.elapsedMicroseconds(now: now)) / 1000,
             frameBytes: UInt32(truncatingIfNeeded: unit.bytes.count),
-            interFrameMicroseconds: measuredInterFrame,
-            stageMilliseconds: [latencyMilliseconds],
-            auxiliaryMilliseconds: [latencyMilliseconds, latencyMilliseconds, 0, 0, 0, 0]
+            interFrameMicroseconds: pacedInterFrame,
+            stageMilliseconds: [ackLatency],
+            auxiliaryMilliseconds: [ackLatency, ackLatency, 0, 0, 0, 0]
         )
         // The pacer's target interval rides on 0x203, roughly every 6-8 frames as the capture does.
         var pacingSent = 0

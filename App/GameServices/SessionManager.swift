@@ -972,7 +972,7 @@ private func requestedStreamingFeatures(_ settings: [String: Any], hdrEnabled: B
     return [
         "reflex": bool(settings["enableReflex"], fallback: true),
         "bitDepth": bitDepth,
-        "cloudGsync": bool(settings["enableCloudGsync"]),
+        "cloudGsync": bool(settings["enableCloudGsync"]) && int(settings["fps"], fallback: 60) > 60,
         "enabledL4S": bool(settings["enableL4S"]),
         "mouseMovementFlags": int(settings["mouseMovementFlags"]),
         "trueHdr": hdrEnabled,
