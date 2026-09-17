@@ -144,6 +144,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     private let mediaSink: (@Sendable (NvstAccessUnit) -> Void)?
     private let onKeyframeNeeded: @Sendable () -> Void
     private let onFatalDecodeError: @Sendable (String) -> Void
+    private let qosManager: NvstQosManager?
 
     /// Below the receive loop's `.userInteractive` deliberately: decode falling a frame behind
     /// costs latency, while the receive loop falling behind costs packets.
@@ -205,7 +206,8 @@ public final class NvstVideoPipeline: @unchecked Sendable {
                 logger: (@Sendable (String) -> Void)?,
                 mediaSink: (@Sendable (NvstAccessUnit) -> Void)?,
                 onKeyframeNeeded: @escaping @Sendable () -> Void,
-                onFatalDecodeError: @escaping @Sendable (String) -> Void) {
+                onFatalDecodeError: @escaping @Sendable (String) -> Void,
+                qosManager: NvstQosManager? = nil) {
         self.decoder = decoder
         self.clock = clock
         self.frameTimeMicroseconds = frameTimeMicroseconds
@@ -214,6 +216,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         self.mediaSink = mediaSink
         self.onKeyframeNeeded = onKeyframeNeeded
         self.onFatalDecodeError = onFatalDecodeError
+        self.qosManager = qosManager
         // The ack used to fire right after `decoder.decode(unit)` returned — which is only the
         // synchronous submission accepted by VideoToolbox, not the frame actually finishing
         // decode. That answered the seat's frame pacer before the frame the pacer was asking
@@ -544,6 +547,14 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         let shouldLog = isSlow && loggedSlowFrames < Self.maximumLoggedSlowFrames
         if shouldLog { loggedSlowFrames += 1 }
         lock.unlock()
+
+        qosManager?.recordFrameTimings(
+            frameNumber: frameNumber,
+            decodeUs: UInt32(clamping: Int((timings.decode * 1000).rounded())),
+            renderUs: UInt32(clamping: Int((timings.ack * 1000).rounded())),
+            queueDelayUs: UInt32(clamping: Int((timings.hop * 1000).rounded()))
+        )
+
         guard shouldLog else { return }
         logger?(String(format: "NVST SLOW FRAME #%u total=%.1fms hop=%.1f decode=%.1f ack=%.1f bytes=%d key=%@",
                        frameNumber, timings.total, timings.hop, timings.decode, timings.ack,

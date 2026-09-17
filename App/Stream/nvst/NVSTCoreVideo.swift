@@ -52,7 +52,7 @@ extension NVSTCoreTransport {
             }
         }
         mediaFrameContinuation = mediaContinuation
-        let pipeline = makeVideoPipeline(handoff: handoff, decoder: decoder, receiver: receiver, mediaContinuation: mediaContinuation)
+        let pipeline = makeVideoPipeline(handoff: handoff, decoder: decoder, receiver: receiver, mediaContinuation: mediaContinuation, qosManager: qosManager)
         videoPipeline = pipeline
         receiver.onAccessUnit = { [weak pipeline] unit in pipeline?.submit(unit) }
         receiver.onRecoveryNeeded = { [weak self, weak receiver] brokenFrameIndex in
@@ -83,7 +83,8 @@ extension NVSTCoreTransport {
     private func makeVideoPipeline(handoff: NVSTVideoHandoff,
                                    decoder: NvstVideoToolboxDecoder,
                                    receiver: NVSTWireReceiver,
-                                   mediaContinuation: AsyncStream<NativeNVSTVideoFrame>.Continuation) -> NvstVideoPipeline {
+                                   mediaContinuation: AsyncStream<NativeNVSTVideoFrame>.Continuation,
+                                   qosManager: NvstQosManager? = nil) -> NvstVideoPipeline {
 
         let displayRefreshRate = StreamPreferences.loadDeviceCapabilities().maxDisplayRefreshRate
         let displayVsyncMicroseconds = displayRefreshRate > 0 ? UInt32(1_000_000 / displayRefreshRate) : 16000
@@ -113,7 +114,8 @@ extension NVSTCoreTransport {
             },
             onFatalDecodeError: { [weak self] message in
                 Task { await self?.reportFatalDecodeError(message) }
-            }
+            },
+            qosManager: qosManager
         )
     }
 
