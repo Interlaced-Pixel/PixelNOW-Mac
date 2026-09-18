@@ -23,7 +23,7 @@ struct GameLaunchSettingsSheet: View {
     }
 
     private var lockedProfileSubtitle: String {
-        "Managed by the \(profile.streamingQualityProfileOption.label) preset. Select Custom to edit."
+        "Managed by \(profile.streamingQualityProfileOption.label) preset. Set to Custom to edit."
     }
 
     enum LaunchSettingsTab: String, CaseIterable, Identifiable {
@@ -366,34 +366,6 @@ struct GameLaunchSettingsSheet: View {
                     .opacity(isQualityLocked ? 0.6 : 1)
                 }
             }
-
-            Divider().background(Color.white.opacity(0.08))
-
-            settingSectionHeader("Color Precision")
-            HStack(spacing: 6) {
-                Picker("", selection: Binding(
-                    get: { profile.colorQualityIndex },
-                    set: { newQuality in
-                        guard !isQualityLocked else { return }
-                        profile.colorQualityIndex = newQuality
-                        profile.colorQuality = StreamPreferences.colorQualityOptions[newQuality]
-                        saveCurrentProfile()
-                    }
-                )) {
-                    ForEach(StreamPreferences.colorQualityOptions.indices, id: \.self) { idx in
-                        Text(StreamPreferences.colorQualityOptions[idx].label).tag(idx)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .disabled(isQualityLocked)
-                .opacity(isQualityLocked ? 0.6 : 1)
-
-                if isQualityLocked {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.pixelNowGreen.opacity(0.8))
-                }
-            }
         }
     }
 
@@ -454,26 +426,6 @@ struct GameLaunchSettingsSheet: View {
                         set: {
                             guard !isQualityLocked else { return }
                             profile.enableCloudGsync = $0
-                            saveCurrentProfile()
-                        }
-                    ))
-                    .toggleStyle(SwitchToggleStyle(tint: Color.pixelNowGreen))
-                    .disabled(isQualityLocked)
-                    .opacity(isQualityLocked ? 0.6 : 1)
-
-                    if isQualityLocked {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.pixelNowGreen.opacity(0.8))
-                    }
-                }
-
-                HStack {
-                    Toggle("Fallback to Logical Display Resolution", isOn: Binding(
-                        get: { profile.fallbackToLogicalResolution },
-                        set: {
-                            guard !isQualityLocked else { return }
-                            profile.fallbackToLogicalResolution = $0
                             saveCurrentProfile()
                         }
                     ))
@@ -588,7 +540,7 @@ struct GameLaunchSettingsSheet: View {
 
             Divider().background(Color.white.opacity(0.08))
 
-            settingSectionHeader("Dynamic Range & Power")
+            settingSectionHeader("Dynamic Range (HDR)")
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Toggle("High Dynamic Range (HDR)", isOn: Binding(
@@ -596,26 +548,8 @@ struct GameLaunchSettingsSheet: View {
                         set: {
                             guard !isQualityLocked else { return }
                             profile.enableHdr = $0
-                            saveCurrentProfile()
-                        }
-                    ))
-                    .toggleStyle(SwitchToggleStyle(tint: Color.pixelNowGreen))
-                    .disabled(isQualityLocked)
-                    .opacity(isQualityLocked ? 0.6 : 1)
-
-                    if isQualityLocked {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.pixelNowGreen.opacity(0.8))
-                    }
-                }
-
-                HStack {
-                    Toggle("Power Saver Mode", isOn: Binding(
-                        get: { profile.enablePowerSaver },
-                        set: {
-                            guard !isQualityLocked else { return }
-                            profile.enablePowerSaver = $0
+                            profile.colorQualityIndex = $0 ? 2 : 0
+                            profile.colorQuality = StreamPreferences.colorQualityOptions[$0 ? 2 : 0]
                             saveCurrentProfile()
                         }
                     ))

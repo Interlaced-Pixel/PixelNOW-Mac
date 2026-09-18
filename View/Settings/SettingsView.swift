@@ -155,6 +155,30 @@ private struct SettingsSurfaceBackground: View {
     }
 }
 
+private struct SettingsSidebarSection: Identifiable {
+    let id: String
+    let title: String
+    let pages: [CatalogSettingsPage]
+}
+
+private let settingsSidebarSections: [SettingsSidebarSection] = [
+    SettingsSidebarSection(
+        id: "account",
+        title: "ACCOUNT & ACCESS",
+        pages: [.account, .connections, .interface]
+    ),
+    SettingsSidebarSection(
+        id: "streaming",
+        title: "STREAMING & ENGINE",
+        pages: [.gameplay, .serverLocation, .resolutionUpscaling, .experimentalFeatures]
+    ),
+    SettingsSidebarSection(
+        id: "system",
+        title: "SYSTEM & ABOUT",
+        pages: [.system, .about]
+    )
+]
+
 private struct SettingsSidebar: View {
     @ObservedObject var viewModel: CatalogViewModel
 
@@ -170,32 +194,50 @@ private struct SettingsSidebar: View {
                     .foregroundStyle(.white)
             }
             .padding(.horizontal, 22)
-            .padding(.vertical, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 10)
 
-            ForEach(CatalogSettingsPage.allCases) { page in
-                Button { viewModel.selectedSettingsPage = page } label: {
-                    HStack(spacing: 12) {
-                        Rectangle()
-                            .fill(viewModel.selectedSettingsPage == page ? Color.pixelNowGreen : .clear)
-                            .frame(width: 4, height: 34)
-                        Image(systemName: icon(for: page))
-                            .font(.settingsNvidia(size: 13, weight: .bold))
-                            .foregroundStyle(viewModel.selectedSettingsPage == page ? Color.pixelNowGreen : .white.opacity(0.52))
-                            .frame(width: 18)
-                        Text(page.title)
-                            .font(.settingsNvidia(size: 14, weight: viewModel.selectedSettingsPage == page ? .bold : .medium))
-                            .foregroundStyle(viewModel.selectedSettingsPage == page ? .white : .white.opacity(0.68))
-                        Spacer(minLength: 0)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(settingsSidebarSections) { section in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(section.title)
+                                .font(.settingsNvidia(size: 9.5, weight: .bold))
+                                .foregroundStyle(Color.white.opacity(0.38))
+                                .tracking(1.2)
+                                .padding(.horizontal, 22)
+                                .padding(.top, 4)
+                                .padding(.bottom, 4)
+
+                            ForEach(section.pages) { page in
+                                Button { viewModel.selectedSettingsPage = page } label: {
+                                    HStack(spacing: 12) {
+                                        Rectangle()
+                                            .fill(viewModel.selectedSettingsPage == page ? Color.pixelNowGreen : .clear)
+                                            .frame(width: 4, height: 32)
+                                        Image(systemName: icon(for: page))
+                                            .font(.settingsNvidia(size: 13, weight: .bold))
+                                            .foregroundStyle(viewModel.selectedSettingsPage == page ? Color.pixelNowGreen : .white.opacity(0.52))
+                                            .frame(width: 18)
+                                        Text(page.title)
+                                            .font(.settingsNvidia(size: 13.5, weight: viewModel.selectedSettingsPage == page ? .bold : .medium))
+                                            .foregroundStyle(viewModel.selectedSettingsPage == page ? .white : .white.opacity(0.68))
+                                        Spacer(minLength: 0)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(height: 38)
+                                    .background(viewModel.selectedSettingsPage == page ? Color.white.opacity(0.065) : .clear)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: 48)
-                    .background(viewModel.selectedSettingsPage == page ? Color.white.opacity(0.065) : .clear)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .padding(.bottom, 12)
             }
 
-            Spacer()
+            Spacer(minLength: 12)
             Button { viewModel.showGames() } label: {
                 Text("BACK TO GAMES")
                     .font(.settingsNvidia(size: 12, weight: .bold))
@@ -292,15 +334,15 @@ private struct SettingsContent: View {
 
     private var subtitle: String {
         switch viewModel.selectedSettingsPage {
-        case .account: return "Saved NVIDIA accounts, membership, profile, and current session details."
-        case .interface: return "Choose the desktop catalog or controller-first TV interface."
-        case .connections: return "Manage store accounts used for library sync and ownership detection."
-        case .gameplay: return "Tune streaming quality, latency, input, audio, and microphone behavior."
-        case .experimentalFeatures: return "Opt in to alpha, beta, and test features before they appear elsewhere."
-        case .serverLocation: return "Use capacity-aware Automatic routing or pin a measured Cloudmatch region."
-        case .resolutionUpscaling: return "Control MetalFX presentation, clarity, and noise reduction for Apple Silicon."
-        case .system: return "Review decoder, display, network, and device capability state."
-        case .about: return "PixelNOW Mac runtime and service identifiers."
+        case .account: return "NVIDIA accounts, membership tier, and active session details."
+        case .interface: return "Display, navigation mode, and controller button hints."
+        case .connections: return "Linked game stores for library synchronization and ownership."
+        case .gameplay: return "Resolution, frame rate, bitrate, HDR, input, and audio."
+        case .experimentalFeatures: return "Preview upcoming features and early beta tools."
+        case .serverLocation: return "GeForce NOW data center routing and measured latency."
+        case .resolutionUpscaling: return "MetalFX spatial scaling and post-processing clarity for Apple Silicon."
+        case .system: return "Hardware decode, display refresh, network, and controller status."
+        case .about: return "App version, build info, and diagnostic logs."
         }
     }
 }
@@ -773,10 +815,10 @@ private struct InterfaceSettingsPage: View {
                         .background(Color.pixelNowGreen.opacity(0.12))
                         .overlay { Rectangle().stroke(Color.pixelNowGreen.opacity(0.30), lineWidth: 1) }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(inputRouter.isControllerConnected ? "Controller glyphs are live" : "Keyboard fallback is active")
+                        Text(inputRouter.isControllerConnected ? "Adaptive Controller Layout" : "Keyboard Navigation Active")
                             .font(.settingsNvidia(size: 14, weight: .bold))
                             .foregroundStyle(.white.opacity(0.92))
-                        Text(inputRouter.isControllerConnected ? "Hints use symbols exposed by the connected game controller whenever the system provides them." : "Connect a controller to switch hints from keyboard keys to controller button glyphs automatically.")
+                        Text(inputRouter.isControllerConnected ? "Input hints adapt to your connected controller." : "Connect a controller to show gamepad button hints automatically.")
                             .font(.settingsNvidia(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.58))
                             .fixedSize(horizontal: false, vertical: true)
@@ -786,7 +828,7 @@ private struct InterfaceSettingsPage: View {
                 SettingsDivider()
                 SettingsToggleRow(
                     title: "Controller Navigation Mode",
-                    subtitle: "Routes gamepad input for D-pad/stick navigation across the catalog, library, and settings interfaces.",
+                    subtitle: "Navigate catalog, library, and settings using connected gamepads.",
                     isOn: controllerModeEnabled,
                     action: { controllerModeEnabled = $0 }
                 )
@@ -1135,7 +1177,7 @@ private struct ExperimentalFeaturesSettingsPage: View {
             SettingsCard(title: "Alpha Access") {
                 SettingsToggleRow(
                     title: "Remote Co-Op Alpha",
-                    subtitle: viewModel.remoteCoOpPreferences.isAlphaOptedIn ? "Remote Co-Op settings are available from Gameplay settings." : "Opt in before Remote Co-Op settings, preferences, and stream HUD controls appear.",
+                    subtitle: viewModel.remoteCoOpPreferences.isAlphaOptedIn ? "Controls and host options available in Gameplay settings." : "Unlock Remote Co-Op host controls and stream HUD invites.",
                     isOn: viewModel.remoteCoOpPreferences.isAlphaOptedIn,
                     action: viewModel.setRemoteCoOpAlphaOptedIn
                 )
@@ -1144,7 +1186,7 @@ private struct ExperimentalFeaturesSettingsPage: View {
             SettingsCard(title: "Recording") {
                 SettingsToggleRow(
                     title: "Recording Editor Early Beta",
-                    subtitle: recordingEditorEarlyBetaEnabled ? "Trim, arrange, crop, audio, and export tools are unlocked in Recordings." : "Opt in before recording editor controls appear in Recordings.",
+                    subtitle: recordingEditorEarlyBetaEnabled ? "Editing tools unlocked in Recordings tab." : "Unlock clip trimming, arrangement, and export tools in Recordings.",
                     isOn: recordingEditorEarlyBetaEnabled,
                     action: setRecordingEditorEarlyBetaEnabled
                 )
@@ -1194,7 +1236,7 @@ private struct ExperimentalFeaturesSettingsPage: View {
                 SettingsDivider()
                 SettingsTextFieldRow(
                     title: "Custom GFN App ID",
-                    subtitle: "Leave blank to use default carrier (Battle for Wesnoth, GFN App ID: 106269727).",
+                    subtitle: "Carrier game ID for desktop sessions (default: Battle for Wesnoth).",
                     text: viewModel.desktopCustomAppId,
                     placeholder: "e.g. 106269727",
                     action: viewModel.setDesktopCustomAppId
@@ -1228,82 +1270,42 @@ private struct GameplaySettingsPage: View {
                     frameRate: "\(viewModel.streamProfile.fps) FPS",
                     codec: viewModel.streamProfile.codec.label,
                     bitrate: "\(viewModel.streamProfile.maxBitrateMbps) Mbps",
-                    colorPrecision: viewModel.streamProfile.colorQuality.label,
+                    colorPrecision: viewModel.streamProfile.enableHdr ? "10-bit (HDR)" : "8-bit (SDR)",
                     dataUsage: estimatedDataUsage
                 )
             }
 
-            SettingsCard(title: "Streaming Quality") {
-                SettingsOptionRow(title: "Aspect Ratio", subtitle: qualityLocked ? lockedProfileSubtitle : "Controls the available resolution list.", options: StreamPreferences.aspectOptions.map(\.label), selectedIndex: viewModel.streamProfile.aspectIndex, isLocked: qualityLocked, action: viewModel.setAspectIndex)
+            SettingsCard(title: "Quality & Network Performance") {
+                SettingsOptionRow(title: "Quality Profile", subtitle: "Preconfigured streaming balance for bandwidth and latency.", options: StreamPreferences.streamingQualityProfileOptions.map(\.label), selectedIndex: viewModel.streamProfile.streamingQualityProfileIndex, action: viewModel.setStreamingQualityProfileIndex)
                 SettingsDivider()
-                SettingsOptionRow(title: "Resolution", subtitle: qualityLocked ? lockedProfileSubtitle : "Current target: \(viewModel.streamProfile.resolution.label).", options: StreamPreferences.resolutionOptions(forAspect: viewModel.streamProfile.aspectIndex).map(\.label), selectedIndex: viewModel.streamProfile.resolutionIndex, isLocked: qualityLocked, action: viewModel.setResolutionIndex)
+                SettingsToggleRow(title: "Cloud G-Sync", subtitle: qualityLocked ? lockedProfileSubtitle : "Sync render rate with display refresh to eliminate tearing.", isOn: viewModel.streamProfile.enableCloudGsync, isLocked: qualityLocked, action: viewModel.setCloudGsyncEnabled)
                 SettingsDivider()
-                SettingsOptionRow(title: "Frame Rate", subtitle: qualityLocked ? lockedProfileSubtitle : "Limited by the active display refresh rate.", options: StreamPreferences.fpsOptions.map { "\($0) FPS" }, selectedIndex: viewModel.streamProfile.fpsIndex, enabled: StreamPreferences.fpsOptions.map { StreamPreferences.fpsSupported($0, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setFpsIndex)
-                SettingsDivider()
-                SettingsOptionRow(title: "Codec", subtitle: qualityLocked ? lockedProfileSubtitle : "Unavailable hardware codecs are disabled.", options: StreamPreferences.codecOptions.map(\.label), selectedIndex: viewModel.streamProfile.codecIndex, enabled: StreamPreferences.codecOptions.map { StreamPreferences.codecSupported($0, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setCodecIndex)
-                SettingsDivider()
-                SettingsOptionRow(title: "Maximum Bitrate", subtitle: qualityLocked ? lockedProfileSubtitle : "Higher bitrate improves clarity on stable connections.", options: StreamPreferences.bitrateOptions.map(\.label), selectedIndex: viewModel.streamProfile.bitrateIndex, isLocked: qualityLocked, action: viewModel.setBitrateIndex)
-                SettingsDivider()
-                SettingsOptionRow(title: "Color Precision", subtitle: qualityLocked ? lockedProfileSubtitle : "10-bit modes require HEVC, AV1, or Auto support.", options: StreamPreferences.colorQualityOptions.map(\.label), selectedIndex: viewModel.streamProfile.colorQualityIndex, enabled: StreamPreferences.colorQualityOptions.map { StreamPreferences.colorQualitySupported($0, codec: viewModel.streamProfile.codec, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setColorQualityIndex)
+                SettingsToggleRow(title: "L4S Congestion Control", subtitle: qualityLocked ? lockedProfileSubtitle : "Reduce queuing delay and packet jitter on supported networks.", isOn: viewModel.streamProfile.enableL4S, isLocked: qualityLocked, action: viewModel.setL4SEnabled)
             }
 
-            SettingsCard(title: "Stream Delivery") {
-                SettingsOptionRow(title: "Quality Profile", subtitle: "Maps to the vendor streaming profile sent with the session request.", options: StreamPreferences.streamingQualityProfileOptions.map(\.label), selectedIndex: viewModel.streamProfile.streamingQualityProfileIndex, action: viewModel.setStreamingQualityProfileIndex)
+            SettingsCard(title: "Display & Video") {
+                SettingsOptionRow(title: "Aspect Ratio", subtitle: qualityLocked ? lockedProfileSubtitle : "Aspect ratio for available stream resolutions.", options: StreamPreferences.aspectOptions.map(\.label), selectedIndex: viewModel.streamProfile.aspectIndex, isLocked: qualityLocked, action: viewModel.setAspectIndex)
                 SettingsDivider()
-                SettingsToggleRow(title: "Cloud G-Sync", subtitle: qualityLocked ? lockedProfileSubtitle : "Request cloud-side G-Sync when the server and stream mode support it.", isOn: viewModel.streamProfile.enableCloudGsync, isLocked: qualityLocked, action: viewModel.setCloudGsyncEnabled)
+                SettingsOptionRow(title: "Resolution", subtitle: qualityLocked ? lockedProfileSubtitle : "Target stream resolution.", options: StreamPreferences.resolutionOptions(forAspect: viewModel.streamProfile.aspectIndex).map(\.label), selectedIndex: viewModel.streamProfile.resolutionIndex, isLocked: qualityLocked, action: viewModel.setResolutionIndex)
                 SettingsDivider()
-                SettingsToggleRow(title: "Logical Resolution Fallback", subtitle: qualityLocked ? lockedProfileSubtitle : "Allow the stream request to fall back to logical display resolution.", isOn: viewModel.streamProfile.fallbackToLogicalResolution, isLocked: qualityLocked, action: viewModel.setFallbackToLogicalResolution)
+                SettingsOptionRow(title: "Frame Rate", subtitle: qualityLocked ? lockedProfileSubtitle : "Target stream FPS, capped by display refresh.", options: StreamPreferences.fpsOptions.map { "\($0) FPS" }, selectedIndex: viewModel.streamProfile.fpsIndex, enabled: StreamPreferences.fpsOptions.map { StreamPreferences.fpsSupported($0, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setFpsIndex)
                 SettingsDivider()
-                SettingsOptionRow(title: "HUD Stream", subtitle: qualityLocked ? lockedProfileSubtitle : "Controls vendor HUD streaming metadata mode.", options: StreamPreferences.hudStreamingModeOptions.map(\.label), selectedIndex: viewModel.streamProfile.hudStreamingModeIndex, isLocked: qualityLocked, action: viewModel.setHudStreamingModeIndex)
+                SettingsOptionRow(title: "Codec", subtitle: qualityLocked ? lockedProfileSubtitle : "Hardware video decoder (AV1, HEVC, or H.264).", options: StreamPreferences.codecOptions.map(\.label), selectedIndex: viewModel.streamProfile.codecIndex, enabled: StreamPreferences.codecOptions.map { StreamPreferences.codecSupported($0, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setCodecIndex)
                 SettingsDivider()
-                SettingsOptionRow(title: "SDR Color Space", subtitle: qualityLocked ? lockedProfileSubtitle : "Requested SDR color-space metadata.", options: StreamPreferences.colorSpaceOptions.map(\.label), selectedIndex: viewModel.streamProfile.sdrColorSpaceIndex, isLocked: qualityLocked, action: viewModel.setSDRColorSpaceIndex)
+                SettingsOptionRow(title: "Maximum Bitrate", subtitle: qualityLocked ? lockedProfileSubtitle : "Maximum video streaming bandwidth.", options: StreamPreferences.bitrateOptions.map(\.label), selectedIndex: viewModel.streamProfile.bitrateIndex, isLocked: qualityLocked, action: viewModel.setBitrateIndex)
                 SettingsDivider()
-                SettingsOptionRow(title: "HDR Color Space", subtitle: qualityLocked ? lockedProfileSubtitle : "Requested HDR color-space metadata.", options: StreamPreferences.colorSpaceOptions.map(\.label), selectedIndex: viewModel.streamProfile.hdrColorSpaceIndex, isLocked: qualityLocked, action: viewModel.setHDRColorSpaceIndex)
+                SettingsToggleRow(title: "HDR (High Dynamic Range)", subtitle: qualityLocked ? lockedProfileSubtitle : "10-bit Rec. 2020 color on supported displays and codecs.", isOn: viewModel.streamProfile.enableHdr, isLocked: qualityLocked, action: viewModel.setHDREnabled)
             }
 
-            SettingsCard(title: "Gameplay") {
-                SettingsToggleRow(title: "L4S", subtitle: qualityLocked ? lockedProfileSubtitle : "Use low-latency scalable throughput when available.", isOn: viewModel.streamProfile.enableL4S, isLocked: qualityLocked, action: viewModel.setL4SEnabled)
+            SettingsCard(title: "Mouse & Input Controls") {
+                SettingsToggleRow(title: "Direct Mouse Input", subtitle: "Capture raw mouse motion. Press ⌘G or ⌘Q to release pointer.", isOn: viewModel.streamProfile.directMouseInput, action: viewModel.setDirectMouseInputEnabled)
                 SettingsDivider()
-                SettingsToggleRow(title: "HDR", subtitle: qualityLocked ? lockedProfileSubtitle : "Requires a compatible display and stream capability.", isOn: viewModel.streamProfile.enableHdr, isLocked: qualityLocked, action: viewModel.setHDREnabled)
+                SettingsToggleRow(title: "Suppress Input When Inactive", subtitle: "Ignore inputs when PixelNOW loses window focus.", isOn: viewModel.streamProfile.suppressInputWhenInactive, action: viewModel.setSuppressInputWhenInactive)
                 SettingsDivider()
-                SettingsToggleRow(title: "Power Saver", subtitle: qualityLocked ? lockedProfileSubtitle : "Reduce resource use when possible.", isOn: viewModel.streamProfile.enablePowerSaver, isLocked: qualityLocked, action: viewModel.setPowerSaverEnabled)
-                SettingsDivider()
-                SettingsToggleRow(title: "Prevent Display Sleep", subtitle: "Keeps the monitor awake while a stream is active.", isOn: viewModel.streamProfile.preventDisplaySleepWhileStreaming, action: viewModel.setPreventDisplaySleepWhileStreaming)
-                SettingsDivider()
-                SettingsToggleRow(title: "Direct Mouse Input", subtitle: "Capture relative input and keep absolute game cursors inside the stream window. Use Command-G or Command-Q to release the pointer.", isOn: viewModel.streamProfile.directMouseInput, action: viewModel.setDirectMouseInputEnabled)
-                SettingsDivider()
-                SettingsToggleRow(title: "Anti-AFK Mouse Movement", subtitle: "Moves the stream mouse every 60 seconds while a stream is active. Cmd-K toggles it in-stream.", isOn: viewModel.streamProfile.antiAFKMouseMovementEnabled, action: viewModel.setAntiAFKMouseMovementEnabled)
-                SettingsDivider()
-                SettingsToggleRow(title: "Suppress Input When Inactive", subtitle: "Avoid sending input while PixelNOW is not focused.", isOn: viewModel.streamProfile.suppressInputWhenInactive, action: viewModel.setSuppressInputWhenInactive)
+                SettingsToggleRow(title: "Anti-AFK Mouse Movement", subtitle: "Periodic keep-alive motion to prevent session timeout (⌘K).", isOn: viewModel.streamProfile.antiAFKMouseMovementEnabled, action: viewModel.setAntiAFKMouseMovementEnabled)
             }
 
-            if viewModel.remoteCoOpPreferences.isAlphaOptedIn {
-                SettingsCard(title: "Remote Co-Op") {
-                    SettingsToggleRow(title: "Enable Remote Co-Op", subtitle: "Allows the stream HUD to generate an invite code for a remote player. Changes apply to newly launched streams.", isOn: viewModel.remoteCoOpPreferences.isEnabled, action: viewModel.setRemoteCoOpEnabled)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Reserved Controllers", subtitle: "Advertises remote gamepad slots to GeForce NOW before launch. Player 2 requires at least one reserved slot.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Transport", subtitle: viewModel.remoteCoOpPreferences.transportMode.description, options: RemoteCoOpTransportMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpTransportModeIndex, action: viewModel.setRemoteCoOpTransportModeIndex)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Guest Quality", subtitle: "Caps the outbound Remote Co-Op stream sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedRemoteCoOpQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
-                    SettingsDivider()
-                    SettingsToggleRow(title: "Require Host Approval", subtitle: "Guests can join the room, but input remains disabled until the host approves them.", isOn: viewModel.remoteCoOpPreferences.requireHostApproval, action: viewModel.setRemoteCoOpRequireHostApproval)
-                    SettingsDivider()
-                    SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Share opaque invites that do not reveal the game title or app ID to guests.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
-                }
-            }
-
-            SettingsCard(title: "Recording") {
-                SettingsSliderRow(title: "Video Bitrate", valueText: recordingVideoBitrateText, value: Double(viewModel.streamProfile.recordingVideoBitrateMbps), range: 0...200, step: 1, action: viewModel.setRecordingVideoBitrateMbps)
-                SettingsDivider()
-                SettingsSliderRow(title: "Audio Bitrate", valueText: "\(viewModel.streamProfile.recordingAudioBitrateKbps) Kbps", value: Double(viewModel.streamProfile.recordingAudioBitrateKbps), range: 64...320, step: 16, action: viewModel.setRecordingAudioBitrateKbps)
-                SettingsDivider()
-                SettingsToggleRow(title: "Record Enhanced Video", subtitle: "Capture the enhanced/upscaled stream frame when available, with native decoded frames as fallback.", isOn: viewModel.streamProfile.recordingEnhancedVideoEnabled, action: viewModel.setRecordingEnhancedVideoEnabled)
-            }
-
-            SettingsCard(title: "Audio") {
+            SettingsCard(title: "Audio & Voice") {
                 SettingsSliderRow(
                     title: "Game Volume",
                     valueText: percentText(viewModel.streamProfile.gameVolume),
@@ -1315,23 +1317,53 @@ private struct GameplaySettingsPage: View {
                 SettingsDivider()
                 SettingsSliderRow(title: "Microphone Volume", valueText: percentText(viewModel.streamProfile.microphoneVolume), value: viewModel.streamProfile.microphoneVolume, range: 0...1, step: 0.01, action: viewModel.setMicrophoneVolume)
                 SettingsDivider()
-                SettingsOptionRow(title: "Microphone Mode", subtitle: "Controls how voice input is sent to the stream.", options: StreamPreferences.microphoneModeOptions.map(\.label), selectedIndex: selectedMicrophoneModeIndex, action: { viewModel.setMicrophoneMode(StreamPreferences.microphoneModeOptions[$0].value) })
+                SettingsOptionRow(title: "Microphone Mode", subtitle: "Voice transmission mode for in-game chat.", options: StreamPreferences.microphoneModeOptions.map(\.label), selectedIndex: selectedMicrophoneModeIndex, action: { viewModel.setMicrophoneMode(StreamPreferences.microphoneModeOptions[$0].value) })
                 SettingsDivider()
-                SettingsOptionRow(title: "Microphone Device", subtitle: "Current input device for PixelNOW streams.", options: viewModel.microphoneDeviceOptions.map(\.label), selectedIndex: selectedMicrophoneDeviceIndex, action: { viewModel.setMicrophoneDeviceId(viewModel.microphoneDeviceOptions[$0].uniqueId) })
+                SettingsOptionRow(title: "Microphone Device", subtitle: "Audio input device for voice capture.", options: viewModel.microphoneDeviceOptions.map(\.label), selectedIndex: selectedMicrophoneDeviceIndex, action: { viewModel.setMicrophoneDeviceId(viewModel.microphoneDeviceOptions[$0].uniqueId) })
                 SettingsDivider()
                 SettingsToggleRow(
                     title: "Microphone Shortcut",
-                    subtitle: "Enable keyboard hotkey (\(viewModel.streamProfile.microphonePushToTalkComboLabel)) to mute, unmute, or push-to-talk during streaming.",
+                    subtitle: "Hotkey (\(viewModel.streamProfile.microphonePushToTalkComboLabel)) for push-to-talk or mute toggle.",
                     isOn: viewModel.microphoneShortcutEnabled,
                     action: viewModel.setMicrophoneShortcutEnabled
                 )
                 SettingsDivider()
                 SettingsToggleRow(
                     title: "Show Stream Mic Toggle",
-                    subtitle: "Display on-screen microphone toggle button during active streams.",
+                    subtitle: "On-screen HUD button to mute or unmute microphone.",
                     isOn: viewModel.showStreamMicToggle,
                     action: viewModel.setShowStreamMicToggle
                 )
+            }
+
+            SettingsCard(title: "Display & System Power") {
+                SettingsToggleRow(title: "Prevent Display Sleep", subtitle: "Keep displays awake during active stream sessions.", isOn: viewModel.streamProfile.preventDisplaySleepWhileStreaming, action: viewModel.setPreventDisplaySleepWhileStreaming)
+            }
+
+            SettingsCard(title: "Stream Recording & Capture") {
+                SettingsSliderRow(title: "Video Bitrate", valueText: recordingVideoBitrateText, value: Double(viewModel.streamProfile.recordingVideoBitrateMbps), range: 0...200, step: 1, action: viewModel.setRecordingVideoBitrateMbps)
+                SettingsDivider()
+                SettingsSliderRow(title: "Audio Bitrate", valueText: "\(viewModel.streamProfile.recordingAudioBitrateKbps) Kbps", value: Double(viewModel.streamProfile.recordingAudioBitrateKbps), range: 64...320, step: 16, action: viewModel.setRecordingAudioBitrateKbps)
+                SettingsDivider()
+                SettingsToggleRow(title: "Record Enhanced Video", subtitle: "Capture post-upscaled video when MetalFX is active.", isOn: viewModel.streamProfile.recordingEnhancedVideoEnabled, action: viewModel.setRecordingEnhancedVideoEnabled)
+            }
+
+            if viewModel.remoteCoOpPreferences.isAlphaOptedIn {
+                SettingsCard(title: "Remote Co-Op") {
+                    SettingsToggleRow(title: "Enable Remote Co-Op", subtitle: "Generate invite links in the stream HUD for guests.", isOn: viewModel.remoteCoOpPreferences.isEnabled, action: viewModel.setRemoteCoOpEnabled)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Reserved Controllers", subtitle: "Pre-allocate gamepad slots for guest players.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Transport", subtitle: viewModel.remoteCoOpPreferences.transportMode.description, options: RemoteCoOpTransportMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpTransportModeIndex, action: viewModel.setRemoteCoOpTransportModeIndex)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Guest Quality", subtitle: "Max outbound streaming bitrate sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedRemoteCoOpQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
+                    SettingsDivider()
+                    SettingsToggleRow(title: "Require Host Approval", subtitle: "Require host approval before accepting guest input.", isOn: viewModel.remoteCoOpPreferences.requireHostApproval, action: viewModel.setRemoteCoOpRequireHostApproval)
+                    SettingsDivider()
+                    SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Omit game title and app ID from invite links.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
+                }
             }
 
             SettingsCard(title: "Profile Maintenance") {
@@ -1343,7 +1375,7 @@ private struct GameplaySettingsPage: View {
                         Text("Restore default streaming settings")
                             .font(.settingsNvidia(size: 15, weight: .bold))
                             .foregroundStyle(.white)
-                        Text("Resets resolution, FPS, codec, bitrate, color precision, latency, HDR, L4S, input, audio, and enhancement options.")
+                        Text("Restore all streaming, video, audio, and input settings to default.")
                             .font(.settingsNvidia(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.56))
                             .fixedSize(horizontal: false, vertical: true)
@@ -1383,7 +1415,7 @@ private struct GameplaySettingsPage: View {
     }
 
     private var lockedProfileSubtitle: String {
-        "Managed by the \(viewModel.streamProfile.streamingQualityProfileOption.label) quality profile. Select Custom to edit."
+        "Managed by \(viewModel.streamProfile.streamingQualityProfileOption.label) profile. Set to Custom to edit."
     }
 
     private var estimatedDataUsage: String {
@@ -1547,7 +1579,7 @@ private struct ResolutionUpscalingSettingsPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsCard(title: "MetalFX Upscaling") {
-                SettingsToggleRow(title: "MetalFX Upscaling", subtitle: "Optimized for Apple Silicon. Falls back automatically when MetalFX is unavailable.", isOn: viewModel.streamProfile.upscalingMode == 3) { enabled in viewModel.setUpscalingModeIndex(enabled ? 1 : 0) }
+                SettingsToggleRow(title: "MetalFX Upscaling", subtitle: "Spatial upscaling for Apple Silicon with automatic fallback.", isOn: viewModel.streamProfile.upscalingMode == 3) { enabled in viewModel.setUpscalingModeIndex(enabled ? 1 : 0) }
                 SettingsDivider()
                 SettingsInfoRow(label: "Target", value: "Display")
                 SettingsDivider()
@@ -1557,7 +1589,7 @@ private struct ResolutionUpscalingSettingsPage: View {
             }
 
             SettingsCard(title: "Image Enhancement") {
-                SettingsOptionRow(title: "Prefilter Mode", subtitle: "Applies GFN-style prefiltering before presentation.", options: StreamPreferences.prefilterModeOptions.map(\.label), selectedIndex: viewModel.streamProfile.prefilterModeIndex, action: viewModel.setPrefilterModeIndex)
+                SettingsOptionRow(title: "Prefilter Mode", subtitle: "Hardware prefiltering applied before frame presentation.", options: StreamPreferences.prefilterModeOptions.map(\.label), selectedIndex: viewModel.streamProfile.prefilterModeIndex, action: viewModel.setPrefilterModeIndex)
                 SettingsDivider()
                 SettingsSliderRow(title: "Prefilter Sharpness", valueText: "\(viewModel.streamProfile.prefilterSharpness)", value: Double(viewModel.streamProfile.prefilterSharpness), range: 0...10, action: viewModel.setPrefilterSharpness)
                 SettingsDivider()
@@ -1811,7 +1843,7 @@ private struct AboutSettingsPage: View {
                     SettingsActionButton(title: "CHECK FOR UPDATES") {
                         AppDelegate.requestApplicationUpdateCheck()
                     }
-                    Text("Checks GitHub releases and installs a newer signed PixelNOW build when available.")
+                    Text("Check GitHub releases for newer signed builds.")
                         .font(.settingsNvidia(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                 }
@@ -1824,14 +1856,14 @@ private struct AboutSettingsPage: View {
                     SettingsActionButton(title: "CLEAR IMAGE CACHE") {
                         viewModel.clearCatalogImageCache()
                     }
-                    Text("Removes cached catalog artwork from disk and memory. Images will download again as needed.")
+                    Text("Purge cached artwork from disk and memory.")
                         .font(.settingsNvidia(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                 }
             }
 
             SettingsCard(title: "Privacy") {
-                SettingsToggleRow(title: "Disable Telemetry", subtitle: "Stops Sentry, trace headers, metrics, and automatic diagnostics logging.", isOn: telemetryDisabled, action: setTelemetryDisabled)
+                SettingsToggleRow(title: "Disable Telemetry", subtitle: "Disable crash reporting, telemetry metrics, and diagnostic logging.", isOn: telemetryDisabled, action: setTelemetryDisabled)
             }
 
             SettingsCard(title: "Support Diagnostics") {
@@ -1841,7 +1873,7 @@ private struct AboutSettingsPage: View {
                             showingDiagnosticsUploadConfirmation = true
                         }
                         .disabled(diagnosticsState.isWorking)
-                        Text("Uploads the recent sanitized current-run log, then copies diagnostics with the link.")
+                        Text("Upload sanitized runtime logs and copy diagnostics link to clipboard.")
                             .font(.settingsNvidia(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.54))
                     }
@@ -1890,12 +1922,12 @@ private struct AboutSettingsPage: View {
 
     private var automaticUpdateChecksSubtitle: String {
         if UpdatePreferences.updateChecksAreSuspendedForDebugging {
-            return "Paused while running a debug build or attached debugger. Manual checks remain available."
+            return "Paused during debugging. Manual checks remain available."
         }
         if automaticUpdateChecksEnabled {
-            return "Checks GitHub releases on launch and hourly while PixelNOW is running."
+            return "Automatically check for new releases on launch and hourly."
         }
-        return "PixelNOW will not check for new releases automatically. Manual checks remain available."
+        return "Manual checks only. Releases will not be checked automatically."
     }
 
     private var diagnosticsText: String {
@@ -1919,7 +1951,7 @@ private struct AboutSettingsPage: View {
             lines.append("Upload Error: \(uploadError)")
         }
         if !inlineLog.isEmpty {
-            lines.append(contentsOf: ["", "Inline Logs:", inlineLog])
+            lines.append(contentsOf: ["", "--- Gathered Diagnostics Logs ---", inlineLog])
         }
         return lines.joined(separator: "\n")
     }
@@ -1948,7 +1980,7 @@ private struct AboutSettingsPage: View {
             do {
                 let logURL = try await Sentry.uploadDiagnosticsLog(logText)
                 diagnosticsState = .copying
-                copy(diagnosticsText(logURL: logURL, uploadError: "", inlineLog: ""), key: "diagnostics")
+                copy(diagnosticsText(logURL: logURL, uploadError: "", inlineLog: logText), key: "diagnostics")
                 diagnosticsState = .copied(logURL.absoluteString)
                 Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "Diagnostics", message: "Uploaded sanitized diagnostics log url=\(logURL.absoluteString)"))
             } catch {
@@ -2090,7 +2122,7 @@ private enum AboutDiagnosticsState: Equatable {
         case .readingLog: return "Reading sanitized current-run log..."
         case .uploading: return "Uploading sanitized logs to paste.c-net.org..."
         case .copying: return "Copying diagnostics to clipboard..."
-        case .copied(let url): return "Diagnostics copied. Uploaded log: \(url)"
+        case .copied(let url): return "Diagnostics and logs copied to clipboard. Uploaded link: \(url)"
         case .failed(let reason): return "Upload failed, but local diagnostics and inline logs were copied: \(reason)"
         }
     }
