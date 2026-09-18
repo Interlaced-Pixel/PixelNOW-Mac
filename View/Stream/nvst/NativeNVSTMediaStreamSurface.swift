@@ -8,16 +8,42 @@ public typealias NativeNVSTMediaStreamEndCallback = @MainActor @Sendable (_ succ
 enum NativeNVSTMediaStreamTheme {
     static let accent = Color(red: 0.08, green: 0.48, blue: 0.98)
     static let accentSoft = Color(red: 0.35, green: 0.68, blue: 1.0)
-    static let appBar = Color(red: 45 / 255, green: 45 / 255, blue: 45 / 255)
-    static let surface = Color(red: 25 / 255, green: 25 / 255, blue: 25 / 255)
-    static let panel = Color(red: 23 / 255, green: 23 / 255, blue: 23 / 255)
-    static let surfaceRaised = Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
-    static let divider = Color.white.opacity(0.10)
-    static let textPrimary = Color.white.opacity(0.96)
-    static let textSecondary = Color.white.opacity(0.72)
-    static let textTertiary = Color.white.opacity(0.52)
+    static let appBar = Color.black.opacity(0.25)
+    static let surface = Color.black.opacity(0.25)
+    static let panel = Color.black.opacity(0.25)
+    static let surfaceRaised = Color.black.opacity(0.25)
+    static let divider = Color.white.opacity(0.12)
+    static let textPrimary = Color.white
+    static let textSecondary = Color.white.opacity(0.80)
+    static let textTertiary = Color.white.opacity(0.60)
     static let warning = Color.orange
     static let danger = Color.red
+
+    static var specularRimGradient: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .white.opacity(0.45), location: 0.0),
+                .init(color: .white.opacity(0.12), location: 0.45),
+                .init(color: .white.opacity(0.06), location: 0.75),
+                .init(color: .white.opacity(0.22), location: 1.0)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    static var specularVerticalBorder: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .white.opacity(0.45), location: 0.0),
+                .init(color: .white.opacity(0.15), location: 0.3),
+                .init(color: .white.opacity(0.08), location: 0.7),
+                .init(color: .white.opacity(0.25), location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
 
     static func dockWidth(for width: CGFloat) -> CGFloat {
         min(344, max(268, width * 0.72))
@@ -44,12 +70,17 @@ struct NativeNVSTStreamHUDActionRow: View {
             Image(systemName: systemName)
                 .font(.nativeNVSTStreamNvidia(size: 15, weight: .bold))
                 .foregroundStyle(iconColor)
+                .shadow(color: .black.opacity(isActive ? 0 : 0.6), radius: 2, x: 0, y: 1)
                 .frame(width: 42, height: 38)
                 .background(rowBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(isActive ? Color.pixelNowGreen.opacity(0.86) : NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
+                        .stroke(
+                            isActive ? Color.pixelNowGreen.opacity(0.9) :
+                            (isHovering ? Color.white.opacity(0.40) : Color.white.opacity(0.18)),
+                            lineWidth: 1
+                        )
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -64,11 +95,11 @@ struct NativeNVSTStreamHUDActionRow: View {
 
     private var rowBackground: Color {
         if isActive { return Color.pixelNowGreen }
-        return Color.white.opacity(isHovering ? 0.14 : 0.075)
+        return Color.white.opacity(isHovering ? 0.16 : 0.06)
     }
 
     private var iconColor: Color {
-        isActive ? .black : .white.opacity(isHovering ? 0.94 : 0.72)
+        isActive ? .black : .white
     }
 }
 
@@ -89,17 +120,27 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
                 HStack(spacing: 10) {
                     Text(title)
                         .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
-                        .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                        .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                        .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
                     Button(action: closeAction) {
                         Image(systemName: "xmark")
                             .font(.nativeNVSTStreamNvidia(size: 11, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.82))
+                            .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
-                            .background(Color.white.opacity(0.08), in: Circle())
-                            .overlay { Circle().stroke(Color.white.opacity(0.14), lineWidth: 1) }
+                            .background(Color.white.opacity(0.10), in: Circle())
+                            .overlay {
+                                Circle().stroke(
+                                    LinearGradient(
+                                        colors: [.white.opacity(0.45), .white.opacity(0.12)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                            }
                     }
                     .buttonStyle(.plain)
                     .keyboardShortcut(.cancelAction)
@@ -107,7 +148,7 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(NativeNVSTMediaStreamTheme.appBar)
+                .background(Color.clear)
                 Rectangle().fill(NativeNVSTMediaStreamTheme.divider).frame(height: 1)
                 ScrollView(.vertical, showsIndicators: false) {
                     content
@@ -118,17 +159,18 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
                 Text(NativeNVSTMediaStreamCommand.shortcutGuide)
                     .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
                     .tracking(0.8)
-                    .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
+                    .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 9)
             }
             .frame(width: NativeNVSTMediaStreamTheme.dockWidth(for: proxy.size.width), height: proxy.size.height, alignment: .topLeading)
-            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.96))
-            .background(.ultraThinMaterial)
-            .overlay(alignment: .trailing) { Rectangle().fill(NativeNVSTMediaStreamTheme.divider).frame(width: 1) }
-            .shadow(color: .black.opacity(0.58), radius: 28, x: 14, y: 20)
+            .background(Color.black.opacity(0.25))
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(NativeNVSTMediaStreamTheme.specularVerticalBorder).frame(width: 1)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -151,16 +193,28 @@ struct NativeNVSTStreamHUDSection<Content: View>: View {
             Text(label)
                 .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
                 .tracking(1.1)
-                .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
+                .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
             content
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.055))
+        .background(Color.black.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.32), location: 0.0),
+                            .init(color: .white.opacity(0.08), location: 0.5),
+                            .init(color: .white.opacity(0.18), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
         }
     }
 }
@@ -174,24 +228,38 @@ struct NativeNVSTStreamHUDMetricCard: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Circle().fill(positive ? Color.pixelNowGreen : NativeNVSTMediaStreamTheme.warning).frame(width: 6, height: 6)
+                    .shadow(color: (positive ? Color.pixelNowGreen : NativeNVSTMediaStreamTheme.warning).opacity(0.6), radius: 3)
                 Text(title.uppercased())
                     .font(.nativeNVSTStreamNvidia(size: 9, weight: .bold))
                     .tracking(0.7)
-                    .foregroundStyle(.white.opacity(0.46))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
             }
             Text(value)
                 .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-        .background(Color.white.opacity(0.055))
+        .background(Color.black.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.30), location: 0.0),
+                            .init(color: .white.opacity(0.08), location: 0.5),
+                            .init(color: .white.opacity(0.16), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
         }
     }
 }
@@ -600,19 +668,22 @@ struct NativeNVSTMediaStreamSurface: View {
     @ViewBuilder
     private func nativeFailureOverlay(_ failure: FailurePresentation) -> some View {
         ZStack {
-            Color.black.opacity(0.88).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+            Color.clear.ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             VStack(alignment: .leading, spacing: 18) {
                 Text("NATIVE NVST UNAVAILABLE")
                     .font(.nativeNVSTStreamNvidia(size: 16, weight: .bold))
                     .tracking(1.4)
                     .foregroundStyle(Color.pixelNowGreen)
+                    .shadow(color: Color.pixelNowGreen.opacity(0.5), radius: 4)
                 Text(failure.message)
                     .font(.nativeNVSTStreamNvidia(size: 13, weight: .medium))
                     .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Phase: \(failure.diagnostics["failurePhase"] ?? "unknown")")
                     .font(.nativeNVSTStreamNvidia(size: 11, weight: .medium))
                     .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 HStack(spacing: 10) {
                     Button("Retry Native", action: retryNativeFailure)
                     Button("Switch to WebRTC", action: switchToWebRTCFromFailure)
@@ -623,11 +694,23 @@ struct NativeNVSTMediaStreamSurface: View {
             }
             .padding(28)
             .frame(maxWidth: 620)
-            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.94))
-            .background(.ultraThinMaterial)
+            .background(Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.35), lineWidth: 1))
-            .shadow(color: .black.opacity(0.6), radius: 24, y: 12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.pixelNowGreen.opacity(0.70), location: 0.0),
+                                .init(color: .white.opacity(0.20), location: 0.5),
+                                .init(color: Color.pixelNowGreen.opacity(0.35), location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+            )
         }
     }
 
@@ -1392,7 +1475,8 @@ struct NativeNVSTMediaStreamSurface: View {
             } else {
                 if unifiedHUDVisible {
                     ZStack(alignment: .leading) {
-                        Color.black.opacity(0.001)
+                        Color.clear
+                            .contentShape(Rectangle())
                             .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
                             .onTapGesture {}
                         nativeUnifiedHUD
@@ -1470,25 +1554,38 @@ struct NativeNVSTMediaStreamSurface: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(Color.black.opacity(0.35))
-        .background(.ultraThinMaterial)
+        .background(Color.black.opacity(0.25))
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
-        .shadow(color: .black.opacity(0.4), radius: 10, x: 0, y: 4)
+        .overlay(
+            Capsule().stroke(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.40), location: 0.0),
+                        .init(color: .white.opacity(0.12), location: 0.5),
+                        .init(color: .white.opacity(0.22), location: 1.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
+        )
     }
 
     private var nativeNetworkRecoveryOverlay: some View {
         ZStack {
-            Color.black.opacity(0.75).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+            Color.clear.ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             VStack(spacing: 16) {
                 ProgressView().controlSize(.large).tint(Color.pixelNowGreen)
                 Text("CONNECTION INTERRUPTED")
                     .font(.nativeNVSTStreamNvidia(size: 16, weight: .bold))
                     .tracking(1.4)
                     .foregroundStyle(Color.pixelNowGreen)
+                    .shadow(color: Color.pixelNowGreen.opacity(0.5), radius: 4)
                 Text("Waiting for a usable network path. PixelNOW will resume the same GeForce NOW session automatically.")
                     .font(.nativeNVSTStreamNvidia(size: 12, weight: .medium))
-                    .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                    .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
                 Button("End Stream", action: endFromStreamControls)
@@ -1498,14 +1595,35 @@ struct NativeNVSTMediaStreamSurface: View {
                     .padding(.horizontal, 22)
                     .padding(.vertical, 8)
                     .background(Color.white.opacity(0.08), in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.20), lineWidth: 1))
+                    .overlay(
+                        Capsule().stroke(
+                            LinearGradient(
+                                colors: [.white.opacity(0.40), .white.opacity(0.12)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                    )
             }
             .padding(32)
-            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.92))
-            .background(.ultraThinMaterial)
+            .background(Color.black.opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.35), lineWidth: 1))
-            .shadow(color: .black.opacity(0.6), radius: 24, y: 12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.pixelNowGreen.opacity(0.70), location: 0.0),
+                                .init(color: .white.opacity(0.20), location: 0.5),
+                                .init(color: Color.pixelNowGreen.opacity(0.35), location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+            )
         }
     }
 
@@ -1514,18 +1632,31 @@ struct NativeNVSTMediaStreamSurface: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
                 .foregroundStyle(Color.pixelNowGreen)
+                .shadow(color: Color.pixelNowGreen.opacity(0.6), radius: 4)
             Text(transientStreamMessage)
                 .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 .lineLimit(1)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
-        .background(Color.black.opacity(0.4))
-        .background(.ultraThinMaterial)
+        .background(Color.black.opacity(0.25))
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.pixelNowGreen.opacity(0.4), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+        .overlay(
+            Capsule().stroke(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.pixelNowGreen.opacity(0.80), location: 0.0),
+                        .init(color: .white.opacity(0.20), location: 0.5),
+                        .init(color: Color.pixelNowGreen.opacity(0.40), location: 1.0)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
+        )
         .frame(maxWidth: 440)
     }
 
@@ -1539,10 +1670,12 @@ struct NativeNVSTMediaStreamSurface: View {
                 Circle()
                     .fill(Color.pixelNowGreen)
                     .frame(width: 6, height: 6)
+                    .shadow(color: Color.pixelNowGreen.opacity(0.7), radius: 3)
                 Text("STREAM METRICS")
                     .font(.nativeNVSTStreamNvidia(size: 9, weight: .bold))
                     .tracking(1.0)
-                    .foregroundStyle(.white.opacity(0.64))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 Spacer()
             }
             .padding(.horizontal, 4)
@@ -1563,19 +1696,21 @@ struct NativeNVSTMediaStreamSurface: View {
                 nativeStatsStandardRow(label: "Server", value: nonEmptyNativeStat(latestNativeStats?.serverLocation, fallback: "--"), detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
             }
             .padding(8)
-            .background(Color.white.opacity(0.04))
+            .background(Color.black.opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 0.8)
+            )
         }
         .padding(12)
         .frame(width: 270, alignment: .topLeading)
-        .background(Color.black.opacity(0.35))
-        .background(.ultraThinMaterial)
+        .background(Color.black.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                .stroke(NativeNVSTMediaStreamTheme.specularRimGradient, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.52), radius: 18, x: 0, y: 8)
     }
 
     private func nativeStatsCompactBox(value: String, label: String, color: Color) -> some View {
@@ -1583,6 +1718,7 @@ struct NativeNVSTMediaStreamSurface: View {
             Text(value)
                 .font(.nativeNVSTStreamNvidia(size: 20, weight: .bold))
                 .foregroundStyle(color)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
@@ -1590,13 +1726,25 @@ struct NativeNVSTMediaStreamSurface: View {
                 .font(.nativeNVSTStreamNvidia(size: 8, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.opacity(0.06))
+        .background(Color.black.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.25), location: 0.0),
+                            .init(color: .white.opacity(0.06), location: 0.5),
+                            .init(color: .white.opacity(0.14), location: 1.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
         )
     }
 
@@ -1605,23 +1753,27 @@ struct NativeNVSTMediaStreamSurface: View {
             Text(label)
                 .font(.nativeNVSTStreamNvidia(size: 10, weight: .medium))
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 .lineLimit(1)
             Spacer(minLength: 8)
             HStack(spacing: 4) {
                 Text(value)
                     .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
                     .foregroundStyle(color)
+                    .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                     .lineLimit(1)
                 if let detail {
                     Text(detail)
                         .font(.nativeNVSTStreamNvidia(size: 9, weight: .medium))
                         .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
+                        .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                         .lineLimit(1)
                 }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Color.white.opacity(0.05), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 0.6))
         }
     }
 
@@ -1911,32 +2063,38 @@ struct NativeNVSTMediaStreamSurface: View {
         HStack(spacing: 12) {
             Text(label)
                 .font(.nativeNVSTStreamNvidia(size: 10, weight: .medium))
-                .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
+                .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
             Spacer(minLength: 8)
             Text(value)
                 .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
                 .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                 .lineLimit(1)
         }
     }
 
     private var nativeStreamControlsOverlay: some View {
         ZStack {
-            Color.black.opacity(0.85).ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+            Color.clear.ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             VStack(spacing: 20) {
                 Text("NATIVE NVST")
                     .font(NVIDIAFont.font(size: 12, weight: .bold))
                     .foregroundStyle(Color.pixelNowGreen)
                     .tracking(2.2)
+                    .shadow(color: Color.pixelNowGreen.opacity(0.5), radius: 4)
                 Text("STREAM CONTROLS")
                     .font(NVIDIAFont.font(size: 28, weight: .bold))
                     .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
                 Text(configuration.title.isEmpty ? "GeForce NOW" : configuration.title)
                     .font(NVIDIAFont.font(size: 15, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.68))
+                    .foregroundStyle(.white.opacity(0.90))
+                    .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
                 Text("Remote input is paused. Resume to return focus to the game.")
                     .font(NVIDIAFont.font(size: 13, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.54))
+                    .foregroundStyle(.white.opacity(0.80))
+                    .shadow(color: .black.opacity(0.8), radius: 3, x: 0, y: 1)
                     .multilineTextAlignment(.center)
                 HStack(spacing: 12) {
                     Button("Resume", action: dismissStreamControls)
@@ -1952,18 +2110,40 @@ struct NativeNVSTMediaStreamSurface: View {
                 .disabled(isEnding)
                 Text("\(NativeNVSTMediaStreamCommand.shortcutGuide)   Esc Resume")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.50))
+                    .foregroundStyle(.white.opacity(0.70))
+                    .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
                     .background(Color.white.opacity(0.06), in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                    .overlay(
+                        Capsule().stroke(
+                            LinearGradient(
+                                colors: [.white.opacity(0.35), .white.opacity(0.12)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                    )
             }
             .padding(36)
-            .background(NativeNVSTMediaStreamTheme.panel.opacity(0.92))
-            .background(.ultraThinMaterial)
+            .background(Color.black.opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.35), lineWidth: 1))
-            .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.pixelNowGreen.opacity(0.70), location: 0.0),
+                                .init(color: .white.opacity(0.25), location: 0.45),
+                                .init(color: Color.pixelNowGreen.opacity(0.35), location: 1.0)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+            )
         }
     }
 

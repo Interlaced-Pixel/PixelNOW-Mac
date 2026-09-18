@@ -42,19 +42,14 @@ public struct DesktopAutomationChecklistOverlay: View {
         }
         .frame(width: isCollapsed ? 280 : 330)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(NativeNVSTMediaStreamTheme.surface.opacity(0.35))
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(0.25))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(overlayBorderColor, lineWidth: 1.2)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(overlayBorderGradient, lineWidth: 1.2)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: .black.opacity(0.45), radius: 16, x: 0, y: 8)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isCollapsed)
         .animation(.easeInOut(duration: 0.2), value: snapshot)
     }
@@ -81,9 +76,9 @@ public struct DesktopAutomationChecklistOverlay: View {
                 Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
                     .font(.nativeNVSTStreamNvidia(size: 11, weight: .bold))
                     .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
-                    .frame(width: 22, height: 22)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(Circle())
+                    .frame(width: 24, height: 24)
+                    .background(Color.white.opacity(0.06), in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .help(isCollapsed ? "Expand Checklist" : "Minimize Checklist")
@@ -93,9 +88,9 @@ public struct DesktopAutomationChecklistOverlay: View {
                     Image(systemName: "xmark")
                         .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
                         .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
-                        .frame(width: 22, height: 22)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(Circle())
+                        .frame(width: 24, height: 24)
+                        .background(Color.white.opacity(0.06), in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("Dismiss Overlay")
@@ -118,8 +113,8 @@ public struct DesktopAutomationChecklistOverlay: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(statusBadgeBackground)
-        .clipShape(Capsule())
+        .background(statusBadgeBackground, in: Capsule())
+        .overlay(Capsule().stroke(statusBadgeBorderColor, lineWidth: 0.8))
     }
 
     private var statusBadgeText: String {
@@ -158,6 +153,18 @@ public struct DesktopAutomationChecklistOverlay: View {
         }
     }
 
+    private var statusBadgeBorderColor: Color {
+        if snapshot.isComplete {
+            return Color.pixelNowGreen.opacity(0.40)
+        } else if snapshot.isCancelled {
+            return Color.orange.opacity(0.40)
+        } else if snapshot.error != nil {
+            return Color.red.opacity(0.40)
+        } else {
+            return Color.pixelNowGreen.opacity(0.30)
+        }
+    }
+
     private var headerIconName: String {
         if snapshot.isComplete {
             return "checkmark.circle.fill"
@@ -182,13 +189,37 @@ public struct DesktopAutomationChecklistOverlay: View {
         }
     }
 
-    private var overlayBorderColor: Color {
+    private var overlayBorderGradient: LinearGradient {
         if snapshot.isComplete {
-            return Color.pixelNowGreen.opacity(0.4)
+            return LinearGradient(
+                stops: [
+                    .init(color: Color.pixelNowGreen.opacity(0.70), location: 0.0),
+                    .init(color: .white.opacity(0.20), location: 0.5),
+                    .init(color: Color.pixelNowGreen.opacity(0.35), location: 1.0)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         } else if snapshot.error != nil {
-            return Color.red.opacity(0.4)
+            return LinearGradient(
+                stops: [
+                    .init(color: Color.red.opacity(0.70), location: 0.0),
+                    .init(color: .white.opacity(0.15), location: 0.5),
+                    .init(color: Color.red.opacity(0.35), location: 1.0)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         } else {
-            return Color.white.opacity(0.12)
+            return LinearGradient(
+                stops: [
+                    .init(color: .white.opacity(0.40), location: 0.0),
+                    .init(color: .white.opacity(0.10), location: 0.5),
+                    .init(color: .white.opacity(0.18), location: 1.0)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 
@@ -286,11 +317,18 @@ public struct DesktopAutomationChecklistOverlay: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(isHoveringReset ? 0.16 : 0.08))
+                        .fill(Color.white.opacity(isHoveringReset ? 0.14 : 0.06))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        .stroke(
+                            LinearGradient(
+                                colors: [.white.opacity(0.25), .white.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.8
+                        )
                 )
             }
             .buttonStyle(.plain)
@@ -312,11 +350,16 @@ public struct DesktopAutomationChecklistOverlay: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(snapshot.isComplete || snapshot.isCancelled ? Color.clear : Color.red.opacity(isHoveringCancel ? 0.2 : 0.1))
+                        .fill(snapshot.isComplete || snapshot.isCancelled ? Color.clear : Color.red.opacity(isHoveringCancel ? 0.18 : 0.08))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(snapshot.isComplete || snapshot.isCancelled ? Color.white.opacity(0.06) : Color.red.opacity(0.3), lineWidth: 1)
+                        .stroke(
+                            snapshot.isComplete || snapshot.isCancelled ?
+                            LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                            LinearGradient(colors: [Color.red.opacity(0.50), Color.red.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            lineWidth: 0.8
+                        )
                 )
             }
             .buttonStyle(.plain)
