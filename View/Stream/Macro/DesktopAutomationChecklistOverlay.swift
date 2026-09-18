@@ -43,7 +43,7 @@ public struct DesktopAutomationChecklistOverlay: View {
         .frame(width: isCollapsed ? 280 : 330)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(NativeNVSTMediaStreamTheme.surface.opacity(0.92))
+                .fill(NativeNVSTMediaStreamTheme.surface.opacity(0.35))
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(.ultraThinMaterial)

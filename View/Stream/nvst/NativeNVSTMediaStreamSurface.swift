@@ -1423,10 +1423,6 @@ struct NativeNVSTMediaStreamSurface: View {
                 }
 
                 VStack(alignment: .trailing, spacing: 10) {
-                    if isConnected, inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
-                        nativeBatteryPill(level: level, state: inputRouter.controllerBatteryState)
-                            .transition(.scale(scale: 0.92).combined(with: .opacity))
-                    }
                     if nativeStatsVisible {
                         nativeStatsHUDContent
                             .transition(.scale(scale: 0.96).combined(with: .opacity))
@@ -1437,7 +1433,21 @@ struct NativeNVSTMediaStreamSurface: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .allowsHitTesting(false)
                 .animation(.easeInOut(duration: 0.2), value: nativeStatsVisible)
-                .animation(.easeInOut(duration: 0.2), value: inputRouter.isControllerConnected)
+
+                if isConnected, inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            nativeBatteryPill(level: level, state: inputRouter.controllerBatteryState)
+                                .transition(.scale(scale: 0.92).combined(with: .opacity))
+                        }
+                    }
+                    .padding(.bottom, 24)
+                    .padding(.trailing, 16)
+                    .allowsHitTesting(false)
+                    .animation(.easeInOut(duration: 0.2), value: inputRouter.isControllerConnected)
+                }
 
                 if !transientStreamMessage.isEmpty {
                     VStack {
@@ -1460,7 +1470,7 @@ struct NativeNVSTMediaStreamSurface: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(Color.black.opacity(0.72))
+        .background(Color.black.opacity(0.35))
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
@@ -1511,7 +1521,7 @@ struct NativeNVSTMediaStreamSurface: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
-        .background(Color.black.opacity(0.78))
+        .background(Color.black.opacity(0.4))
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(Capsule().stroke(Color.pixelNowGreen.opacity(0.4), lineWidth: 1))
@@ -1558,7 +1568,7 @@ struct NativeNVSTMediaStreamSurface: View {
         }
         .padding(12)
         .frame(width: 270, alignment: .topLeading)
-        .background(Color.black.opacity(0.75))
+        .background(Color.black.opacity(0.35))
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
