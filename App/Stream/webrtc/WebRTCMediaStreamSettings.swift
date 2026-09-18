@@ -301,7 +301,8 @@ public enum WebRTCMediaStreamSettingsResolver {
         var codec = resolvedCodec(profile: profile, capabilities: capabilities, libWebRTCAvailable: libWebRTCAvailable)
         if !cloudVariables.allowH265, codec == "H265" { codec = "H264" }
         if !cloudVariables.allowAV1, codec == "AV1" { codec = "H264" }
-        let colorQuality = resolvedColorQuality(profile.colorQuality, codec: codec)
+        let enableHdr = cloudVariables.allowHDR && capabilities.hdrDisplaySupported && profile.enableHdr
+        let colorQuality = resolvedColorQuality(profile: profile, enableHdr: enableHdr, codec: codec)
         let controllerCount = capabilities.connectedGamepadCount
         let prefilterMode = resolvedPrefilterMode(profile: profile, cloudVariables: cloudVariables)
         let upscalingMode = normalizedUpscalingMode(profile.upscalingMode)
@@ -317,15 +318,15 @@ public enum WebRTCMediaStreamSettingsResolver {
             prefilterDenoise: prefilterMode == 0 ? 0 : profile.prefilterDenoise,
             prefilterModel: prefilterMode == 0 ? 0 : profile.prefilterModel,
             enableL4S: cloudVariables.allowL4S && profile.enableL4S,
-            enableHdr: cloudVariables.allowHDR && capabilities.hdrDisplaySupported && profile.enableHdr,
+            enableHdr: enableHdr,
             enableReflex: cloudVariables.allowReflex,
             transportMode: normalizedTransportMode(profile.transportMode),
             streamingQualityProfile: min(max(profile.streamingQualityProfile, 0), 4),
             enableCloudGsync: profile.fps > 60 && capabilities.maxDisplayRefreshRate > 60 && profile.enableCloudGsync,
-            fallbackToLogicalResolution: profile.fallbackToLogicalResolution,
-            hudStreamingMode: min(max(profile.hudStreamingMode, 0), 2),
-            sdrColorSpace: min(max(profile.sdrColorSpace, 0), 2),
-            hdrColorSpace: min(max(profile.hdrColorSpace, 0), 2),
+            fallbackToLogicalResolution: false,
+            hudStreamingMode: 0,
+            sdrColorSpace: 1,
+            hdrColorSpace: 0,
             microphoneMode: profile.microphoneMode,
             microphoneDeviceId: profile.microphoneDeviceId,
             microphonePushToTalkKeyCode: profile.microphonePushToTalkKeyCode,
@@ -387,9 +388,10 @@ public enum WebRTCMediaStreamSettingsResolver {
         return requested == "HEVC" ? "H265" : requested
     }
 
-    private static func resolvedColorQuality(_ colorQuality: String, codec: String) -> String {
-        let resolved = colorQuality.isEmpty ? "8bit_420" : colorQuality
-        guard resolved.lowercased().hasPrefix("10bit"), codec != "H265", codec != "AV1" else { return resolved }
+    private static func resolvedColorQuality(profile: WebRTCMediaStreamProfile, enableHdr: Bool, codec: String) -> String {
+        if enableHdr && (codec == "H265" || codec == "AV1") {
+            return "10bit_420"
+        }
         return "8bit_420"
     }
 

@@ -240,7 +240,7 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var transportModeIndex = 0
     public var streamingQualityProfileIndex = 0
     public var hudStreamingModeIndex = 0
-    public var sdrColorSpaceIndex = 2
+    public var sdrColorSpaceIndex = 1
     public var hdrColorSpaceIndex = 0
     public var fps = 60
     public var maxBitrateMbps = 50
@@ -265,8 +265,8 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var fallbackToLogicalResolution = false
     public var hudStreamingMode = 0
     public var hudStreamingModeOption = StreamPreferences.hudStreamingModeOptions[0]
-    public var sdrColorSpace = 2
-    public var sdrColorSpaceOption = StreamPreferences.colorSpaceOptions[2]
+    public var sdrColorSpace = 1
+    public var sdrColorSpaceOption = StreamPreferences.colorSpaceOptions[1]
     public var hdrColorSpace = 0
     public var hdrColorSpaceOption = StreamPreferences.colorSpaceOptions[0]
     public var enableL4S = false
@@ -1100,7 +1100,10 @@ public enum StreamPreferences {
     public static func saveRecordingAudioBitrateKbps(_ value: Int) { storage.set(clamp(value, 64, 320), forKey: k.recordingAudioBitrateKbps) }
     public static func saveRecordingEnhancedVideoEnabled(_ value: Bool) { storage.set(value, forKey: k.recordingEnhancedVideoEnabled) }
     public static func saveL4SEnabled(_ value: Bool) { storage.set(value, forKey: k.l4sEnabled) }
-    public static func saveHDREnabled(_ value: Bool) { storage.set(value, forKey: k.hdrEnabled) }
+    public static func saveHDREnabled(_ value: Bool) {
+        storage.set(value, forKey: k.hdrEnabled)
+        saveColorQualityIndex(value ? 2 : 0)
+    }
     public static func savePowerSaverEnabled(_ value: Bool) { storage.set(value, forKey: k.powerSaverEnabled) }
     public static func saveSuppressInputWhenInactive(_ value: Bool) { storage.set(value, forKey: k.suppressInputWhenInactive) }
     public static func saveDirectMouseInputEnabled(_ value: Bool) { storage.set(value, forKey: k.directMouseInput) }
@@ -1205,7 +1208,7 @@ public enum StreamPreferences {
         profile.hudStreamingModeIndex = clampedInt(dictionary, k.hudStreamingModeIndex, 0, hudStreamingModeOptions.count)
         profile.hudStreamingModeOption = hudStreamingModeOptions[profile.hudStreamingModeIndex]
         profile.hudStreamingMode = profile.hudStreamingModeOption.value
-        profile.sdrColorSpaceIndex = clampedInt(dictionary, k.sdrColorSpaceIndex, 2, colorSpaceOptions.count)
+        profile.sdrColorSpaceIndex = clampedInt(dictionary, k.sdrColorSpaceIndex, 1, colorSpaceOptions.count)
         profile.sdrColorSpaceOption = colorSpaceOptions[profile.sdrColorSpaceIndex]
         profile.sdrColorSpace = profile.sdrColorSpaceOption.value
         profile.hdrColorSpaceIndex = clampedInt(dictionary, k.hdrColorSpaceIndex, 0, colorSpaceOptions.count)
@@ -1227,6 +1230,13 @@ public enum StreamPreferences {
         profile.recordingEnhancedVideoEnabled = bool(value(dictionary, k.recordingEnhancedVideoEnabled), true)
         profile.enableL4S = bool(value(dictionary, k.l4sEnabled), false)
         profile.enableHdr = bool(value(dictionary, k.hdrEnabled), false)
+        if profile.enableHdr {
+            profile.colorQualityIndex = 2
+            profile.colorQuality = colorQualityOptions[2]
+        } else {
+            profile.colorQualityIndex = 0
+            profile.colorQuality = colorQualityOptions[0]
+        }
         profile.enablePowerSaver = bool(value(dictionary, k.powerSaverEnabled), false)
         profile.suppressInputWhenInactive = bool(value(dictionary, k.suppressInputWhenInactive), true)
         profile.directMouseInput = bool(value(dictionary, k.directMouseInput), true)
@@ -1359,7 +1369,7 @@ public enum StreamPreferences {
                 cloudGsyncEnabled: true,
                 fallbackToLogicalResolution: false,
                 hudStreamingModeIndex: 0,
-                sdrColorSpaceIndex: 2,
+                sdrColorSpaceIndex: 1,
                 hdrColorSpaceIndex: 0,
                 l4sEnabled: false,
                 hdrEnabled: false,
@@ -1376,7 +1386,7 @@ public enum StreamPreferences {
                 cloudGsyncEnabled: false,
                 fallbackToLogicalResolution: false,
                 hudStreamingModeIndex: 0,
-                sdrColorSpaceIndex: 2,
+                sdrColorSpaceIndex: 1,
                 hdrColorSpaceIndex: 0,
                 l4sEnabled: true,
                 hdrEnabled: false,
@@ -1393,11 +1403,11 @@ public enum StreamPreferences {
                 cloudGsyncEnabled: false,
                 fallbackToLogicalResolution: false,
                 hudStreamingModeIndex: 0,
-                sdrColorSpaceIndex: 2,
+                sdrColorSpaceIndex: 1,
                 hdrColorSpaceIndex: 0,
                 l4sEnabled: false,
                 hdrEnabled: false,
-                powerSaverEnabled: true
+                powerSaverEnabled: false
             )
         case 4:
             return StreamingQualityPreset(
@@ -1410,8 +1420,8 @@ public enum StreamPreferences {
                 cloudGsyncEnabled: true,
                 fallbackToLogicalResolution: false,
                 hudStreamingModeIndex: 0,
-                sdrColorSpaceIndex: 2,
-                hdrColorSpaceIndex: 2,
+                sdrColorSpaceIndex: 1,
+                hdrColorSpaceIndex: 0,
                 l4sEnabled: false,
                 hdrEnabled: true,
                 powerSaverEnabled: false

@@ -966,9 +966,10 @@ private func requestedResolution(_ settings: [String: Any]) -> (width: Int, heig
 }
 
 private func requestedStreamingFeatures(_ settings: [String: Any], hdrEnabled: Bool) -> [String: Any] {
-    let colorQuality = string(settings["colorQuality"])
-    let bitDepth = colorQuality == "10bit_420" || colorQuality == "10bit_444" ? 1 : 0
-    let chromaFormat = colorQuality == "8bit_444" || colorQuality == "10bit_444" ? 2 : 0
+    let codec = string(settings["codec"]).uppercased()
+    let codecSupports10Bit = codec == "H265" || codec == "HEVC" || codec == "AV1"
+    let bitDepth = (hdrEnabled && codecSupports10Bit) ? 1 : 0
+    let chromaFormat = 0
     return [
         "reflex": bool(settings["enableReflex"], fallback: true),
         "bitDepth": bitDepth,
@@ -978,16 +979,16 @@ private func requestedStreamingFeatures(_ settings: [String: Any], hdrEnabled: B
         "trueHdr": hdrEnabled,
         "supportedHidDevices": int(settings["supportedHidDevices"]),
         "profile": min(max(int(settings["streamingQualityProfile"]), 0), 4),
-        "fallbackToLogicalResolution": bool(settings["fallbackToLogicalResolution"]),
+        "fallbackToLogicalResolution": false,
         "hidDevices": NSNull(),
         "chromaFormat": chromaFormat,
         "prefilterMode": min(max(int(settings["prefilterMode"]), 0), 2),
         "prefilterSharpness": min(max(int(settings["prefilterSharpness"]), 0), 10),
         "prefilterNoiseReduction": min(max(int(settings["prefilterDenoise"]), 0), 10),
         "prefilterModel": max(int(settings["prefilterModel"]), 0),
-        "hudStreamingMode": min(max(int(settings["hudStreamingMode"]), 0), 2),
-        "sdrColorSpace": min(max(int(settings["sdrColorSpace"], fallback: 2), 0), 2),
-        "hdrColorSpace": min(max(int(settings["hdrColorSpace"]), 0), 2),
+        "hudStreamingMode": 0,
+        "sdrColorSpace": 1,
+        "hdrColorSpace": 0,
     ]
 }
 
