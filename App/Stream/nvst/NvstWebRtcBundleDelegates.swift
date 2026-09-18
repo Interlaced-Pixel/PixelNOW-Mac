@@ -72,16 +72,41 @@ extension NvstWebRtcBundle {
                 onInputProtocolNegotiated?(version)
             }
         }
-        let (parsedCommands, _) = NvstStreamingCommand.parse(buffer.data)
+        let (parsedCommands, trailing) = NvstStreamingCommand.parse(buffer.data)
         for command in parsedCommands {
-            dispatchInboundCommand(command)
+            dispatchInboundCommand(command, on: dataChannel)
+        }
+
+        if !trailing.isEmpty, dataChannel.label == "control_channel_reliable" {
+            let hex = [UInt8](trailing.prefix(32)).map { String(format: "%02x", $0) }.joined()
+            logger?("NVST bundle control channel unparsed trailing bytes=\(trailing.count) hex=\(hex)")
+        } else if parsedCommands.isEmpty, dataChannel.label == "control_channel_reliable", !buffer.data.isEmpty {
+            let hex = [UInt8](buffer.data.prefix(32)).map { String(format: "%02x", $0) }.joined()
+            logger?("NVST bundle control channel unparsed buffer bytes=\(buffer.data.count) hex=\(hex)")
         }
 
         guard shouldLog else { return }
         logInboundMessage(buffer, on: dataChannel)
     }
 
-    private func dispatchInboundCommand(_ command: NvstStreamingCommand) {
+    private func dispatchInboundCommand(_ command: NvstStreamingCommand, on dataChannel: RTCDataChannel) {
+        if command.code == .termination || command.terminationReason != nil {
+            let reason = command.terminationReason
+            let reasonDesc = reason.map { NvstResult.describe($0) } ?? "unspecified"
+            let hex = command.payload.map { String(format: "%02x", $0) }.joined()
+            logger?("NVST bundle seat terminated the session (channel=\(dataChannel.label)): \(command.summary) reason=\(reasonDesc) payload=\(hex)")
+            onSeatTermination?(reason, command.summary)
+            return
+        }
+        if command.code == .terminationTimer || command.code == 0x0104 || command.code == 0x0105 {
+            let hex = command.payload.map { String(format: "%02x", $0) }.joined()
+            logger?("NVST bundle seat termination timer warning (channel=\(dataChannel.label)): code=\(command.code.description) len=\(command.payload.count) payload=\(hex)")
+            onSeatTerminationTimer?(command.code.rawValue, command.payload)
+            return
+        }
+        if command.isTextual {
+            logger?("NVST bundle inbound text (channel=\(dataChannel.label)) \(String(format: "0x%04x", command.code.rawValue)): \(command.text(limit: 600))")
+        }
         if command.code == .inputProtocolVersion, command.payload.count >= 2 {
             var payload = NvstByteReader(command.payload)
             if let version = try? payload.u16LE() {

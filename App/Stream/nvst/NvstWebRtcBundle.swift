@@ -252,6 +252,10 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
     public var onHdrMode: (@Sendable (NvstHdrModeNotification) -> Void)?
     /// The seat's surround audio configuration (`0x0408`): multi-channel layout and mapping.
     public var onAudioSurroundInfo: (@Sendable (NvstAudioSurroundInfo) -> Void)?
+    /// The seat's session termination command (`0x0109`), carrying the optional reason code and summary.
+    public var onSeatTermination: (@Sendable (_ reason: UInt32?, _ summary: String) -> Void)?
+    /// The seat's termination timer notification (`0x0103`, `0x0104`, `0x0105`).
+    public var onSeatTerminationTimer: (@Sendable (_ code: UInt16, _ payload: Data) -> Void)?
     var currentAudioSurroundInfo: NvstAudioSurroundInfo?
     public var audioSurroundInfo: NvstAudioSurroundInfo? {
         lock.lock()

@@ -59,9 +59,9 @@ extension NVSTCoreTransport {
         videoPipeline = pipeline
         receiver.onAccessUnit = { [weak pipeline] unit in pipeline?.submit(unit) }
         receiver.onRecoveryNeeded = { [weak self, weak receiver] brokenFrameIndex in
-
-            receiver?.requestKeyframe()
-
+            if brokenFrameIndex == nil {
+                receiver?.requestKeyframe()
+            }
             Task { await self?.recoverBrokenReferenceChain(frameIndex: brokenFrameIndex) }
         }
         receiver.onDiagnostic = { message in logger?("NVST \(message)") }
@@ -222,6 +222,12 @@ extension NVSTCoreTransport {
         }
         bundle.onAudioSurroundInfo = { [weak self] surround in
             Task { await self?.handleAudioSurroundInfo(surround) }
+        }
+        bundle.onSeatTermination = { [weak self] reasonCode, summary in
+            Task { await self?.handleSeatTermination(reasonCode: reasonCode, summary: summary) }
+        }
+        bundle.onSeatTerminationTimer = { [weak self] code, payload in
+            Task { await self?.handleSeatTerminationTimer(code: code, payload: payload) }
         }
         bundle.onRemoteAudio = { [weak self] count in
             logger?("NVST bundle seat offered \(count) audio track(s)")
@@ -530,8 +536,11 @@ extension NVSTCoreTransport {
     }
 
     func recoverBrokenReferenceChain(frameIndex: UInt32?) {
-        if let frameIndex { invalidateFrame(frameIndex) }
-        requestKeyframeOverControlChannel()
+        if let frameIndex {
+            invalidateFrame(frameIndex)
+        } else {
+            requestKeyframeOverControlChannel()
+        }
     }
 
     func invalidateFrame(_ frameIndex: UInt32) {
@@ -722,5 +731,29 @@ extension NVSTCoreTransport {
             message: "Native NVST could not decode video: \(message)",
             recoveryClassification: .permanent
         )))
+    }
+
+    func handleSeatTermination(reasonCode: UInt32?, summary: String) {
+        let codeName = reasonCode.flatMap { NvstResult.name(for: $0) }
+        let description = reasonCode.map { NvstResult.describe($0) } ?? summary
+        logger?("NVST seat termination signaled by remote host: \(description)")
+        Log.warning(.stream, "NVST seat termination signaled by remote host: \(description)")
+
+        let terminationReason = NativeNVSTTerminationReason(rawValue: reasonCode ?? 0, resultName: codeName)
+        let terminationValue = NativeNVSTTerminationValue(code: Int32(bitPattern: reasonCode ?? 0), name: codeName)
+        let info = NativeNVSTSessionTermination(
+            reason: terminationReason,
+            extendedResult: terminationValue,
+            isResumable: false,
+            isSessionAlive: false,
+            message: "GeForce NOW seat terminated the session: \(description)"
+        )
+        terminationContinuation?.yield(.sessionTerminated(info))
+    }
+
+    func handleSeatTerminationTimer(code: UInt16, payload: Data) {
+        let hex = payload.map { String(format: "%02x", $0) }.joined()
+        logger?("NVST seat termination timer signaled: code=\(String(format: "0x%04x", code)) payload=\(hex)")
+        Log.warning(.stream, "NVST seat termination timer warning: code=\(String(format: "0x%04x", code)) payload=\(hex)")
     }
 }

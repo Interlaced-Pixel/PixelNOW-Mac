@@ -40,8 +40,21 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
     private var lastFailureStatus: OSStatus = noErr
     private var loggedFailures = 0
     private var loggedAccepted = 0
+    private var lastLoggedFailureAt: Date?
+    private var suppressedFailureCount = 0
     static let maxLoggedAccepted = 6
-    static let maxLoggedFailures = 12
+
+    static func describeOSStatus(_ status: OSStatus) -> String {
+        switch status {
+        case -12909: return "-12909 (kVTVideoDecoderBadDataErr)"
+        case -12911: return "-12911 (kVTVideoDecoderConfigurationErr)"
+        case -12903: return "-12903 (kVTVideoDecoderReferenceMissingErr)"
+        case -12913: return "-12913 (kVTVideoDecoderNotAvailableNowErr)"
+        case -12905: return "-12905 (kVTVideoDecoderUnsupportedDataFormatErr)"
+        case -12906: return "-12906 (kVTVideoDecoderMalfunctionErr)"
+        default: return "\(status)"
+        }
+    }
 
     public func prewarm(parameterSets sets: NvstElementaryStream.ParameterSets) {
         guard sets.isComplete else { return }
@@ -189,29 +202,44 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
 
     private func prepareSession(for incoming: NvstElementaryStream.ParameterSets) throws -> (VTDecompressionSession, CMFormatDescription) {
         stateLock.lock()
-        var expiring: VTDecompressionSession?
-        if incoming.isComplete, incoming != parameterSets {
-            parameterSets = incoming
-
-            expiring = session
-            session = nil
-            formatDescription = nil
+        let isComplete = incoming.isComplete || parameterSets.isComplete
+        guard isComplete else {
+            stateLock.unlock()
+            throw DecoderError.missingParameterSets
         }
-        let sets = parameterSets
-        var description = formatDescription
+
+        let setsToUse = incoming.isComplete ? incoming : parameterSets
+        let isNewSets = incoming.isComplete && incoming != parameterSets
+        let currentDescription = formatDescription
         stateLock.unlock()
-        Self.tearDown(expiring)
 
-        guard sets.isComplete else { throw DecoderError.missingParameterSets }
-        if description == nil {
-            description = try makeFormatDescription(sets)
+        if isNewSets || currentDescription == nil {
+            let newDescription = try makeFormatDescription(setsToUse)
+
+            stateLock.lock()
+            if let active = session, isNewSets, VTDecompressionSessionCanAcceptFormatDescription(active, formatDescription: newDescription) {
+                parameterSets = setsToUse
+                formatDescription = newDescription
+                stateLock.unlock()
+                return (active, newDescription)
+            }
+
+            let expiring = session
+            session = nil
+            parameterSets = setsToUse
+            formatDescription = newDescription
+            stateLock.unlock()
+            Self.tearDown(expiring)
         }
-        guard let description else { throw DecoderError.missingParameterSets }
 
         stateLock.lock()
-        formatDescription = description
+        guard let description = formatDescription else {
+            stateLock.unlock()
+            throw DecoderError.missingParameterSets
+        }
         var active = session
         stateLock.unlock()
+
         if active == nil {
             active = try makeSession(formatDescription: description)
             stateLock.lock()
@@ -240,14 +268,32 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         guard status == noErr, let imageBuffer else {
             statsLock.lock()
             failedFrames &+= 1
-            let shouldReport = loggedFailures < Self.maxLoggedFailures
-            if shouldReport { loggedFailures += 1 }
-
             if firstFailureStatus == noErr { firstFailureStatus = status }
             lastFailureStatus = status
+            let now = Date()
+            let shouldReport: Bool
+            let suppressed: Int
+            if loggedFailures < 25 {
+                loggedFailures += 1
+                shouldReport = true
+                suppressed = 0
+                lastLoggedFailureAt = now
+            } else if let last = lastLoggedFailureAt, now.timeIntervalSince(last) >= 1.0 {
+                shouldReport = true
+                suppressed = suppressedFailureCount
+                suppressedFailureCount = 0
+                lastLoggedFailureAt = now
+            } else {
+                shouldReport = false
+                suppressedFailureCount += 1
+                suppressed = 0
+            }
             statsLock.unlock()
+
             if shouldReport {
-                logFailure?(frameIndex, "NVST decode rejected OSStatus \(status) frame=\(frameIndex) keyframe=\(isKeyframe) \(shape())")
+                let suppressedNote = suppressed > 0 ? " (+\(suppressed) suppressed in past 1s)" : ""
+                let statusStr = Self.describeOSStatus(status)
+                logFailure?(frameIndex, "NVST decode rejected OSStatus \(statusStr) frame=\(frameIndex) keyframe=\(isKeyframe)\(suppressedNote) \(shape())")
             }
             onDecodeCompleted?(false)
             return
