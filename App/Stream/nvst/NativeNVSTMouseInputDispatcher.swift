@@ -94,16 +94,16 @@ final class NativeNVSTInputDispatcher: @unchecked Sendable {
                 continuation.resume(returning: ())
             }
         }
-        lock.lock()
-        isCancelled = true
-        lock.unlock()
+        lock.withLock {
+            isCancelled = true
+        }
     }
 
     func cancel() {
         buffer.finish(discardingStaleInput: false)
-        lock.lock()
-        isCancelled = true
-        lock.unlock()
+        lock.withLock {
+            isCancelled = true
+        }
     }
 
     deinit {
@@ -116,13 +116,14 @@ final class NativeNVSTInputDispatcher: @unchecked Sendable {
     }
 
     private func scheduleDrain() {
-        lock.lock()
-        if isCancelled || isDraining {
-            lock.unlock()
-            return
+        let shouldReturn = lock.withLock { () -> Bool in
+            if isCancelled || isDraining {
+                return true
+            }
+            isDraining = true
+            return false
         }
-        isDraining = true
-        lock.unlock()
+        if shouldReturn { return }
 
         queue.async { [weak self] in
             self?.drain()
@@ -131,18 +132,14 @@ final class NativeNVSTInputDispatcher: @unchecked Sendable {
 
     private func drain() {
         while let input = buffer.removeFirst() {
-            lock.lock()
-            if isCancelled {
-                lock.unlock()
-                return
-            }
-            lock.unlock()
+            let cancelled = lock.withLock { isCancelled }
+            if cancelled { return }
             sendAction(input)
         }
         
-        lock.lock()
-        isDraining = false
-        lock.unlock()
+        lock.withLock {
+            isDraining = false
+        }
         
         if !buffer.isFinished && buffer.count > 0 {
             scheduleDrain()
