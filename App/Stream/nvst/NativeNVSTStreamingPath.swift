@@ -1,4 +1,5 @@
 import CoreAudio
+import CoreVideo
 import Foundation
 
 final class NativeNVSTAudioDeviceMonitor: @unchecked Sendable {
@@ -117,6 +118,7 @@ public protocol NativeNVSTTransport: Sendable {
     func startRecording(configuration: WebRTCStreamRecordingConfiguration) async
     func stopRecording() async
     func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?) async
+    func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer)
     func pause() async throws
     func disconnect() async
     func disconnectForApplicationTermination() async
@@ -157,6 +159,7 @@ public extension NativeNVSTTransport {
     func startRecording(configuration: WebRTCStreamRecordingConfiguration) async {}
     func stopRecording() async {}
     func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?) async {}
+    func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer) {}
 
     func pause() async throws {
         throw NativeNVSTError.notRunning
@@ -414,6 +417,10 @@ public actor NativeNVSTStreamingPath {
 
     public func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?) async {
         await transport.setRecordingStatusHandler(handler)
+    }
+
+    public func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+        transport.appendEnhancedPixelBuffer(pixelBuffer)
     }
 
     public func setMicrophoneConfiguration(_ configuration: NativeNVSTMicrophoneConfiguration) async throws {

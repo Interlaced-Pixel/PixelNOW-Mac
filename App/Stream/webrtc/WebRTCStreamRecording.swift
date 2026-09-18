@@ -523,6 +523,8 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         setActiveRecordingId(nil, enhancedVideoPreferred: false)
     }
 
+    private var recordingStartedTime: CFTimeInterval = 0
+
     private func setActiveRecordingId(_ recordingId: UUID?, enhancedVideoPreferred: Bool) {
         frameLock.withLock {
             activeRecordingId = recordingId
@@ -530,6 +532,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
             selectedVideoFrameSource = nil
             pendingNativeVideoRecordingId = nil
             pendingEnhancedVideoFrameCount = 0
+            recordingStartedTime = CACurrentMediaTime()
         }
     }
 
@@ -539,6 +542,12 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
             switch source {
             case .native:
                 guard selectedVideoFrameSource != .enhanced, pendingNativeVideoRecordingId == nil else { return nil }
+                if enhancedVideoPreferred && selectedVideoFrameSource == nil {
+                    let elapsed = CACurrentMediaTime() - recordingStartedTime
+                    if elapsed < 0.75 {
+                        return nil
+                    }
+                }
                 pendingNativeVideoRecordingId = activeRecordingId
             case .enhanced:
                 guard enhancedVideoPreferred, selectedVideoFrameSource != .native else { return nil }

@@ -424,6 +424,10 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         recorder.onStatusChanged = handler
     }
 
+    nonisolated public func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+        recorder.appendEnhancedPixelBuffer(pixelBuffer)
+    }
+
     public func disconnect() async {
 
         recorder.stop()
