@@ -401,6 +401,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         } else if isPointerLocked {
             setPointerLocked(false)
         }
+        applyLocalCursorPolicy()
     }
 
     public func applyServerCursor(_ cursor: NvstRemoteCursor) {
@@ -408,7 +409,15 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         let newCursor = cursor.nativeCursor
         let cursorShapeChanged = (currentServerCursor != newCursor)
         currentServerCursor = newCursor
+        if seatCompositesCursor {
+            seatCompositesCursor = false
+        }
         setRemoteCursorVisible(isVisible)
+        if cursor.isConfinedToWindow || isPointerLocked {
+            applyWindowMouseConfinement(true)
+        } else if !isPointerLocked {
+            applyWindowMouseConfinement(false)
+        }
         if cursorShapeChanged {
             window?.invalidateCursorRects(for: self)
         }
@@ -438,7 +447,10 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
                                           remoteCursorWantsPointer: Bool?,
                                           isApplicationActive: Bool,
                                           isWindowKey: Bool) -> Bool {
-        guard !isPointerLocked, mode == .absolute, remoteInputEnabled, !localOverlayCapturesInput,
+        if isPointerLocked || mode == .relative {
+            return true
+        }
+        guard mode == .absolute, remoteInputEnabled, !localOverlayCapturesInput,
               isApplicationActive, isWindowKey else { return false }
         switch policy {
         case .local: return false
@@ -468,10 +480,10 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         super.resetCursorRects()
         let content = videoContentFrame()
         guard content.width > 0, content.height > 0 else { return }
-        if hidesLocalCursorOverVideo {
+        if hidesLocalCursorOverVideo || isPointerLocked || mouseInputMode == .relative {
             addCursorRect(content, cursor: Self.invisibleCursor)
-        } else if let cursor = currentServerCursor {
-            addCursorRect(content, cursor: cursor)
+        } else {
+            addCursorRect(content, cursor: currentServerCursor ?? .arrow)
         }
     }
 
@@ -796,17 +808,19 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
     private func enablePointerLock() {
         guard window != nil else { return }
         let restoreLocation = cursorLocationProvider()
+        isPointerLocked = true
+        updatePointerLockCursorVisibility()
         guard cursorAssociationHandler(false) == .success else {
+            isPointerLocked = false
+            updatePointerLockCursorVisibility()
             NativeNVSTMediaTelemetry.capture("webrtc.input.pointer_lock.failed", level: .error, message: "macOS rejected relative pointer capture.", attributes: ["locked": "false"])
             return
         }
         cursorAssociationGeneration &+= 1
-        isPointerLocked = true
         pointerLockRestoreLocation = restoreLocation
         window?.acceptsMouseMovedEvents = true
         window?.makeFirstResponder(self)
         applyWindowMouseConfinement(true)
-        updatePointerLockCursorVisibility()
         installPointerLockMonitor()
         installPointerLockNotifications()
         applyLocalCursorPolicy()
@@ -866,7 +880,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
     }
 
     private func updatePointerLockCursorVisibility() {
-        if hidesCursorWhilePointerLocked {
+        if hidesCursorWhilePointerLocked && isPointerLocked {
             if !pointerLockCursorHidden {
                 NSCursor.hide()
                 pointerLockCursorHidden = true
