@@ -48,7 +48,7 @@ final class NativeNVSTInputDispatcher: Sendable {
     private let continuation: AsyncStream<Void>.Continuation
     private let drainTask: Task<Void, Never>
 
-    init(capacity: Int = defaultCapacity, send: @escaping @Sendable (NativeNVSTInput) async -> Void) {
+    init(capacity: Int = defaultCapacity, send: @escaping @Sendable (NativeNVSTInput) -> Void) {
         let buffer = NativeNVSTInputBuffer(capacity: capacity)
         let channel = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         self.buffer = buffer
@@ -57,7 +57,7 @@ final class NativeNVSTInputDispatcher: Sendable {
             for await _ in channel.stream {
                 while let input = buffer.removeFirst() {
                     guard !Task.isCancelled else { return }
-                    await send(input)
+                    send(input)
                 }
                 if buffer.isFinished { return }
             }
