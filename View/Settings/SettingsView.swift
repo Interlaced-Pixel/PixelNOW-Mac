@@ -1263,18 +1263,6 @@ private struct GameplaySettingsPage: View {
     var body: some View {
         let qualityLocked = !viewModel.streamingQualityProfileAllowsCustomization
         VStack(alignment: .leading, spacing: 16) {
-            SettingsCard(title: "Streaming Profile") {
-                GameplayProfileOverview(
-                    mode: streamingProfileMode,
-                    resolution: viewModel.streamProfile.resolution.label,
-                    frameRate: "\(viewModel.streamProfile.fps) FPS",
-                    codec: viewModel.streamProfile.codec.label,
-                    bitrate: "\(viewModel.streamProfile.maxBitrateMbps) Mbps",
-                    colorPrecision: viewModel.streamProfile.enableHdr ? "10-bit (HDR)" : "8-bit (SDR)",
-                    dataUsage: estimatedDataUsage
-                )
-            }
-
             SettingsCard(title: "Quality & Network Performance") {
                 SettingsOptionRow(title: "Quality Profile", subtitle: "Preconfigured streaming balance for bandwidth and latency.", options: StreamPreferences.streamingQualityProfileOptions.map(\.label), selectedIndex: viewModel.streamProfile.streamingQualityProfileIndex, action: viewModel.setStreamingQualityProfileIndex)
                 SettingsDivider()
@@ -1410,17 +1398,8 @@ private struct GameplaySettingsPage: View {
         RemoteCoOpLatencyMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.latencyMode) ?? 0
     }
 
-    private var streamingProfileMode: String {
-        viewModel.streamProfile.allowsStreamingCustomization ? "Custom" : "\(viewModel.streamProfile.streamingQualityProfileOption.label) preset"
-    }
-
     private var lockedProfileSubtitle: String {
         "Managed by \(viewModel.streamProfile.streamingQualityProfileOption.label) profile. Set to Custom to edit."
-    }
-
-    private var estimatedDataUsage: String {
-        let gbPerHour = Double(viewModel.streamProfile.maxBitrateMbps) * 0.45
-        return String(format: "Up to %.1f GB per hour at %d Mbps", gbPerHour, viewModel.streamProfile.maxBitrateMbps)
     }
 
     private var recordingVideoBitrateText: String {
@@ -1429,68 +1408,6 @@ private struct GameplaySettingsPage: View {
 
     private func percentText(_ value: Double) -> String {
         "\(Int((value * 100).rounded()))%"
-    }
-}
-
-private struct GameplayProfileOverview: View {
-    let mode: String
-    let resolution: String
-    let frameRate: String
-    let codec: String
-    let bitrate: String
-    let colorPrecision: String
-    let dataUsage: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Active streaming profile")
-                        .font(.settingsNvidia(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("These values are sent to PixelNOW when a new stream starts.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.58))
-                }
-                Spacer(minLength: 0)
-                SettingsStatusPill(title: "MODE", value: mode, positive: mode != "Balanced defaults")
-            }
-
-            SettingsFlowLayout(spacing: 10) {
-                GameplayProfileMetricTile(label: "Resolution", value: resolution, emphasized: true)
-                GameplayProfileMetricTile(label: "Frame Rate", value: frameRate, emphasized: true)
-                GameplayProfileMetricTile(label: "Codec", value: codec)
-                GameplayProfileMetricTile(label: "Bitrate", value: bitrate)
-                GameplayProfileMetricTile(label: "Color", value: colorPrecision)
-                GameplayProfileMetricTile(label: "Data Usage", value: dataUsage, width: 260)
-            }
-        }
-    }
-}
-
-private struct GameplayProfileMetricTile: View {
-    let label: String
-    let value: String
-    var emphasized = false
-    var width: CGFloat?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(label.uppercased())
-                .font(.settingsNvidia(size: 9, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(.white.opacity(0.44))
-            Text(value.isEmpty ? "-" : value)
-                .font(.settingsNvidia(size: emphasized ? 16 : 14, weight: .bold))
-                .foregroundStyle(emphasized ? Color.pixelNowGreen : .white.opacity(0.86))
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .frame(width: width ?? (emphasized ? 180 : 154), height: 72, alignment: .leading)
-        .background(Color.white.opacity(emphasized ? 0.065 : 0.045))
-        .overlay { Rectangle().stroke(emphasized ? Color.pixelNowGreen.opacity(0.32) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -1632,15 +1549,15 @@ private struct SystemSettingsPage: View {
                     SettingsStatisticTile(label: "Resolution", value: displaySummary, emphasized: true)
                     SettingsStatisticTile(label: "Refresh", value: refreshRateText)
                     SettingsStatisticTile(label: "DPI", value: dpiText)
-                    SettingsStatisticTile(label: "HDR", value: viewModel.streamCapabilities.hdrDisplaySupported ? "Ready" : "Unavailable")
+                    SettingsStatisticTile(label: "HDR", value: effectiveCapabilities.hdrDisplaySupported ? "Ready" : "Unavailable")
                 }
             }
 
             SettingsCard(title: "Video Decode") {
                 VStack(spacing: 10) {
-                    SystemCapabilityRow(title: "H.264", subtitle: "Baseline stream compatibility", value: viewModel.streamCapabilities.h264HardwareDecodeSupported ? "Hardware" : "Software", positive: viewModel.streamCapabilities.h264HardwareDecodeSupported)
-                    SystemCapabilityRow(title: "HEVC", subtitle: "Efficient high-quality streaming", value: viewModel.streamCapabilities.h265HardwareDecodeSupported ? "Supported" : "Unavailable", positive: viewModel.streamCapabilities.h265HardwareDecodeSupported)
-                    SystemCapabilityRow(title: "AV1", subtitle: "Next-generation low-bitrate streaming", value: viewModel.streamCapabilities.av1HardwareDecodeSupported ? "Supported" : "Unavailable", positive: viewModel.streamCapabilities.av1HardwareDecodeSupported)
+                    SystemCapabilityRow(title: "H.264", subtitle: "Baseline stream compatibility", value: effectiveCapabilities.h264HardwareDecodeSupported ? "Hardware" : "Software", positive: effectiveCapabilities.h264HardwareDecodeSupported)
+                    SystemCapabilityRow(title: "HEVC", subtitle: "Efficient high-quality streaming", value: effectiveCapabilities.h265HardwareDecodeSupported ? "Supported" : "Unavailable", positive: effectiveCapabilities.h265HardwareDecodeSupported)
+                    SystemCapabilityRow(title: "AV1", subtitle: "Next-generation low-bitrate streaming", value: effectiveCapabilities.av1HardwareDecodeSupported ? "Supported" : "Unavailable", positive: effectiveCapabilities.av1HardwareDecodeSupported)
                 }
             }
 
@@ -1663,34 +1580,53 @@ private struct SystemSettingsPage: View {
                 AboutDetailRow(label: "Current Region", value: route.displayValue, copyValue: route.copyValue, copiedKey: $copiedKey)
             }
         }
+        .onAppear {
+            viewModel.refreshSystemCapabilities()
+        }
+    }
+
+    private var effectiveCapabilities: StreamDeviceCapabilities {
+        if viewModel.streamCapabilities.maxDisplayWidth > 0 {
+            return viewModel.streamCapabilities
+        }
+        let live = StreamPreferences.loadDeviceCapabilities()
+        if live.maxDisplayWidth > 0 {
+            return live
+        }
+        return viewModel.streamCapabilities
     }
 
     private var displaySummary: String {
-        guard viewModel.streamCapabilities.maxDisplayWidth > 0, viewModel.streamCapabilities.maxDisplayHeight > 0 else { return "Unknown" }
-        return "\(viewModel.streamCapabilities.maxDisplayWidth) x \(viewModel.streamCapabilities.maxDisplayHeight)"
+        let caps = effectiveCapabilities
+        guard caps.maxDisplayWidth > 0, caps.maxDisplayHeight > 0 else { return "Unknown" }
+        return "\(caps.maxDisplayWidth) x \(caps.maxDisplayHeight)"
     }
 
     private var refreshRateText: String {
-        viewModel.streamCapabilities.maxDisplayRefreshRate > 0 ? "\(viewModel.streamCapabilities.maxDisplayRefreshRate) Hz" : "Unknown"
+        let caps = effectiveCapabilities
+        return caps.maxDisplayRefreshRate > 0 ? "\(caps.maxDisplayRefreshRate) Hz" : "Unknown"
     }
 
     private var dpiText: String {
-        viewModel.streamCapabilities.displayDpi > 0 ? "\(viewModel.streamCapabilities.displayDpi)" : "Unknown"
+        let caps = effectiveCapabilities
+        return caps.displayDpi > 0 ? "\(caps.displayDpi)" : "Unknown"
     }
 
     private var preferredDecoder: String {
-        if viewModel.streamCapabilities.av1HardwareDecodeSupported { return "AV1" }
-        if viewModel.streamCapabilities.h265HardwareDecodeSupported { return "HEVC" }
-        if viewModel.streamCapabilities.h264HardwareDecodeSupported { return "H.264" }
+        let caps = effectiveCapabilities
+        if caps.av1HardwareDecodeSupported { return "AV1" }
+        if caps.h265HardwareDecodeSupported { return "HEVC" }
+        if caps.h264HardwareDecodeSupported { return "H.264" }
         return "Software"
     }
 
     private var hardwareDecodeCount: Int {
-        [viewModel.streamCapabilities.h264HardwareDecodeSupported, viewModel.streamCapabilities.h265HardwareDecodeSupported, viewModel.streamCapabilities.av1HardwareDecodeSupported].filter { $0 }.count
+        let caps = effectiveCapabilities
+        return [caps.h264HardwareDecodeSupported, caps.h265HardwareDecodeSupported, caps.av1HardwareDecodeSupported].filter { $0 }.count
     }
 
     private var systemHealthPositive: Bool {
-        viewModel.streamCapabilities.h264HardwareDecodeSupported && displaySummary != "Unknown"
+        effectiveCapabilities.h264HardwareDecodeSupported && displaySummary != "Unknown"
     }
 
     private var systemHealthTitle: String {
@@ -1706,7 +1642,7 @@ private struct SystemSettingsPage: View {
     }
 
     private var systemSummaryDetail: String {
-        "Detected \(displaySummary) at \(refreshRateText), \(hardwareDecodeCount) hardware decoder\(hardwareDecodeCount == 1 ? "" : "s"), and \(viewModel.streamCapabilities.hdrDisplaySupported ? "HDR-capable" : "SDR") presentation."
+        "Detected \(displaySummary) at \(refreshRateText), \(hardwareDecodeCount) hardware decoder\(hardwareDecodeCount == 1 ? "" : "s"), and \(effectiveCapabilities.hdrDisplaySupported ? "HDR-capable" : "SDR") presentation."
     }
 
     private var route: SettingsRouteSnapshot {
