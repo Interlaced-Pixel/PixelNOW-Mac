@@ -532,29 +532,71 @@ public enum StreamPreferences {
             capabilities.av1HardwareDecodeSupported = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
         }
 
-        let screen = screen ?? (Thread.isMainThread ? NSScreen.main : nil)
-        guard let screen else { return capabilities }
-        let scale = screen.backingScaleFactor > 0 ? screen.backingScaleFactor : 1.0
-        capabilities.displayDpi = max(100, Int((100.0 * scale).rounded()))
-        if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
-            let displayId = CGDirectDisplayID(screenNumber.uint32Value)
-            let width = CGDisplayPixelsWide(displayId)
-            let height = CGDisplayPixelsHigh(displayId)
+        let mainDisplayId = CGMainDisplayID()
+        if mainDisplayId != 0 {
+            let width = CGDisplayPixelsWide(mainDisplayId)
+            let height = CGDisplayPixelsHigh(mainDisplayId)
             if width > 0, height > 0 {
                 capabilities.maxDisplayWidth = width
                 capabilities.maxDisplayHeight = height
             }
-            if let mode = CGDisplayCopyDisplayMode(displayId) {
+            if let mode = CGDisplayCopyDisplayMode(mainDisplayId) {
                 let refreshRate = mode.refreshRate
-                if refreshRate.isFinite, refreshRate > 0 { capabilities.maxDisplayRefreshRate = Int(refreshRate.rounded()) }
+                if refreshRate.isFinite, refreshRate > 0 {
+                    capabilities.maxDisplayRefreshRate = Int(refreshRate.rounded())
+                }
+                let pixelWidth = mode.pixelWidth
+                let pointWidth = mode.width
+                if pointWidth > 0 {
+                    let scale = Double(pixelWidth) / Double(pointWidth)
+                    capabilities.displayDpi = max(100, Int((100.0 * scale).rounded()))
+                }
             }
         }
-        if capabilities.maxDisplayWidth == 0 || capabilities.maxDisplayHeight == 0 {
-            capabilities.maxDisplayWidth = Int((screen.frame.width * scale).rounded())
-            capabilities.maxDisplayHeight = Int((screen.frame.height * scale).rounded())
+
+        let resolvedScreen: NSScreen? = {
+            if let screen { return screen }
+            if Thread.isMainThread {
+                return NSScreen.main ?? NSScreen.screens.first
+            }
+            return DispatchQueue.main.sync {
+                NSScreen.main ?? NSScreen.screens.first
+            }
+        }()
+
+        if let screen = resolvedScreen {
+            let scale = screen.backingScaleFactor > 0 ? screen.backingScaleFactor : 1.0
+            capabilities.displayDpi = max(capabilities.displayDpi, max(100, Int((100.0 * scale).rounded())))
+            if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+                let displayId = CGDirectDisplayID(screenNumber.uint32Value)
+                let width = CGDisplayPixelsWide(displayId)
+                let height = CGDisplayPixelsHigh(displayId)
+                if width > 0, height > 0 {
+                    capabilities.maxDisplayWidth = width
+                    capabilities.maxDisplayHeight = height
+                }
+                if let mode = CGDisplayCopyDisplayMode(displayId) {
+                    let refreshRate = mode.refreshRate
+                    if refreshRate.isFinite, refreshRate > 0 {
+                        capabilities.maxDisplayRefreshRate = Int(refreshRate.rounded())
+                    }
+                }
+            }
+            if capabilities.maxDisplayWidth == 0 || capabilities.maxDisplayHeight == 0 {
+                capabilities.maxDisplayWidth = Int((screen.frame.width * scale).rounded())
+                capabilities.maxDisplayHeight = Int((screen.frame.height * scale).rounded())
+            }
+            capabilities.maxDisplayRefreshRate = max(capabilities.maxDisplayRefreshRate, screen.maximumFramesPerSecond)
+            capabilities.hdrDisplaySupported = screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1.0
         }
-        capabilities.maxDisplayRefreshRate = max(capabilities.maxDisplayRefreshRate, screen.maximumFramesPerSecond)
-        capabilities.hdrDisplaySupported = screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1.0
+
+        if capabilities.maxDisplayRefreshRate <= 0 {
+            capabilities.maxDisplayRefreshRate = 60
+        }
+        if capabilities.displayDpi <= 0 {
+            capabilities.displayDpi = 100
+        }
+
         return capabilities
     }
 

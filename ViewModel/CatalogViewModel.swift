@@ -162,7 +162,7 @@ final class CatalogViewModel: ObservableObject {
     @Published var activeLaunchSession: ActiveStreamSessionDescriptor?
     @Published var streamProfile = StreamPreferenceProfile()
     @Published var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-    @Published var streamCapabilities = StreamDeviceCapabilities()
+    @Published var streamCapabilities = StreamPreferences.loadDeviceCapabilities()
     @Published var nativeNVSTRuntimeAvailable = false
     @Published var nativeNVSTRuntimeMessage = "Checking native NVST runtime availability."
     @Published var settingsRegionOptions: [StreamRegionOption] = []
@@ -2199,13 +2199,21 @@ final class CatalogViewModel: ObservableObject {
         }
     }
 
+    func refreshSystemCapabilities() {
+        let caps = StreamPreferences.loadDeviceCapabilities()
+        if caps.maxDisplayWidth > 0 {
+            self.streamCapabilities = caps
+        }
+    }
+
     private func loadSettingsPreferences() {
         settingsPreferencesGeneration += 1
         let generation = settingsPreferencesGeneration
         let userId = Self.playtimeAccountIdentifier(account: account, session: session)
+        let capabilities = StreamPreferences.loadDeviceCapabilities()
+        self.streamCapabilities = capabilities
         settingsPreferencesTask?.cancel()
         settingsPreferencesTask = Task.detached(priority: .userInitiated) {
-            let capabilities = StreamPreferences.loadDeviceCapabilities()
             var profile = StreamPreferences.effectiveProfile(StreamPreferences.loadProfile(), capabilities: capabilities)
             let nativeNVSTRuntimeAvailable = true
             let nativeNVSTRuntimeMessage = "Native NVST runtime is available."
