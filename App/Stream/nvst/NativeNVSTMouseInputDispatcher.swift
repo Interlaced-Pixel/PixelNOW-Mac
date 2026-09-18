@@ -41,27 +41,19 @@ final class NativeNVSTInputDispatcherHolder: @unchecked Sendable {
     }
 }
 
-final class NativeNVSTInputDispatcher: Sendable {
+final class NativeNVSTInputDispatcher: @unchecked Sendable {
     static let defaultCapacity = 256
 
     private let buffer: NativeNVSTInputBuffer
-    private let continuation: AsyncStream<Void>.Continuation
-    private let drainTask: Task<Void, Never>
+    private let queue = DispatchQueue(label: "nvst.input.dispatcher", qos: .userInteractive)
+    private let sendAction: @Sendable (NativeNVSTInput) -> Void
+    private var isCancelled = false
+    private var isDraining = false
+    private let lock = NSLock()
 
     init(capacity: Int = defaultCapacity, send: @escaping @Sendable (NativeNVSTInput) -> Void) {
-        let buffer = NativeNVSTInputBuffer(capacity: capacity)
-        let channel = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        self.buffer = buffer
-        continuation = channel.continuation
-        drainTask = Task {
-            for await _ in channel.stream {
-                while let input = buffer.removeFirst() {
-                    guard !Task.isCancelled else { return }
-                    send(input)
-                }
-                if buffer.isFinished { return }
-            }
-        }
+        self.buffer = NativeNVSTInputBuffer(capacity: capacity)
+        self.sendAction = send
     }
 
     func enqueue(_ event: UserInputEvent) {
@@ -96,26 +88,65 @@ final class NativeNVSTInputDispatcher: Sendable {
 
     func finish() async {
         buffer.finish(discardingStaleInput: true)
-        continuation.yield()
-        continuation.finish()
-        await drainTask.value
+        scheduleDrain()
+        let _: Void = await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: ())
+            }
+        }
+        lock.lock()
+        isCancelled = true
+        lock.unlock()
     }
 
     func cancel() {
         buffer.finish(discardingStaleInput: false)
-        continuation.finish()
-        drainTask.cancel()
+        lock.lock()
+        isCancelled = true
+        lock.unlock()
     }
 
     deinit {
-        buffer.finish(discardingStaleInput: false)
-        continuation.finish()
-        drainTask.cancel()
+        cancel()
     }
 
     private func enqueue(_ input: NativeNVSTInput) {
         guard buffer.append(input) else { return }
-        continuation.yield()
+        scheduleDrain()
+    }
+
+    private func scheduleDrain() {
+        lock.lock()
+        if isCancelled || isDraining {
+            lock.unlock()
+            return
+        }
+        isDraining = true
+        lock.unlock()
+
+        queue.async { [weak self] in
+            self?.drain()
+        }
+    }
+
+    private func drain() {
+        while let input = buffer.removeFirst() {
+            lock.lock()
+            if isCancelled {
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+            sendAction(input)
+        }
+        
+        lock.lock()
+        isDraining = false
+        lock.unlock()
+        
+        if !buffer.isFinished && buffer.count > 0 {
+            scheduleDrain()
+        }
     }
 }
 
