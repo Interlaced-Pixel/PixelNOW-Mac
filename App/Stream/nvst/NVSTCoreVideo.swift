@@ -53,6 +53,9 @@ extension NVSTCoreTransport {
         }
         mediaFrameContinuation = mediaContinuation
         let pipeline = makeVideoPipeline(handoff: handoff, decoder: decoder, receiver: receiver, mediaContinuation: mediaContinuation, qosManager: qosManager)
+        if let bundle {
+            pipeline.attach(bundle: bundle)
+        }
         videoPipeline = pipeline
         receiver.onAccessUnit = { [weak pipeline] unit in pipeline?.submit(unit) }
         receiver.onRecoveryNeeded = { [weak self, weak receiver] brokenFrameIndex in
@@ -77,6 +80,10 @@ extension NVSTCoreTransport {
         }
         try receiver.start()
         self.receiver = receiver
+        beginVideoHolePunch()
+        if let sender = feedbackSender {
+            adoptFeedbackSender(sender)
+        }
         logger?("NVST Mjolnir receiver armed on port \((handoff.wireUDPPort ?? handoff.mjolnirUDPPort) ?? handoff.clientUDPPort) for peer \(handoff.videoPeerIP):\(handoff.videoPeerPort)")
     }
 
