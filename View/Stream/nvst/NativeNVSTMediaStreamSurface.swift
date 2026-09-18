@@ -421,6 +421,8 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var desktopAutomationOverlayDismissed = false
     @State private var macroFrameHolder = DesktopMacroFrameHolder()
     @State private var streamUpscalingMode = 0
+    @State private var streamUpscalingSharpness = 10
+    @State private var streamUpscalingDenoise = 0
     private let nativeInputFailureReporter = NativeNVSTInputFailureReporter()
 
     var body: some View {
@@ -462,6 +464,8 @@ struct NativeNVSTMediaStreamSurface: View {
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
         let resolved = resolvedMediaSettings(for: profile)
         streamUpscalingMode = resolved.upscalingMode
+        streamUpscalingSharpness = resolved.upscalingSharpness
+        streamUpscalingDenoise = resolved.upscalingDenoise
         microphoneMode = profile.microphoneMode.lowercased()
         showStreamMicToggle = resolved.showStreamMicToggle
         let microphoneConfiguration = NativeNVSTMicrophoneConfiguration.settings(
@@ -523,6 +527,9 @@ struct NativeNVSTMediaStreamSurface: View {
                 diagnosticLog.append(message)
             }
         )
+        renderer.setEnhancedFrameSink { [weak transport] pixelBuffer, _ in
+            transport?.appendEnhancedPixelBuffer(pixelBuffer)
+        }
         Task { [weak nativeView] in
             await transport.setRemoteCursorVisibilityHandler { [weak nativeView] isVisible in
                 nativeView?.applyServerCursorVisibility(isVisible)
@@ -1694,6 +1701,7 @@ struct NativeNVSTMediaStreamSurface: View {
                 nativeStatsStandardRow(label: "Resolution", value: resolution, detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
                 nativeStatsStandardRow(label: "Codec", value: codec, detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
                 nativeStatsStandardRow(label: "Server", value: nonEmptyNativeStat(latestNativeStats?.serverLocation, fallback: "--"), detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
+                nativeStatsStandardRow(label: "MetalFX", value: nativeView?.currentNVSTCoreRenderer?.metalFXStatusDescription ?? (streamUpscalingMode == 3 ? "Active" : "Off"), detail: nil, color: streamUpscalingMode == 3 ? NativeNVSTMediaStreamTheme.accent : NativeNVSTMediaStreamTheme.textTertiary)
             }
             .padding(8)
             .background(Color.black.opacity(0.25))
@@ -2041,6 +2049,12 @@ struct NativeNVSTMediaStreamSurface: View {
                     set: { newValue in
                         streamUpscalingMode = newValue
                         nativeView?.currentNVSTCoreRenderer?.setMetalFXEnabled(newValue == 3)
+                        StreamPreferences.saveUpscalingSettings(
+                            mode: newValue,
+                            sharpness: streamUpscalingSharpness,
+                            denoise: streamUpscalingDenoise,
+                            forGame: configuration.applicationID
+                        )
                     }
                 )) {
                     Text("Off").tag(0)
@@ -2050,8 +2064,91 @@ struct NativeNVSTMediaStreamSurface: View {
                 .pickerStyle(.segmented)
                 .tint(Color.pixelNowGreen)
                 .disabled(!sidebarCapabilities.supports(.videoEnhancement))
-                nativeHUDDetailRow(label: "Active", value: streamUpscalingMode == 3 ? "MetalFX" : "Off")
-                nativeHUDDetailRow(label: "Target", value: streamUpscalingMode == 3 ? "MetalFX" : "Native")
+
+                if streamUpscalingMode == 3 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Clarity")
+                                .font(.nativeNVSTStreamNvidia(size: 10, weight: .medium))
+                                .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                            Spacer()
+                            Text("\(streamUpscalingSharpness)")
+                                .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
+                                .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                        }
+                        Slider(value: Binding(
+                            get: { Double(streamUpscalingSharpness) },
+                            set: { val in
+                                streamUpscalingSharpness = Int(val)
+                                nativeView?.currentNVSTCoreRenderer?.setVideoEnhancement(
+                                    mode: streamUpscalingMode,
+                                    sharpness: streamUpscalingSharpness,
+                                    denoise: streamUpscalingDenoise,
+                                    targetHeight: profile.upscalingTargetHeight,
+                                    pillarboxFillMode: 0,
+                                    pillarboxFillDim: 0,
+                                    pillarboxFillColor: 0
+                                )
+                                StreamPreferences.saveUpscalingSettings(
+                                    mode: streamUpscalingMode,
+                                    sharpness: streamUpscalingSharpness,
+                                    denoise: streamUpscalingDenoise,
+                                    forGame: configuration.applicationID
+                                )
+                            }
+                        ), in: 0...15, step: 1)
+                        .tint(Color.pixelNowGreen)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Noise Reduction")
+                                .font(.nativeNVSTStreamNvidia(size: 10, weight: .medium))
+                                .foregroundStyle(NativeNVSTMediaStreamTheme.textSecondary)
+                            Spacer()
+                            Text("\(streamUpscalingDenoise)")
+                                .font(.nativeNVSTStreamNvidia(size: 10, weight: .bold))
+                                .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                        }
+                        Slider(value: Binding(
+                            get: { Double(streamUpscalingDenoise) },
+                            set: { val in
+                                streamUpscalingDenoise = Int(val)
+                                nativeView?.currentNVSTCoreRenderer?.setVideoEnhancement(
+                                    mode: streamUpscalingMode,
+                                    sharpness: streamUpscalingSharpness,
+                                    denoise: streamUpscalingDenoise,
+                                    targetHeight: profile.upscalingTargetHeight,
+                                    pillarboxFillMode: 0,
+                                    pillarboxFillDim: 0,
+                                    pillarboxFillColor: 0
+                                )
+                                StreamPreferences.saveUpscalingSettings(
+                                    mode: streamUpscalingMode,
+                                    sharpness: streamUpscalingSharpness,
+                                    denoise: streamUpscalingDenoise,
+                                    forGame: configuration.applicationID
+                                )
+                            }
+                        ), in: 0...20, step: 1)
+                        .tint(Color.pixelNowGreen)
+                    }
+                }
+
+                let metalFXDesc = nativeView?.currentNVSTCoreRenderer?.metalFXStatusDescription ?? (streamUpscalingMode == 3 ? "Active" : "Off")
+                nativeHUDDetailRow(label: "MetalFX State", value: metalFXDesc)
+                let targetResolutionText: String = {
+                    if let win = nativeView?.window {
+                        let scale = win.backingScaleFactor
+                        let w = Int((nativeView?.bounds.width ?? 0) * scale)
+                        let h = Int((nativeView?.bounds.height ?? 0) * scale)
+                        if w > 0 && h > 0 {
+                            return "\(w) x \(h)"
+                        }
+                    }
+                    return streamUpscalingMode == 3 ? "Display Native" : "1:1 Native"
+                }()
+                nativeHUDDetailRow(label: "Target", value: targetResolutionText)
                 nativeHUDDetailRow(label: "Resolution", value: "\(profile.resolution.width) x \(profile.resolution.height)")
                 nativeHUDDetailRow(label: "Frame Rate", value: "\(profile.fps) FPS")
                 nativeHUDDetailRow(label: "Codec", value: profile.codec.value.uppercased())

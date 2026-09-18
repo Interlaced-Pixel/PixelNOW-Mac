@@ -14,14 +14,20 @@ enum NativeNVSTStreamSidebarFeature: String, CaseIterable, Hashable, Sendable {
 struct NativeNVSTStreamSidebarCapabilities: Equatable, Sendable {
     let availableFeatures: Set<NativeNVSTStreamSidebarFeature>
 
-    static let standard = NativeNVSTStreamSidebarCapabilities(availableFeatures: [
-        .microphone,
-        .recording,
-        .antiAFK,
-        .floatingStats,
-        .networkHealth,
-        .sessionLimit,
-    ])
+    static let standard: NativeNVSTStreamSidebarCapabilities = {
+        var features: Set<NativeNVSTStreamSidebarFeature> = [
+            .microphone,
+            .recording,
+            .antiAFK,
+            .floatingStats,
+            .networkHealth,
+            .sessionLimit,
+        ]
+        if NVSTMetalFXUpscaler.isSupportedOnCurrentDevice {
+            features.insert(.videoEnhancement)
+        }
+        return NativeNVSTStreamSidebarCapabilities(availableFeatures: features)
+    }()
 
     var visibleFeatures: [NativeNVSTStreamSidebarFeature] {
         NativeNVSTStreamSidebarFeature.allCases

@@ -1842,6 +1842,15 @@ final class CatalogViewModel: ObservableObject {
         loadSettingsPreferences()
     }
 
+    var isMetalFXHardwareSupported: Bool {
+        NVSTMetalFXUpscaler.isSupportedOnCurrentDevice
+    }
+
+    func setUpscalingTargetIndex(_ index: Int) {
+        StreamPreferences.saveUpscalingTargetIndex(index)
+        loadSettingsPreferences()
+    }
+
     func setL4SEnabled(_ enabled: Bool) {
         guard canEditStreamingQualitySettings() else { return }
         StreamPreferences.saveL4SEnabled(enabled)

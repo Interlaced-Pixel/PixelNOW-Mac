@@ -1496,9 +1496,15 @@ private struct ResolutionUpscalingSettingsPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsCard(title: "MetalFX Upscaling") {
-                SettingsToggleRow(title: "MetalFX Upscaling", subtitle: "Spatial upscaling for Apple Silicon with automatic fallback.", isOn: viewModel.streamProfile.upscalingMode == 3) { enabled in viewModel.setUpscalingModeIndex(enabled ? 1 : 0) }
+                SettingsToggleRow(
+                    title: "MetalFX Upscaling",
+                    subtitle: viewModel.isMetalFXHardwareSupported ? "Spatial upscaling for Apple Silicon with automatic fallback." : "MetalFX spatial scaling is unavailable on this hardware (requires Apple Silicon / macOS 13+).",
+                    isOn: viewModel.streamProfile.upscalingMode == 3
+                ) { enabled in viewModel.setUpscalingModeIndex(enabled ? 1 : 0) }
                 SettingsDivider()
-                SettingsInfoRow(label: "Target", value: "Display")
+                SettingsInfoRow(label: "Hardware Status", value: viewModel.isMetalFXHardwareSupported ? "Supported (Apple Silicon)" : "Unsupported")
+                SettingsDivider()
+                SettingsInfoRow(label: "Target", value: "Display Native")
                 SettingsDivider()
                 SettingsSliderRow(title: "Clarity", valueText: "\(viewModel.streamProfile.upscalingSharpness)", value: Double(viewModel.streamProfile.upscalingSharpness), range: 0...15, action: viewModel.setUpscalingSharpness)
                 SettingsDivider()
@@ -1536,6 +1542,7 @@ private struct SystemSettingsPage: View {
                         HStack(spacing: 8) {
                             AboutStatusPill(title: "Display", value: displaySummary)
                             AboutStatusPill(title: "Decode", value: preferredDecoder)
+                            AboutStatusPill(title: "MetalFX", value: viewModel.isMetalFXHardwareSupported ? "Supported" : "Unavailable")
                             AboutStatusPill(title: "Route", value: route.summary)
                         }
                     }
