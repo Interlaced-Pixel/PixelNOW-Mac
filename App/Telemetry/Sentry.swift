@@ -222,8 +222,21 @@ final class Sentry {
     }
 
     public static func diagnosticsLogForUpload() -> String {
-        let log = diagnosticsLogQueue.sync { diagnosticsLogText() }
-        return sanitizedUploadLog(log.isEmpty ? "No PixelNOW diagnostics log lines recorded for this run." : log)
+        var sections: [String] = []
+
+        let runtimeLog = Log.recentLogText(maxBytes: 384 * 1024)
+        if !runtimeLog.isEmpty {
+            sections.append("=== PixelNOW Runtime Log (Recent) ===\n\(runtimeLog)")
+        }
+
+        let sentryLog = diagnosticsLogQueue.sync { diagnosticsLogText() }
+        if !sentryLog.isEmpty {
+            sections.append("=== PixelNOW Telemetry Diagnostics ===\n\(sentryLog)")
+        }
+
+        let combined = sections.joined(separator: "\n\n")
+        let finalLog = combined.isEmpty ? "No PixelNOW diagnostics log lines recorded for this run." : combined
+        return sanitizedUploadLog(finalLog)
     }
 
     public static func uploadDiagnosticsLog(_ logText: String) async throws -> URL {

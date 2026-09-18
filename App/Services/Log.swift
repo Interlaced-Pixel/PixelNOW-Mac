@@ -41,6 +41,25 @@ enum Log {
         }
     }
 
+    public static func recentLogText(maxBytes: Int = 512 * 1024) -> String {
+        guard let url = logFileURL,
+              let fileHandle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? fileHandle.close() }
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        if fileSize <= maxBytes {
+            guard let data = try? fileHandle.readToEnd() else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        } else {
+            _ = try? fileHandle.seek(toOffset: UInt64(max(0, fileSize - maxBytes)))
+            guard let data = try? fileHandle.readToEnd() else { return "" }
+            var text = String(decoding: data, as: UTF8.self)
+            if let firstNewline = text.firstIndex(of: "\n") {
+                text.removeSubrange(text.startIndex...firstNewline)
+            }
+            return text
+        }
+    }
+
     static func debug(_ category: Category, _ message: String) {
         let sanitized = Sentry.sanitizedLogMessage(message)
         Logger(subsystem: subsystem, category: category.rawValue).debug("\(sanitized, privacy: .public)")
