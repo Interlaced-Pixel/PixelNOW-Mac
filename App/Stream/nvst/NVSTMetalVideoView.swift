@@ -11,6 +11,34 @@ import QuartzCore
 import MetalFX
 #endif
 
+public enum NVSTMetalFXState: Equatable, Sendable {
+    case disabled
+    case unsupported(reason: String)
+    case standby(input: CGSize, output: CGSize)
+    case active(input: CGSize, output: CGSize)
+    case fallback(reason: String)
+
+    public var isActive: Bool {
+        if case .active = self { return true }
+        return false
+    }
+
+    public var description: String {
+        switch self {
+        case .disabled:
+            return "Off"
+        case .unsupported(let reason):
+            return "Unsupported (\(reason))"
+        case .standby(let input, _):
+            return "Standby (1:1 Native \(Int(input.width))x\(Int(input.height)))"
+        case .active(let input, let output):
+            return "Active (\(Int(input.width))x\(Int(input.height)) → \(Int(output.width))x\(Int(output.height)))"
+        case .fallback(let reason):
+            return "Fallback (\(reason))"
+        }
+    }
+}
+
 @objc(NVSTMetalFXUpscaler)
 final class NVSTMetalFXUpscaler: NSObject {
     private let device: (any MTLDevice)?
@@ -27,6 +55,22 @@ final class NVSTMetalFXUpscaler: NSObject {
     private static let motionTextureFormatSelector = NSSelectorFromString("motionTextureFormat")
     private static let motionTextureUsageSelector = NSSelectorFromString("motionTextureUsage")
 
+    public static var isSupportedOnCurrentDevice: Bool {
+        isDeviceSupported(MTLCreateSystemDefaultDevice())
+    }
+
+    public static func isDeviceSupported(_ device: (any MTLDevice)? = MTLCreateSystemDefaultDevice()) -> Bool {
+#if canImport(MetalFX)
+        guard let device, NSClassFromString("MTLFXSpatialScalerDescriptor") != nil else { return false }
+        if #available(macOS 13.0, *) {
+            return MTLFXSpatialScalerDescriptor.supportsDevice(device)
+        }
+        return false
+#else
+        return false
+#endif
+    }
+
     init(device: (any MTLDevice)?) {
         self.device = device
         super.init()
@@ -34,11 +78,8 @@ final class NVSTMetalFXUpscaler: NSObject {
 
     var isAvailable: Bool {
 #if canImport(MetalFX)
-        guard !disabledByCaptureScaler, let device, NSClassFromString("MTLFXSpatialScalerDescriptor") != nil else { return false }
-        if #available(macOS 13.0, *) {
-            return MTLFXSpatialScalerDescriptor.supportsDevice(device)
-        }
-        return false
+        guard !disabledByCaptureScaler, let device else { return false }
+        return Self.isDeviceSupported(device)
 #else
         return false
 #endif
@@ -260,7 +301,19 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var intermediateSourceTexture: (any MTLTexture)?
     private var intermediateOutputTexture: (any MTLTexture)?
 
-    public var isMetalFXEnabled = false
+    public var isMetalFXEnabled = false {
+        didSet {
+            if !isMetalFXEnabled && metalFXState != .disabled {
+                updateMetalFXState(.disabled)
+            }
+        }
+    }
+    public private(set) var metalFXState: NVSTMetalFXState = .disabled
+    public var onMetalFXStateChanged: ((NVSTMetalFXState) -> Void)?
+    public var enhancedFrameSink: (@Sendable (CVPixelBuffer, CMTime) -> Void)?
+    private var enhancedPixelBufferPool: CVPixelBufferPool?
+    private var enhancedPixelBufferPoolWidth = 0
+    private var enhancedPixelBufferPoolHeight = 0
     private var enhancementSharpness = 10
     private var enhancementDenoise = 0
 
@@ -347,7 +400,44 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         metalView.delegate = nil
         intermediateSourceTexture = nil
         intermediateOutputTexture = nil
+        enhancedPixelBufferPool = nil
+        enhancedFrameSink = nil
+        onMetalFXStateChanged = nil
         removeFromSuperview()
+    }
+
+    private func updateMetalFXState(_ newState: NVSTMetalFXState) {
+        guard metalFXState != newState else { return }
+        metalFXState = newState
+        onMetalFXStateChanged?(newState)
+    }
+
+    private func makeEnhancedPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        guard width > 0, height > 0 else { return nil }
+        if enhancedPixelBufferPool == nil || enhancedPixelBufferPoolWidth != width || enhancedPixelBufferPoolHeight != height {
+            let poolAttributes: [String: Any] = [
+                kCVPixelBufferPoolMinimumBufferCountKey as String: 3
+            ]
+            let pixelBufferAttributes: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+            ]
+            var pool: CVPixelBufferPool?
+            guard CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttributes as CFDictionary, pixelBufferAttributes as CFDictionary, &pool) == kCVReturnSuccess else {
+                return nil
+            }
+            enhancedPixelBufferPool = pool
+            enhancedPixelBufferPoolWidth = width
+            enhancedPixelBufferPoolHeight = height
+        }
+        guard let pool = enhancedPixelBufferPool else { return nil }
+        var pixelBuffer: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer) == kCVReturnSuccess else {
+            return nil
+        }
+        return pixelBuffer
     }
 
     private func reusableTexture(
@@ -437,10 +527,8 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
         guard sourceWidth > 0, sourceHeight > 0, outputWidth > 0, outputHeight > 0 else { return }
 
-        let shouldUpscale = isMetalFXEnabled &&
-            upscaler.isAvailable &&
-            outputWidth > sourceWidth &&
-            outputHeight > sourceHeight
+        let isScalingUp = outputWidth >= sourceWidth && outputHeight >= sourceHeight && (outputWidth > sourceWidth || outputHeight > sourceHeight)
+        let shouldUpscale = isMetalFXEnabled && upscaler.isAvailable && isScalingUp
 
         if shouldUpscale,
            let sourceTexture = reusableTexture(
@@ -459,8 +547,11 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                usage: [.shaderRead, .shaderWrite, .renderTarget],
                label: "NVSTMetalVideoView Output"
            ) {
+            let flippedImage = image
+                .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
+                .transformed(by: CGAffineTransform(translationX: 0, y: CGFloat(sourceHeight)))
             ciContext.render(
-                image,
+                flippedImage,
                 to: sourceTexture,
                 commandBuffer: commandBuffer,
                 bounds: CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight),
@@ -469,9 +560,53 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             var fallback: NSString?
             if upscaler.encodeTexture(sourceTexture, toTexture: outputTexture, commandBuffer: commandBuffer, fallback: &fallback) {
                 copyTexture(from: outputTexture, to: currentDrawable.texture, commandBuffer: commandBuffer)
+
+                if let enhancedSink = enhancedFrameSink,
+                   let device = metalView.device,
+                   let enhancedBuffer = makeEnhancedPixelBuffer(width: outputWidth, height: outputHeight),
+                   let ioSurface = CVPixelBufferGetIOSurface(enhancedBuffer) {
+                    let textureDesc = MTLTextureDescriptor.texture2DDescriptor(
+                        pixelFormat: .bgra8Unorm,
+                        width: outputWidth,
+                        height: outputHeight,
+                        mipmapped: false
+                    )
+                    textureDesc.usage = [.shaderRead, .shaderWrite, .renderTarget]
+                    if let ioTexture = device.makeTexture(descriptor: textureDesc, iosurface: ioSurface.takeUnretainedValue(), plane: 0) {
+                        copyTexture(from: outputTexture, to: ioTexture, commandBuffer: commandBuffer)
+                        final class SendableBufferHolder: @unchecked Sendable {
+                            let buffer: CVPixelBuffer
+                            init(_ buffer: CVPixelBuffer) { self.buffer = buffer }
+                        }
+                        let holder = SendableBufferHolder(enhancedBuffer)
+                        commandBuffer.addCompletedHandler { _ in
+                            enhancedSink(holder.buffer, time)
+                        }
+                    }
+                }
+
+                updateMetalFXState(.active(
+                    input: CGSize(width: sourceWidth, height: sourceHeight),
+                    output: CGSize(width: outputWidth, height: outputHeight)
+                ))
+
                 commandBuffer.present(currentDrawable)
                 commandBuffer.commit()
                 return
+            } else {
+                let reason = (fallback as? String) ?? "MetalFX encode failed"
+                updateMetalFXState(.fallback(reason: reason))
+            }
+        } else {
+            if !isMetalFXEnabled {
+                updateMetalFXState(.disabled)
+            } else if !upscaler.isAvailable {
+                updateMetalFXState(.unsupported(reason: "Device or capture incompatible"))
+            } else {
+                updateMetalFXState(.standby(
+                    input: CGSize(width: sourceWidth, height: sourceHeight),
+                    output: CGSize(width: outputWidth, height: outputHeight)
+                ))
             }
         }
 

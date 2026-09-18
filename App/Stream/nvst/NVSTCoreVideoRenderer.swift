@@ -135,6 +135,38 @@ public final class NVSTCoreVideoRenderer {
         self.videoView = videoView
         let sink = NVSTCoreVideoSink(videoView: videoView)
         self.sink = sink
+
+        videoView.onMetalFXStateChanged = { [weak sink] state in
+            guard let sink else { return }
+            var snapshot = sink.renderDiagnostics
+            switch state {
+            case .active(let input, let output):
+                snapshot.renderPath = "MetalFXSpatialScaler"
+                snapshot.activeTier = "MetalFX"
+                snapshot.fallback = ""
+                snapshot.pixelFormat = "\(Int(input.width))x\(Int(input.height))"
+                snapshot.outputFormat = "\(Int(output.width))x\(Int(output.height))"
+            case .standby(let input, let output):
+                snapshot.renderPath = "CoreImageDirect"
+                snapshot.activeTier = "Native"
+                snapshot.fallback = "1:1 passthrough"
+                snapshot.pixelFormat = "\(Int(input.width))x\(Int(input.height))"
+                snapshot.outputFormat = "\(Int(output.width))x\(Int(output.height))"
+            case .disabled:
+                snapshot.renderPath = "CoreImageDirect"
+                snapshot.activeTier = "Off"
+                snapshot.fallback = "Disabled by user"
+            case .unsupported(let reason):
+                snapshot.renderPath = "CoreImageDirect"
+                snapshot.activeTier = "Native"
+                snapshot.fallback = reason
+            case .fallback(let reason):
+                snapshot.renderPath = "CoreImageDirect"
+                snapshot.activeTier = "Native"
+                snapshot.fallback = reason
+            }
+            sink.noteRenderDiagnostics(snapshot)
+        }
     }
 
     var renderDiagnostics: OPNVideoRenderDiagnosticsSnapshot { sink.renderDiagnostics }
@@ -148,6 +180,22 @@ public final class NVSTCoreVideoRenderer {
     }
 
     public var renderedFrameCount: UInt64 { sink.renderedFrameCount }
+
+    public var isMetalFXActivelyScaling: Bool {
+        videoView.metalFXState.isActive
+    }
+
+    public var metalFXState: NVSTMetalFXState {
+        videoView.metalFXState
+    }
+
+    public var metalFXStatusDescription: String {
+        videoView.metalFXState.description
+    }
+
+    public func setEnhancedFrameSink(_ sink: (@Sendable (CVPixelBuffer, CMTime) -> Void)?) {
+        videoView.enhancedFrameSink = sink
+    }
 
     public func setVideoVisible(_ visible: Bool) {
         videoView.isHidden = !visible
