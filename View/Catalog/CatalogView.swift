@@ -968,7 +968,7 @@ private struct CatalogTopBar: View {
                     catalogSearchField
                         .frame(width: CatalogVendorLayout.searchWidth(for: proxy.size.width))
                 } else {
-                    Text(viewModel.selectedMainPage == .recordings ? "Saved gameplay videos" : viewModel.selectedSettingsPage.title)
+                    Text(viewModel.selectedMainPage == .recordings ? "Saved gameplay videos" : viewModel.selectedSettingsGroup.title)
                         .font(.nvidia(size: 15, weight: .bold))
                         .foregroundStyle(.white.opacity(0.70))
                         .tracking(1.1)
@@ -1466,18 +1466,8 @@ private struct CatalogMainMenuPanel: View {
         .shadow(color: .black.opacity(0.58), radius: 28, x: 14, y: 20)
     }
 
-    private func settingsIcon(for page: CatalogSettingsPage) -> String {
-        switch page {
-        case .account: return "person.crop.circle.fill"
-        case .interface: return "gamecontroller.fill"
-        case .connections: return "link"
-        case .gameplay: return "slider.horizontal.3"
-        case .experimentalFeatures: return "testtube.2"
-        case .serverLocation: return "network"
-        case .resolutionUpscaling: return "sparkles.tv.fill"
-        case .system: return "desktopcomputer"
-        case .about: return "info.circle.fill"
-        }
+    private func settingsIcon(for page: CatalogSettingsGroup) -> String {
+        return page.icon
     }
 
     private func catalogDestinationIcon(_ destination: CatalogDestination) -> String {
@@ -2786,7 +2776,7 @@ struct CatalogEmptyDestinationView: View {
         case .home:
             viewModel.refresh()
         case .library:
-            viewModel.showSettings(.connections)
+            viewModel.showSettings(.network)
         }
     }
 }

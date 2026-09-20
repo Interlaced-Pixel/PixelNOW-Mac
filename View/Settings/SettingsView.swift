@@ -9,6 +9,9 @@ private enum SettingsVendorLayout {
     static let card = Color(red: 26 / 255, green: 27 / 255, blue: 26 / 255)
     static let cardRaised = Color(red: 34 / 255, green: 35 / 255, blue: 34 / 255)
     static let row = Color.white.opacity(0.045)
+    static let textPrimary = Color.white
+    static let textSecondary = Color.white.opacity(0.68)
+    static let textTertiary = Color.white.opacity(0.38)
 }
 
 private extension Font {
@@ -155,32 +158,10 @@ private struct SettingsSurfaceBackground: View {
     }
 }
 
-private struct SettingsSidebarSection: Identifiable {
-    let id: String
-    let title: String
-    let pages: [CatalogSettingsPage]
-}
-
-private let settingsSidebarSections: [SettingsSidebarSection] = [
-    SettingsSidebarSection(
-        id: "account",
-        title: "ACCOUNT & ACCESS",
-        pages: [.account, .connections, .interface]
-    ),
-    SettingsSidebarSection(
-        id: "streaming",
-        title: "STREAMING & ENGINE",
-        pages: [.gameplay, .serverLocation, .resolutionUpscaling, .experimentalFeatures]
-    ),
-    SettingsSidebarSection(
-        id: "system",
-        title: "SYSTEM & ABOUT",
-        pages: [.system, .about]
-    )
-]
 
 private struct SettingsSidebar: View {
     @ObservedObject var viewModel: CatalogViewModel
+    @State private var hoveredGroup: CatalogSettingsGroup?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -198,43 +179,51 @@ private struct SettingsSidebar: View {
             .padding(.bottom, 10)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(settingsSidebarSections) { section in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(section.title)
-                                .font(.settingsNvidia(size: 9.5, weight: .bold))
-                                .foregroundStyle(Color.white.opacity(0.38))
-                                .tracking(1.2)
-                                .padding(.horizontal, 22)
-                                .padding(.top, 4)
-                                .padding(.bottom, 4)
-
-                            ForEach(section.pages) { page in
-                                Button { viewModel.selectedSettingsPage = page } label: {
-                                    HStack(spacing: 12) {
-                                        Rectangle()
-                                            .fill(viewModel.selectedSettingsPage == page ? Color.pixelNowGreen : .clear)
-                                            .frame(width: 4, height: 32)
-                                        Image(systemName: icon(for: page))
-                                            .font(.settingsNvidia(size: 13, weight: .bold))
-                                            .foregroundStyle(viewModel.selectedSettingsPage == page ? Color.pixelNowGreen : .white.opacity(0.52))
-                                            .frame(width: 18)
-                                        Text(page.title)
-                                            .font(.settingsNvidia(size: 13.5, weight: viewModel.selectedSettingsPage == page ? .bold : .medium))
-                                            .foregroundStyle(viewModel.selectedSettingsPage == page ? .white : .white.opacity(0.68))
-                                        Spacer(minLength: 0)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .frame(height: 38)
-                                    .background(viewModel.selectedSettingsPage == page ? Color.white.opacity(0.065) : .clear)
-                                    .contentShape(Rectangle())
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(CatalogSettingsGroup.visibleCases()) { group in
+                        Button { viewModel.selectedSettingsGroup = group } label: {
+                            HStack(spacing: 10) {
+                                let isSelected = (viewModel.selectedSettingsGroup == group)
+                                let isHovered = (hoveredGroup == group)
+                                
+                                Image(systemName: group.icon)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .foregroundStyle(isSelected ? Color.pixelNowGreen : (isHovered ? SettingsVendorLayout.textSecondary : SettingsVendorLayout.textTertiary))
+                                    .frame(width: 16, height: 16)
+                                Text(group.title)
+                                    .font(.settingsNvidia(size: 13, weight: isSelected ? .bold : .medium))
+                                    .foregroundStyle(isSelected ? SettingsVendorLayout.textPrimary : (isHovered ? SettingsVendorLayout.textPrimary : SettingsVendorLayout.textTertiary))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                group == viewModel.selectedSettingsGroup ? Color.pixelNowGreen.opacity(0.12) :
+                                (hoveredGroup == group ? Color.white.opacity(0.05) : Color.clear)
+                            )
+                            .overlay(alignment: .leading) {
+                                Rectangle()
+                                    .fill(viewModel.selectedSettingsGroup == group ? Color.pixelNowGreen : Color.clear)
+                                    .frame(width: 3)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                if hovering {
+                                    hoveredGroup = group
+                                } else if hoveredGroup == group {
+                                    hoveredGroup = nil
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
                 }
-                .padding(.bottom, 12)
+                .padding(.vertical, 14)
             }
 
             Spacer(minLength: 12)
@@ -249,25 +238,13 @@ private struct SettingsSidebar: View {
                     .overlay { Rectangle().stroke(Color.white.opacity(0.13), lineWidth: 1) }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 22)
-            .padding(.bottom, 22)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
         }
-        .frame(width: 256)
+        .frame(width: 208)
         .background(SettingsVendorLayout.sidebar)
-        .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.38)).frame(width: 1) }
-    }
-
-    private func icon(for page: CatalogSettingsPage) -> String {
-        switch page {
-        case .account: return "person.crop.circle.fill"
-        case .interface: return "gamecontroller.fill"
-        case .connections: return "link"
-        case .gameplay: return "slider.horizontal.3"
-        case .experimentalFeatures: return "testtube.2"
-        case .serverLocation: return "network"
-        case .resolutionUpscaling: return "sparkles.tv.fill"
-        case .system: return "desktopcomputer"
-        case .about: return "info.circle.fill"
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1)
         }
     }
 }
@@ -284,7 +261,7 @@ private struct SettingsContent: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                SettingsHeader(title: viewModel.selectedSettingsPage.title, subtitle: subtitle)
+                SettingsHeader(title: viewModel.selectedSettingsGroup.title, subtitle: subtitle)
                 if !viewModel.errorMessage.isEmpty {
                     SettingsMessageView(message: viewModel.errorMessage, systemImage: "exclamationmark.triangle.fill")
                 }
@@ -303,49 +280,62 @@ private struct SettingsContent: View {
     }
 
     @ViewBuilder private var page: some View {
-        switch viewModel.selectedSettingsPage {
+        switch viewModel.selectedSettingsGroup {
         case .account:
-            AccountSettingsPage(
-                viewModel: viewModel,
-                accounts: accounts,
-                onSwitch: onSwitch,
-                onAddAccount: onAddAccount,
-                onSignOut: onSignOut,
-                onForget: onForget
-            )
-        case .interface:
+            VStack(alignment: .leading, spacing: 20) {
+                AccountSettingsPage(
+                    viewModel: viewModel,
+                    accounts: accounts,
+                    onSwitch: onSwitch,
+                    onAddAccount: onAddAccount,
+                    onSignOut: onSignOut,
+                    onForget: onForget
+                )
+                ConnectionsSettingsPage(viewModel: viewModel)
+            }
+        case .video:
+            VideoSettingsPage(viewModel: viewModel)
+        case .audio:
+            AudioSettingsPage(viewModel: viewModel)
+        case .input:
+            InputSettingsPage(viewModel: viewModel, inputRouter: controllerInputRouter)
+        case .keybindings:
+            SettingsPlaceholderPage(title: "Keybindings")
+        case .recording:
+            RecordingSettingsPage(viewModel: viewModel)
+        case .network:
+            NetworkSettingsPage(viewModel: viewModel)
+        case .remoteCoOp:
+            RemoteCoOpSettingsPage(viewModel: viewModel)
+        case .theme:
             InterfaceSettingsPage(viewModel: viewModel, inputRouter: controllerInputRouter)
-        case .connections:
-            ConnectionsSettingsPage(viewModel: viewModel)
-        case .gameplay:
-            GameplaySettingsPage(viewModel: viewModel)
-        case .experimentalFeatures:
-            ExperimentalFeaturesSettingsPage(viewModel: viewModel)
-        case .serverLocation:
-            ServerLocationSettingsPage(viewModel: viewModel)
-        case .resolutionUpscaling:
-            ResolutionUpscalingSettingsPage(viewModel: viewModel)
         case .system:
-            SystemSettingsPage(viewModel: viewModel)
-        case .about:
-            AboutSettingsPage(viewModel: viewModel)
+            VStack(alignment: .leading, spacing: 20) {
+                SystemSettingsPage(viewModel: viewModel)
+                AboutSettingsPage(viewModel: viewModel)
+            }
+        case .labs:
+            ExperimentalFeaturesSettingsPage(viewModel: viewModel)
         }
     }
 
     private var subtitle: String {
-        switch viewModel.selectedSettingsPage {
+        switch viewModel.selectedSettingsGroup {
         case .account: return "NVIDIA accounts, membership tier, and active session details."
-        case .interface: return "Display, navigation mode, and controller button hints."
-        case .connections: return "Linked game stores for library synchronization and ownership."
-        case .gameplay: return "Resolution, frame rate, bitrate, HDR, input, and audio."
-        case .experimentalFeatures: return "Preview upcoming features and early beta tools."
-        case .serverLocation: return "GeForce NOW data center routing and measured latency."
-        case .resolutionUpscaling: return "MetalFX spatial scaling and post-processing clarity for Apple Silicon."
-        case .system: return "Hardware decode, display refresh, network, and controller status."
-        case .about: return "App version, build info, and diagnostic logs."
+        case .video: return "Stream resolution, frame rate, codec, HDR, and MetalFX upscaling."
+        case .audio: return "Volume levels, microphone routing, and voice transmission mode."
+        case .input: return "Mouse capture, anti-AFK, and controller navigation mode."
+        case .keybindings: return "Keyboard shortcuts and custom binding overrides."
+        case .recording: return "Video and audio bitrate for session captures and highlights."
+        case .network: return "Server region selection and linked game store connections."
+        case .remoteCoOp: return "Host a friend in local multiplayer via streaming."
+        case .theme: return "Quality profile, Cloud G-Sync, and L4S congestion control."
+        case .system: return "Hardware decode, diagnostics, logs, and app information."
+        case .labs: return "Preview upcoming features and early beta tools."
         }
     }
 }
+
 
 private struct SettingsHeader: View {
     let title: String
@@ -2601,6 +2591,220 @@ private struct SettingsFlowLayout: Layout {
             subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(subviewSize))
             x += subviewSize.width + spacing
             lineHeight = max(lineHeight, subviewSize.height)
+        }
+    }
+}
+
+private struct SettingsPlaceholderPage: View {
+    let title: String
+    var body: some View {
+        VStack {
+            Spacer()
+            Text(title)
+                .font(.settingsNvidia(size: 24, weight: .bold))
+                .foregroundStyle(SettingsVendorLayout.textSecondary)
+            Text("This section is under construction.")
+                .font(.settingsNvidia(size: 14))
+                .foregroundStyle(SettingsVendorLayout.textTertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Focused Tab Pages
+
+private struct VideoSettingsPage: View {
+    @ObservedObject var viewModel: CatalogViewModel
+
+    var body: some View {
+        let qualityLocked = !viewModel.streamingQualityProfileAllowsCustomization
+        let lockedSubtitle = "Managed by \(viewModel.streamProfile.streamingQualityProfileOption.label) profile. Set to Custom to edit."
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard(title: "Quality Profile") {
+                SettingsOptionRow(
+                    title: "Quality Profile",
+                    subtitle: "Preconfigured streaming balance for bandwidth and latency.",
+                    options: StreamPreferences.streamingQualityProfileOptions.map(\.label),
+                    selectedIndex: viewModel.streamProfile.streamingQualityProfileIndex,
+                    action: viewModel.setStreamingQualityProfileIndex
+                )
+                SettingsDivider()
+                SettingsToggleRow(title: "Cloud G-Sync", subtitle: qualityLocked ? lockedSubtitle : "Sync render rate with display refresh to eliminate tearing.", isOn: viewModel.streamProfile.enableCloudGsync, isLocked: qualityLocked, action: viewModel.setCloudGsyncEnabled)
+                SettingsDivider()
+                SettingsToggleRow(title: "L4S Congestion Control", subtitle: qualityLocked ? lockedSubtitle : "Reduce queuing delay and packet jitter on supported networks.", isOn: viewModel.streamProfile.enableL4S, isLocked: qualityLocked, action: viewModel.setL4SEnabled)
+            }
+
+            SettingsCard(title: "Display & Video") {
+                SettingsOptionRow(title: "Aspect Ratio", subtitle: qualityLocked ? lockedSubtitle : "Aspect ratio for available stream resolutions.", options: StreamPreferences.aspectOptions.map(\.label), selectedIndex: viewModel.streamProfile.aspectIndex, isLocked: qualityLocked, action: viewModel.setAspectIndex)
+                SettingsDivider()
+                SettingsOptionRow(title: "Resolution", subtitle: qualityLocked ? lockedSubtitle : "Target stream resolution.", options: StreamPreferences.resolutionOptions(forAspect: viewModel.streamProfile.aspectIndex).map(\.label), selectedIndex: viewModel.streamProfile.resolutionIndex, isLocked: qualityLocked, action: viewModel.setResolutionIndex)
+                SettingsDivider()
+                SettingsOptionRow(title: "Frame Rate", subtitle: qualityLocked ? lockedSubtitle : "Target stream FPS, capped by display refresh.", options: StreamPreferences.fpsOptions.map { "\($0) FPS" }, selectedIndex: viewModel.streamProfile.fpsIndex, enabled: StreamPreferences.fpsOptions.map { StreamPreferences.fpsSupported($0, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setFpsIndex)
+                SettingsDivider()
+                SettingsOptionRow(title: "Codec", subtitle: qualityLocked ? lockedSubtitle : "Hardware video decoder (AV1, HEVC, or H.264).", options: StreamPreferences.codecOptions.map(\.label), selectedIndex: viewModel.streamProfile.codecIndex, enabled: StreamPreferences.codecOptions.map { StreamPreferences.codecSupported($0, capabilities: viewModel.streamCapabilities) }, isLocked: qualityLocked, action: viewModel.setCodecIndex)
+                SettingsDivider()
+                SettingsOptionRow(title: "Maximum Bitrate", subtitle: qualityLocked ? lockedSubtitle : "Maximum video streaming bandwidth.", options: StreamPreferences.bitrateOptions.map(\.label), selectedIndex: viewModel.streamProfile.bitrateIndex, isLocked: qualityLocked, action: viewModel.setBitrateIndex)
+                SettingsDivider()
+                SettingsToggleRow(title: "HDR (High Dynamic Range)", subtitle: qualityLocked ? lockedSubtitle : "10-bit Rec. 2020 color on supported displays and codecs.", isOn: viewModel.streamProfile.enableHdr, isLocked: qualityLocked, action: viewModel.setHDREnabled)
+            }
+
+            ResolutionUpscalingSettingsPage(viewModel: viewModel)
+            
+            SettingsCard(title: "Profile Maintenance") {
+                HStack(alignment: .center, spacing: 16) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 4, height: 48)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Restore default streaming settings")
+                            .font(.settingsNvidia(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                        Text("Restore all streaming, video, audio, and input settings to default.")
+                            .font(.settingsNvidia(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.56))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    SettingsActionButton(title: "RESTORE DEFAULTS", minimumWidth: 150) { viewModel.restoreStreamingProfileDefaults() }
+                }
+                .padding(12)
+                .background(SettingsVendorLayout.row)
+                .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+            }
+        }
+    }
+}
+
+private struct AudioSettingsPage: View {
+    @ObservedObject var viewModel: CatalogViewModel
+
+    private var selectedMicrophoneModeIndex: Int {
+        StreamPreferences.microphoneModeOptions.firstIndex { $0.value == viewModel.streamProfile.microphoneMode } ?? 0
+    }
+
+    private var selectedMicrophoneDeviceIndex: Int {
+        viewModel.microphoneDeviceOptions.firstIndex { $0.uniqueId == viewModel.streamProfile.microphoneDeviceId } ?? 0
+    }
+
+    private func percentText(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard(title: "Audio & Voice") {
+                SettingsSliderRow(title: "Game Volume", valueText: percentText(viewModel.streamProfile.gameVolume), value: viewModel.streamProfile.gameVolume, range: 0...1, step: 0.01, action: viewModel.setGameVolume)
+                SettingsDivider()
+                SettingsSliderRow(title: "Microphone Volume", valueText: percentText(viewModel.streamProfile.microphoneVolume), value: viewModel.streamProfile.microphoneVolume, range: 0...1, step: 0.01, action: viewModel.setMicrophoneVolume)
+                SettingsDivider()
+                SettingsOptionRow(title: "Microphone Mode", subtitle: "Voice transmission mode for in-game chat.", options: StreamPreferences.microphoneModeOptions.map(\.label), selectedIndex: selectedMicrophoneModeIndex, action: { viewModel.setMicrophoneMode(StreamPreferences.microphoneModeOptions[$0].value) })
+                SettingsDivider()
+                SettingsOptionRow(title: "Microphone Device", subtitle: "Audio input device for voice capture.", options: viewModel.microphoneDeviceOptions.map(\.label), selectedIndex: selectedMicrophoneDeviceIndex, action: { viewModel.setMicrophoneDeviceId(viewModel.microphoneDeviceOptions[$0].uniqueId) })
+                SettingsDivider()
+                SettingsToggleRow(title: "Microphone Shortcut", subtitle: "Hotkey (\(viewModel.streamProfile.microphonePushToTalkComboLabel)) for push-to-talk or mute toggle.", isOn: viewModel.microphoneShortcutEnabled, action: viewModel.setMicrophoneShortcutEnabled)
+                SettingsDivider()
+                SettingsToggleRow(title: "Show Stream Mic Toggle", subtitle: "On-screen HUD button to mute or unmute microphone.", isOn: viewModel.showStreamMicToggle, action: viewModel.setShowStreamMicToggle)
+            }
+        }
+    }
+}
+
+private struct InputSettingsPage: View {
+    @ObservedObject var viewModel: CatalogViewModel
+    @ObservedObject var inputRouter: ControllerInputRouter
+    @AppStorage(InterfacePreferences.controllerModeEnabledKey) private var controllerModeEnabled = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard(title: "Mouse & Input Controls") {
+                SettingsToggleRow(title: "Direct Mouse Input", subtitle: "Capture raw mouse motion. Press ⌘G or ⌘Q to release pointer.", isOn: viewModel.streamProfile.directMouseInput, action: viewModel.setDirectMouseInputEnabled)
+                SettingsDivider()
+                SettingsToggleRow(title: "Suppress Input When Inactive", subtitle: "Ignore inputs when PixelNOW loses window focus.", isOn: viewModel.streamProfile.suppressInputWhenInactive, action: viewModel.setSuppressInputWhenInactive)
+                SettingsDivider()
+                SettingsToggleRow(title: "Anti-AFK Mouse Movement", subtitle: "Periodic keep-alive motion to prevent session timeout (⌘K).", isOn: viewModel.streamProfile.antiAFKMouseMovementEnabled, action: viewModel.setAntiAFKMouseMovementEnabled)
+            }
+        }
+    }
+}
+
+private struct RecordingSettingsPage: View {
+    @ObservedObject var viewModel: CatalogViewModel
+
+    private var recordingVideoBitrateText: String {
+        viewModel.streamProfile.recordingVideoBitrateMbps == 0 ? "Auto" : "\(viewModel.streamProfile.recordingVideoBitrateMbps) Mbps"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard(title: "Stream Recording & Capture") {
+                SettingsSliderRow(title: "Video Bitrate", valueText: recordingVideoBitrateText, value: Double(viewModel.streamProfile.recordingVideoBitrateMbps), range: 0...200, step: 1, action: viewModel.setRecordingVideoBitrateMbps)
+                SettingsDivider()
+                SettingsSliderRow(title: "Audio Bitrate", valueText: "\(viewModel.streamProfile.recordingAudioBitrateKbps) Kbps", value: Double(viewModel.streamProfile.recordingAudioBitrateKbps), range: 64...320, step: 16, action: viewModel.setRecordingAudioBitrateKbps)
+                SettingsDivider()
+                SettingsToggleRow(title: "Record Enhanced Video", subtitle: "Capture post-upscaled video when MetalFX is active.", isOn: viewModel.streamProfile.recordingEnhancedVideoEnabled, action: viewModel.setRecordingEnhancedVideoEnabled)
+            }
+        }
+    }
+}
+
+private struct NetworkSettingsPage: View {
+    @ObservedObject var viewModel: CatalogViewModel
+
+    var body: some View {
+        let qualityLocked = !viewModel.streamingQualityProfileAllowsCustomization
+        let lockedSubtitle = "Managed by \(viewModel.streamProfile.streamingQualityProfileOption.label) profile. Set to Custom to edit."
+        VStack(alignment: .leading, spacing: 16) {
+            ServerLocationSettingsPage(viewModel: viewModel)
+            
+            SettingsCard(title: "Transport & Power") {
+                SettingsToggleRow(title: "L4S Congestion Control", subtitle: qualityLocked ? lockedSubtitle : "Reduce queuing delay and packet jitter on supported networks.", isOn: viewModel.streamProfile.enableL4S, isLocked: qualityLocked, action: viewModel.setL4SEnabled)
+                SettingsDivider()
+                SettingsToggleRow(title: "Prevent Display Sleep", subtitle: "Keep displays awake during active stream sessions.", isOn: viewModel.streamProfile.preventDisplaySleepWhileStreaming, action: viewModel.setPreventDisplaySleepWhileStreaming)
+            }
+        }
+    }
+}
+
+private struct RemoteCoOpSettingsPage: View {
+    @ObservedObject var viewModel: CatalogViewModel
+
+    private var selectedTransportModeIndex: Int {
+        RemoteCoOpTransportMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.transportMode) ?? 0
+    }
+
+    private var selectedQualityPresetIndex: Int {
+        RemoteCoOpQualityPreset.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.qualityPreset) ?? 0
+    }
+
+    private var selectedLatencyModeIndex: Int {
+        RemoteCoOpLatencyMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.latencyMode) ?? 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if viewModel.remoteCoOpPreferences.isAlphaOptedIn {
+                SettingsCard(title: "Remote Co-Op") {
+                    SettingsToggleRow(title: "Enable Remote Co-Op", subtitle: "Generate invite links in the stream HUD for guests.", isOn: viewModel.remoteCoOpPreferences.isEnabled, action: viewModel.setRemoteCoOpEnabled)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Reserved Controllers", subtitle: "Pre-allocate gamepad slots for guest players.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Transport", subtitle: viewModel.remoteCoOpPreferences.transportMode.description, options: RemoteCoOpTransportMode.allCases.map(\.label), selectedIndex: selectedTransportModeIndex, action: viewModel.setRemoteCoOpTransportModeIndex)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Guest Quality", subtitle: "Max outbound streaming bitrate sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
+                    SettingsDivider()
+                    SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
+                    SettingsDivider()
+                    SettingsToggleRow(title: "Require Host Approval", subtitle: "Require host approval before accepting guest input.", isOn: viewModel.remoteCoOpPreferences.requireHostApproval, action: viewModel.setRemoteCoOpRequireHostApproval)
+                    SettingsDivider()
+                    SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Omit game title and app ID from invite links.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
+                }
+            } else {
+                SettingsCard(title: "Remote Co-Op") {
+                    AccountEmptyState(
+                        title: "Alpha access required.",
+                        subtitle: "Enable Remote Co-Op Alpha in Labs to unlock host controls and stream HUD invites."
+                    )
+                }
+            }
         }
     }
 }

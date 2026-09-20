@@ -81,30 +81,54 @@ enum CatalogDestination: String, CaseIterable, Identifiable {
 }
 
 @MainActor
-enum CatalogSettingsPage: String, CaseIterable, Identifiable {
+enum CatalogSettingsGroup: String, CaseIterable, Identifiable {
     case account
-    case interface
-    case connections
-    case gameplay
-    case experimentalFeatures
-    case serverLocation
-    case resolutionUpscaling
+    case video
+    case audio
+    case input
+    case keybindings
+    case recording
+    case network
+    case remoteCoOp
+    case theme
     case system
-    case about
+    case labs
 
     var id: String { rawValue }
+
+    static func visibleCases() -> [CatalogSettingsGroup] {
+        return allCases
+    }
 
     var title: String {
         switch self {
         case .account: return "Account"
-        case .interface: return "Interface"
-        case .connections: return "Connections"
-        case .gameplay: return "Gameplay"
-        case .experimentalFeatures: return "Experimental Features"
-        case .serverLocation: return "Server Location"
-        case .resolutionUpscaling: return "MetalFX Upscaling"
+        case .video: return "Video"
+        case .audio: return "Audio"
+        case .input: return "Input"
+        case .keybindings: return "Keybindings"
+        case .recording: return "Recording"
+        case .network: return "Network"
+        case .remoteCoOp: return "Remote Co-Op"
+        case .theme: return "Theme"
         case .system: return "System"
-        case .about: return "About"
+        case .labs: return "Labs"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .account: return "person.crop.circle"
+        case .video: return "display"
+        case .audio: return "speaker.wave.2"
+        case .input: return "gamecontroller"
+        case .keybindings: return "keyboard"
+        case .recording: return "record.circle"
+        case .network: return "network"
+        case .remoteCoOp: return "person.2.fill"
+        case .theme: return "paintbrush"
+        case .system: return "macwindow"
+        case .labs: return "flask"
         }
     }
 }
@@ -121,7 +145,7 @@ struct CatalogStreamAdPlayback: Identifiable, Equatable {
 final class CatalogViewModel: ObservableObject {
     @Published var selectedMainPage = CatalogMainPage.games
     @Published var selectedCatalogDestination = CatalogDestination.home
-    @Published var selectedSettingsPage = CatalogSettingsPage.account
+    @Published var selectedSettingsGroup = CatalogSettingsGroup.account
     @Published var searchQuery = ""
     @Published var selectedGenreFilter = ""
     @Published var isSearchPresented = false
@@ -458,9 +482,9 @@ final class CatalogViewModel: ObservableObject {
         return game.genres.contains { $0.caseInsensitiveCompare(selectedGenreFilter) == .orderedSame }
     }
 
-    func showSettings(_ page: CatalogSettingsPage = .account) {
+    func showSettings(_ page: CatalogSettingsGroup = .account) {
         selectedMainPage = .settings
-        selectedSettingsPage = page
+        selectedSettingsGroup = page
         loadSettingsPreferences()
     }
 
