@@ -407,6 +407,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var pendingApplicationQuitCompletion: NativeNVSTMediaStreamQuitDecisionHandler?
     @State private var streamingPerformanceActivity: (any NSObjectProtocol)?
     @State private var sessionLimit: NativeNVSTStreamSessionSidebarLimit?
+    @State private var sessionStartedAt: Date?
     @State private var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
     @State private var networkGovernor: NativeNVSTNetworkGovernor?
     @State private var networkPathTask: Task<Void, Never>?
@@ -553,6 +554,11 @@ struct NativeNVSTMediaStreamSurface: View {
             await transport.setRecordingStatusHandler { status in
                 handleRecordingStatusChanged(status)
             }
+            await transport.setSessionLimitUpdateHandler { update in
+                if let updated = NativeNVSTStreamSessionSidebarLimit(update: update) {
+                    sessionLimit = updated
+                }
+            }
         }
         let path = NativeNVSTStreamingPath(sessionProvider: sessionProvider, transport: transport, automaticRecovery: .singleAttempt)
         let inputDispatcher = NativeNVSTInputDispatcher { input in
@@ -604,6 +610,7 @@ struct NativeNVSTMediaStreamSurface: View {
                 let shouldPresentStream = await MainActor.run {
                     guard !Task.isCancelled, !didEnd, !isEnding else { return false }
                     isConnected = true
+                    sessionStartedAt = Date()
                     sessionLimit = NativeNVSTStreamSessionSidebarLimit(session: session)
                     nativeView.remoteInputEnabled = !unifiedHUDVisible && !streamControlsVisible
                     nativeView.setNativeNVSTVideoVisible(true)
@@ -1900,6 +1907,7 @@ struct NativeNVSTMediaStreamSurface: View {
         NativeNVSTStreamUnifiedSidebar(title: configuration.title.isEmpty ? "GeForce NOW" : configuration.title, closeAction: { setUnifiedHUDVisible(false) }) {
             VStack(alignment: .leading, spacing: 14) {
                 nativeHUDStatusPanel
+                nativeHUDSessionPanel
                 nativeHUDControlsPanel
                 nativeHUDNetworkPanel
                 if sidebarCapabilities.visibleFeatures.contains(.remoteCoOp), remoteCoOpPreferences.isAlphaOptedIn {
@@ -1918,15 +1926,51 @@ struct NativeNVSTMediaStreamSurface: View {
             if inputRouter.isControllerConnected, let level = inputRouter.controllerBatteryLevel {
                 NativeNVSTStreamHUDMetricCard(title: "Battery", value: String(format: "%.0f%%", level * 100), positive: level > 0.2)
             }
-            if sessionLimit != nil {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    NativeNVSTStreamHUDMetricCard(title: "Session", value: nativeSessionLimitText(at: context.date), positive: nativeSessionLimitIsHealthy(at: context.date))
-                }
-            }
             if remoteCoOpPreferences.isAlphaOptedIn {
                 NativeNVSTStreamHUDMetricCard(title: "Co-Op", value: "Unavailable", positive: false)
             }
         }
+    }
+
+    private var nativeHUDSessionPanel: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            NativeNVSTStreamHUDSection(label: "SESSION", spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
+                    nativeHUDDetailRow(label: "Elapsed", value: nativeSessionElapsedText(at: context.date))
+                    if sessionLimit != nil {
+                        nativeHUDDetailRow(label: "Remaining", value: nativeSessionLimitText(at: context.date))
+                        let fraction = nativeSessionLimitFraction(at: context.date)
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(Color.white.opacity(0.12))
+                                    .frame(height: 4)
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(fraction > 0.15 ? Color.pixelNowGreen : NativeNVSTMediaStreamTheme.warning)
+                                    .frame(width: geo.size.width * fraction, height: 4)
+                                    .animation(.linear(duration: 1), value: fraction)
+                            }
+                        }
+                        .frame(height: 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private func nativeSessionElapsedText(at date: Date) -> String {
+        guard let start = sessionStartedAt else { return "--" }
+        let elapsed = max(0, Int(date.timeIntervalSince(start)))
+        let h = elapsed / 3600
+        let m = (elapsed % 3600) / 60
+        let s = elapsed % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+
+    private func nativeSessionLimitFraction(at date: Date) -> Double {
+        guard let limit = sessionLimit, limit.durationSeconds > 0 else { return 1 }
+        let remaining = limit.remainingSeconds(at: date)
+        return Double(remaining) / Double(limit.durationSeconds)
     }
 
     private var nativeHUDControlsPanel: some View {

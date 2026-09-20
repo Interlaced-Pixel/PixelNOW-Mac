@@ -593,6 +593,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     public internal(set) var onHdrModeChanged: (@MainActor @Sendable (NvstHdrModeNotification) -> Void)?
     public internal(set) var lastHdrMode: NvstHdrModeNotification?
 
+    public internal(set) var onSessionLimitUpdate: (@MainActor @Sendable (StreamSessionLimitUpdate) -> Void)?
+
     static func resolvedStreamProfile(allocation: NativeNVSTSessionAllocation,
                                               configuredFps: Int?,
                                               configuredMaxBitrateKbps: Int?) -> StreamProfile {

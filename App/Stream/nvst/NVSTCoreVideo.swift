@@ -459,6 +459,10 @@ extension NVSTCoreTransport {
         onHdrModeChanged = handler
     }
 
+    public func setSessionLimitUpdateHandler(_ handler: (@MainActor @Sendable (StreamSessionLimitUpdate) -> Void)?) async {
+        onSessionLimitUpdate = handler
+    }
+
     func handleHapticEvents(_ events: [NvstHapticEvent]) {
         hapticEventsReceived &+= UInt64(events.count)
         guard let notify = onHapticEvents else { return }
@@ -762,6 +766,9 @@ extension NVSTCoreTransport {
         let hex = payload.map { String(format: "%02x", $0) }.joined()
         logger?("NVST seat termination timer signaled: code=\(String(format: "0x%04x", code)) payload=\(hex)")
         Log.warning(.stream, "NVST seat termination timer warning: code=\(String(format: "0x%04x", code)) payload=\(hex)")
+        if let update = StreamSessionLimitUpdate.parse(from: payload), let notify = onSessionLimitUpdate {
+            Task { @MainActor in notify(update) }
+        }
     }
 
     // MARK: - HID Passthrough
