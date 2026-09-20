@@ -12,6 +12,9 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
     private var currentBitrateKbps: UInt32?
     private var streamingMode: NativeNVSTDynamicStreamingMode = .on
     private var l4sEnabled: Bool
+    private var stableTicks: Int = 0
+
+    private static let requiredStableTicks = 5
 
     init(maximumBitrateKbps: UInt32, l4sEnabled: Bool) {
         self.maximumBitrateKbps = max(10_000, maximumBitrateKbps)
@@ -32,19 +35,23 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
 
         var adjustments: [NativeNVSTNetworkAdjustment] = []
         if hasSeverePacketLoss {
-            let reducedBitrate = max(bitrateFloor, UInt32(Double(activeBitrate) * 0.85))
+            let reducedBitrate = max(bitrateFloor, UInt32(Double(activeBitrate) * 0.75))
             if reducedBitrate < activeBitrate {
                 adjustments.append(.maximumBitrateKbps(reducedBitrate))
                 currentBitrateKbps = reducedBitrate
             }
+            stableTicks = 0
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
         } else if hasPacketLoss || hasCongestion {
+            stableTicks = 0
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
         } else if bandwidthIsAvailable {
+            stableTicks += 1
+            guard stableTicks >= Self.requiredStableTicks else { return adjustments }
             if activeBitrate < maximumBitrateKbps {
-                let recoveredBitrate = min(maximumBitrateKbps, max(activeBitrate, UInt32(Double(activeBitrate) * 1.15)))
+                let recoveredBitrate = min(maximumBitrateKbps, max(activeBitrate, UInt32(Double(activeBitrate) * 1.05)))
                 if recoveredBitrate > activeBitrate {
                     adjustments.append(.maximumBitrateKbps(recoveredBitrate))
                     currentBitrateKbps = recoveredBitrate

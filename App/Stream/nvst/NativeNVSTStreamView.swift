@@ -480,7 +480,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         super.resetCursorRects()
         let content = videoContentFrame()
         guard content.width > 0, content.height > 0 else { return }
-        if hidesLocalCursorOverVideo || isPointerLocked || mouseInputMode == .relative {
+        if remoteInputEnabled && (hidesLocalCursorOverVideo || isPointerLocked || mouseInputMode == .relative) {
             addCursorRect(content, cursor: Self.invisibleCursor)
         } else {
             addCursorRect(content, cursor: currentServerCursor ?? .arrow)
