@@ -201,11 +201,41 @@ public struct GamepadState: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+/// A raw HID input report destined for the NVST HID passthrough pipeline. Not Codable; the
+/// payload is a live wire packet that is never persisted or transported over any secondary channel.
+public struct NativeNVSTHidInputEvent: Equatable, Hashable, Sendable {
+    public let playerIndex: Int
+    public let deviceId: UInt8
+    public let vendorId: UInt16
+    public let productId: UInt16
+    public let controllerKind: NvstHidPassthrough.ControllerKind
+    public let report: Data
+    public let timestamp: MediaTimestamp
+
+    public init(playerIndex: Int,
+                deviceId: UInt8,
+                vendorId: UInt16,
+                productId: UInt16,
+                controllerKind: NvstHidPassthrough.ControllerKind,
+                report: Data,
+                timestamp: MediaTimestamp) {
+        self.playerIndex = playerIndex
+        self.deviceId = deviceId
+        self.vendorId = vendorId
+        self.productId = productId
+        self.controllerKind = controllerKind
+        self.report = report
+        self.timestamp = timestamp
+    }
+}
+
 public enum UserInputEvent: Codable, Equatable, Hashable, Sendable {
     case keyboard(KeyboardEvent)
     case mouse(MouseEvent)
     case text(deviceID: InputDeviceID, value: String, timestamp: MediaTimestamp)
     case gamepad(GamepadState)
+    /// Raw HID passthrough report. Not encoded/decoded via Codable; omitted from serialized streams.
+    case hidReport(NativeNVSTHidInputEvent)
 
     public var deviceID: InputDeviceID {
         switch self {
@@ -217,6 +247,8 @@ public enum UserInputEvent: Codable, Equatable, Hashable, Sendable {
             deviceID
         case .gamepad(let state):
             state.deviceID
+        case .hidReport:
+            InputDeviceID("hid-passthrough")
         }
     }
 
@@ -230,6 +262,46 @@ public enum UserInputEvent: Codable, Equatable, Hashable, Sendable {
             timestamp
         case .gamepad(let state):
             state.timestamp
+        case .hidReport(let event):
+            event.timestamp
+        }
+    }
+
+    // MARK: - Codable (hidReport excluded — never persisted)
+
+    private enum CodingKeys: String, CodingKey {
+        case keyboard, mouse, text, gamepad
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let event = try container.decodeIfPresent(KeyboardEvent.self, forKey: .keyboard) {
+            self = .keyboard(event); return
+        }
+        if let event = try container.decodeIfPresent(MouseEvent.self, forKey: .mouse) {
+            self = .mouse(event); return
+        }
+        if container.contains(.text) {
+            var nested = try container.nestedUnkeyedContainer(forKey: .text)
+            let deviceID = try nested.decode(InputDeviceID.self)
+            let value = try nested.decode(String.self)
+            let timestamp = try nested.decode(MediaTimestamp.self)
+            self = .text(deviceID: deviceID, value: value, timestamp: timestamp); return
+        }
+        let state = try container.decode(GamepadState.self, forKey: .gamepad)
+        self = .gamepad(state)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .keyboard(let event): try container.encode(event, forKey: .keyboard)
+        case .mouse(let event): try container.encode(event, forKey: .mouse)
+        case .text(let deviceID, let value, let timestamp):
+            var nested = container.nestedUnkeyedContainer(forKey: .text)
+            try nested.encode(deviceID); try nested.encode(value); try nested.encode(timestamp)
+        case .gamepad(let state): try container.encode(state, forKey: .gamepad)
+        case .hidReport: break
         }
     }
 }

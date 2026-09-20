@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
+import GameController
 
 extension NVSTCoreTransport {
 
@@ -232,6 +233,9 @@ extension NVSTCoreTransport {
         bundle.onRemoteAudio = { [weak self] count in
             logger?("NVST bundle seat offered \(count) audio track(s)")
             Task { await self?.noteRemoteAudio(trackCount: count) }
+        }
+        bundle.onHidChangeResponse = { [weak self] deviceId, status in
+            Task { await self?.handleHidChangeResponse(deviceId: deviceId, status: status) }
         }
 
         let recorder = self.recorder
@@ -685,6 +689,9 @@ extension NVSTCoreTransport {
 
         sent.append("haptics=\((try? sendFramedRemoteInput(NvstRemoteInput.hapticsState(enabled: true))) != nil)")
         logger?("NVST input activation sent (\(sent.joined(separator: " ")))")
+
+        // Advertise connected Sony controllers for HID passthrough.
+        sendHidChangeEventsForConnectedControllers()
     }
 
     func sendControlKeepAlive() {
@@ -755,5 +762,64 @@ extension NVSTCoreTransport {
         let hex = payload.map { String(format: "%02x", $0) }.joined()
         logger?("NVST seat termination timer signaled: code=\(String(format: "0x%04x", code)) payload=\(hex)")
         Log.warning(.stream, "NVST seat termination timer warning: code=\(String(format: "0x%04x", code)) payload=\(hex)")
+    }
+
+    // MARK: - HID Passthrough
+
+    /// Sends `NvstHidPassthrough.ChangeEvent(.added)` for every connected Sony controller whose
+    /// device kind is permitted by the current seat capability. Slots that have already been
+    /// registered (pending or active) are skipped.
+    func sendHidChangeEventsForConnectedControllers() {
+        guard let bundle else { return }
+        let capability = seatHidCapability ?? NvstHidPassthrough.SeatCapability(raw: 4)
+        let controllers = GCController.controllers().filter { $0.extendedGamepad != nil }
+        for controller in controllers {
+            let playerIndex: Int
+            if controller.playerIndex != .indexUnset {
+                playerIndex = controller.playerIndex.rawValue
+            } else if controllers.count == 1, let firstIndex = connectedGamepadIndices.first {
+                playerIndex = firstIndex
+            } else {
+                continue
+            }
+            guard (0..<4).contains(playerIndex), connectedGamepadIndices.contains(playerIndex) else { continue }
+            guard let identity = NvstHidPassthrough.deviceIdentity(for: controller, playerIndex: playerIndex) else { continue }
+
+            // Gate: only register if the seat supports this controller family.
+            switch identity.kind {
+            case .dualShock4 where !capability.supportsDualShock4: continue
+            case .dualSense  where !capability.supportsDualSense:  continue
+            default: break
+            }
+            guard !pendingHidRegistrations.contains(playerIndex),
+                  !hidPassthroughActive.contains(playerIndex) else { continue }
+
+            let changeEvent = NvstHidPassthrough.ChangeEvent(
+                deviceId: UInt8(clamping: playerIndex),
+                change: .added,
+                vendorId: identity.vendorId,
+                productId: identity.productId
+            )
+            do {
+                try sendFramedRemoteInput(changeEvent.packet)
+                pendingHidRegistrations.insert(playerIndex)
+                logger?("NVST HID ChangeEvent(.added) sent playerIndex=\(playerIndex) vid=0x\(String(format: "%04x", identity.vendorId)) pid=0x\(String(format: "%04x", identity.productId))")
+            } catch {
+                logger?("NVST HID ChangeEvent(.added) send failed playerIndex=\(playerIndex): \(error)")
+            }
+        }
+    }
+
+    func handleHidChangeResponse(deviceId: UInt8, status: UInt8) {
+        let playerIndex = Int(deviceId)
+        pendingHidRegistrations.remove(playerIndex)
+        if status == 0 {
+            hidPassthroughActive.insert(playerIndex)
+            inputState.setHidActive(slot: playerIndex, active: true)
+            logger?("NVST HID passthrough ACTIVE for playerIndex=\(playerIndex) — XInput suppressed on this slot")
+        } else {
+            inputState.setHidActive(slot: playerIndex, active: false)
+            logger?("NVST HID ChangeResponse rejected playerIndex=\(playerIndex) status=\(status) — slot stays on XInput")
+        }
     }
 }

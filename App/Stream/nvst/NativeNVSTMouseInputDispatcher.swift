@@ -81,7 +81,7 @@ final class NativeNVSTInputDispatcher: @unchecked Sendable {
         case .gamepad(let state):
             return state.buttons.isEmpty && state.leftTrigger == 0 && state.rightTrigger == 0 &&
                 state.leftStickX == 0 && state.leftStickY == 0 && state.rightStickX == 0 && state.rightStickY == 0
-        case .mouse, .text:
+        case .mouse, .text, .hidReport:
             return false
         }
     }

@@ -17,10 +17,17 @@ extension NVSTCoreTransport {
                 throw NativeNVSTError.transportFailed("NVST has no gamepad slot \(padIndex); the seat allows 0...3.")
             }
 
+            // HID passthrough takes priority for confirmed slots.
+            // The monitor emits .hidReport alongside .gamepad; if the slot is active we use it
+            // here and return, bypassing the XInput translation below.
+            // (This branch is a no-op; the actual HID send path is on the .hidReport case below.)
+
             guard connectedGamepadIndices.contains(padIndex) else {
                 gamepadPacketsDroppedForUnannouncedPad += 1
                 return
             }
+            // Skip XInput send for HID-active slots — their .hidReport events carry the state.
+            guard !hidPassthroughActive.contains(padIndex) else { return }
             let bitmap = NvstGamepadEvent.connectedBitmap(for: connectedGamepadIndices)
             if registeredGamepadBitmap != bitmap {
                 sendGamepadRegistration(bitmap: bitmap, bundle: bundle, reason: "pad \(padIndex) input")
@@ -55,6 +62,29 @@ extension NVSTCoreTransport {
             return
         }
 
+        if case .hidReport(let event) = event {
+            let playerIndex = event.playerIndex
+            // Only send if the seat has confirmed registration for this slot.
+            guard hidPassthroughActive.contains(playerIndex) else { return }
+            let sequence = (hidSequences[playerIndex] ?? 0) &+ 1
+            hidSequences[playerIndex] = sequence
+            let report = NvstHidPassthrough.Report(
+                deviceId: event.deviceId,
+                kind: event.controllerKind.rawValue,
+                reportType: 1,
+                data: event.report
+            )
+            let payload = report.payload(
+                sequence: sequence,
+                timestampMicroseconds: sessionElapsedMicroseconds()
+            )
+            let sendStart = DispatchTime.now().uptimeNanoseconds
+            let delivered = bundle.sendInput(payload)
+            noteInputSend(from: sendStart)
+            if delivered { hidReportsSent += 1 } else { hidReportFailures += 1 }
+            return
+        }
+
         if case .text(_, let value, _) = event {
             try sendAsUtf8Text(value)
             return
@@ -71,6 +101,8 @@ extension NVSTCoreTransport {
         if case .gamepad(let state) = event {
             let padIndex = state.playerIndex
             guard (0..<4).contains(padIndex) else { return }
+            // If HID passthrough is active for this slot, suppress XInput translation.
+            guard !inputState.isHidActive(slot: padIndex) else { return }
             let sequence = inputState.nextGamepadSequence(padIndex: UInt16(padIndex))
             let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, Self.leftStickDeadzone)
             let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, Self.rightStickDeadzone)
@@ -94,6 +126,25 @@ extension NVSTCoreTransport {
                 let elapsed = Double(DispatchTime.now().uptimeNanoseconds &- sendStart) / 1_000_000
                 if sent { inputState.noteSend(durationMs: elapsed) }
             }
+            return
+        }
+        if case .hidReport(let event) = event {
+            guard inputState.isHidActive(slot: event.playerIndex) else { return }
+            let sequence = inputState.nextHidSequence(slot: event.playerIndex)
+            let report = NvstHidPassthrough.Report(
+                deviceId: event.deviceId,
+                kind: event.controllerKind.rawValue,
+                reportType: 1,
+                data: event.report
+            )
+            let payload = report.payload(
+                sequence: sequence,
+                timestampMicroseconds: clock.elapsedMicroseconds()
+            )
+            let sendStart = DispatchTime.now().uptimeNanoseconds
+            let sent = bundle.sendInput(payload)
+            let elapsed = Double(DispatchTime.now().uptimeNanoseconds &- sendStart) / 1_000_000
+            if sent { inputState.noteSend(durationMs: elapsed) }
             return
         }
         if case .text(_, let value, _) = event {
@@ -289,8 +340,31 @@ extension NVSTCoreTransport {
             throw NativeNVSTError.transportFailed("NVST input is not negotiated yet.")
         }
         let bitmap = NvstGamepadEvent.connectedBitmap(for: indices)
-        guard registeredGamepadBitmap != bitmap else { return }
-        sendGamepadRegistration(bitmap: bitmap, bundle: bundle, reason: "topology \(indices.sorted())")
+        if registeredGamepadBitmap != bitmap {
+            sendGamepadRegistration(bitmap: bitmap, bundle: bundle, reason: "topology \(indices.sorted())")
+        }
+
+        // Clean up disconnected slots that were active or pending HID passthrough
+        let removedSlots = hidPassthroughActive.union(pendingHidRegistrations).subtracting(indices)
+        for slot in removedSlots {
+            hidPassthroughActive.remove(slot)
+            pendingHidRegistrations.remove(slot)
+            hidSequences.removeValue(forKey: slot)
+            inputState.setHidActive(slot: slot, active: false)
+            let removeEvent = NvstHidPassthrough.ChangeEvent(
+                deviceId: UInt8(clamping: slot),
+                change: .removed,
+                vendorId: 0,
+                productId: 0
+            )
+            try? sendFramedRemoteInput(removeEvent.packet)
+            logger?("NVST HID ChangeEvent(.removed) sent for disconnected slot=\(slot)")
+        }
+
+        // Send ChangeEvent for newly connected controllers
+        if didActivateInput {
+            sendHidChangeEventsForConnectedControllers()
+        }
     }
 
     func sendGamepadRegistration(bitmap: UInt16, bundle: NvstWebRtcBundle, reason: String) {
@@ -387,7 +461,7 @@ extension NVSTCoreTransport {
             )
         case .mouse(.wheel(_, let delta, _)):
             NvstRemoteInput.mouseWheel(delta: delta)
-        case .text, .gamepad:
+        case .text, .gamepad, .hidReport:
             nil
         }
     }

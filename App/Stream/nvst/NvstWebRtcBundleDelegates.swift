@@ -146,6 +146,11 @@ extension NvstWebRtcBundle {
             onAudioSurroundInfo?(surround)
             return
         }
+        if let response = NvstHidPassthrough.ChangeResponse.parse(command) {
+            logger?("NVST bundle HID change response deviceId=\(response.deviceId) status=\(response.status) requestId=\(response.requestId)")
+            onHidChangeResponse?(response.deviceId, response.status)
+            return
+        }
         guard let cursor = NvstRemoteCursor.from(command) else {
             describeCursorCommandIfUnparsed(command)
             return

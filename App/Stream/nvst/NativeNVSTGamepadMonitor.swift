@@ -150,11 +150,17 @@ public final class NativeNVSTGamepadMonitor {
             hapticStates.removeValue(forKey: assignment.0)?.stop()
             let priorState = lastGamepadStates[assignment.0]
             let deviceID = priorState?.deviceID ?? InputDeviceID(previousControllers[assignment.0]?.vendorName ?? "controller-\(assignment.1)")
+            previousControllers[assignment.0]?.playerIndex = .indexUnset
             onInputEvent?(.gamepad(GamepadState(deviceID: deviceID, playerIndex: assignment.1, timestamp: timestamp)))
         }
         _ = controllerSlots.update(identifiers: connectedIdentifiers)
         cachedControllers = connectedControllers.filter { controllerSlots.slots[ObjectIdentifier($0)] != nil }
             .sorted { controllerSlots.slots[ObjectIdentifier($0), default: 0] < controllerSlots.slots[ObjectIdentifier($1), default: 0] }
+        for controller in cachedControllers {
+            if let playerIndex = controllerSlots.slots[ObjectIdentifier(controller)] {
+                controller.playerIndex = GCControllerPlayerIndex(rawValue: playerIndex) ?? .indexUnset
+            }
+        }
         let monitoredIdentifiers = Set(cachedControllers.map(ObjectIdentifier.init))
         lastStates = lastStates.filter { monitoredIdentifiers.contains($0.key) }
         lastGamepadStates = lastGamepadStates.filter { monitoredIdentifiers.contains($0.key) }
@@ -219,6 +225,25 @@ public final class NativeNVSTGamepadMonitor {
             )
             lastGamepadStates[identifier] = state
             onInputEvent?(.gamepad(state))
+
+            // HID passthrough — emit a raw report for Sony controllers so the transport
+            // can bypass XInput translation when the seat has confirmed registration.
+            if let identity = NvstHidPassthrough.deviceIdentity(for: controller, playerIndex: playerIndex) {
+                let rawReport: Data = switch identity.kind {
+                case .dualShock4: NvstHidReportEncoder.ds4Report(from: gamepad)
+                case .dualSense:  NvstHidReportEncoder.dualSenseReport(from: gamepad)
+                }
+                let hidEvent = NativeNVSTHidInputEvent(
+                    playerIndex: playerIndex,
+                    deviceId: identity.deviceId,
+                    vendorId: identity.vendorId,
+                    productId: identity.productId,
+                    controllerKind: identity.kind,
+                    report: rawReport,
+                    timestamp: state.timestamp
+                )
+                onInputEvent?(.hidReport(hidEvent))
+            }
         }
     }
 

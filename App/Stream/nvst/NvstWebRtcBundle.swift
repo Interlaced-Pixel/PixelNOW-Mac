@@ -227,6 +227,10 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
     /// arrives.
     public var onControlChannelOpen: (@Sendable () -> Void)?
 
+    /// Fires when the seat replies to an `NvstHidPassthrough.ChangeEvent` (device registration or
+    /// removal). `deviceId` is the slot the event targeted; `status` is 0 on success.
+    public var onHidChangeResponse: (@Sendable (_ deviceId: UInt8, _ status: UInt8) -> Void)?
+
     public init(handoff: NVSTVideoHandoff,
                 preferredLocalAddress: String? = NvstRoutedIPv4.discover(),
                 logger: (@Sendable (String) -> Void)? = nil) {

@@ -181,8 +181,14 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         nativeNVSTRendererWindow.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
         gamepadMonitor.onInputEvent = { [weak self] event in
             guard let self, self.remoteInputEnabled else { return }
-            guard case .gamepad(let state) = event else { return }
-            self.receiveGamepadState(state)
+            switch event {
+            case .gamepad(let state):
+                self.receiveGamepadState(state)
+            case .hidReport:
+                self.onInputEvent?(event)
+            default:
+                break
+            }
         }
         gamepadMonitor.onTopologyChanged = { [weak self] topology in
             guard let self else { return }

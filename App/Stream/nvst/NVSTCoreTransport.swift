@@ -51,6 +51,41 @@ final class NvstInputState: @unchecked Sendable {
         if durationMs > sendPeakMs { sendPeakMs = durationMs }
     }
 
+    private var activeHidSlots: Set<Int> = []
+    private var hidSequences: [Int: UInt16] = [:]
+
+    func isHidActive(slot: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeHidSlots.contains(slot)
+    }
+
+    func setHidActive(slot: Int, active: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        if active {
+            activeHidSlots.insert(slot)
+        } else {
+            activeHidSlots.remove(slot)
+            hidSequences.removeValue(forKey: slot)
+        }
+    }
+
+    func resetHidSlots() {
+        lock.lock()
+        defer { lock.unlock() }
+        activeHidSlots.removeAll()
+        hidSequences.removeAll()
+    }
+
+    func nextHidSequence(slot: Int) -> UInt16 {
+        lock.lock()
+        defer { lock.unlock() }
+        let seq = (hidSequences[slot] ?? 0) &+ 1
+        hidSequences[slot] = seq
+        return seq
+    }
+
     var totalEventsSent: UInt64 {
         lock.lock()
         defer { lock.unlock() }
@@ -156,6 +191,23 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var gamepadSendFailures = 0
 
     var gamepadPacketsDroppedForUnannouncedPad = 0
+
+    /// Player-index slots for which the seat has confirmed HID device registration via ChangeResponse.
+    /// Only slots present here send HID reports; everything else falls through to XInput.
+    var hidPassthroughActive: Set<Int> = []
+
+    /// Per-slot HID send sequence counter (UInt16 wrapping). Keyed by player index.
+    var hidSequences: [Int: UInt16] = [:]
+
+    /// Slots where a ChangeEvent (.added) has been sent and we are waiting for the ChangeResponse.
+    var pendingHidRegistrations: Set<Int> = []
+
+    /// The most recent HID capability advertisement from the seat. nil = seat has not sent one;
+    /// the safe-approach gate keeps hidPassthroughActive empty until this is populated.
+    var seatHidCapability: NvstHidPassthrough.SeatCapability? = NvstHidPassthrough.SeatCapability(raw: 4)
+
+    var hidReportsSent = 0
+    var hidReportFailures = 0
 
     func seedGamepadSequenceForTesting(pad: UInt16, sequence: UInt16) {
         gamepadSequences[pad] = sequence
@@ -615,6 +667,13 @@ extension NVSTCoreTransport {
         didActivateInput = false
         didAnnounceClientState = false
         registeredGamepadBitmap = nil
+        hidPassthroughActive.removeAll()
+        hidSequences.removeAll()
+        pendingHidRegistrations.removeAll()
+        seatHidCapability = NvstHidPassthrough.SeatCapability(raw: 4)
+        inputState.resetHidSlots()
+        hidReportsSent = 0
+        hidReportFailures = 0
         didDisableCursorCapture = false
         remoteCursorVisible = nil
         lastSnapshotAt = nil
