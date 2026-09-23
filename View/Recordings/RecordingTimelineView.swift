@@ -152,15 +152,26 @@ struct RecordingTimelineView: View {
     }
 
     private func timelineTicks(width: CGFloat) -> some View {
-        Path { path in
-            let tickCount = 12
-            for index in 0...tickCount {
+        let tickCount = 12
+        return ZStack(alignment: .topLeading) {
+            Path { path in
+                for index in 0...tickCount {
+                    let x = CGFloat(index) / CGFloat(tickCount) * width
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: index.isMultiple(of: 3) ? 14 : 8))
+                }
+            }
+            .stroke(Color.white.opacity(0.18), lineWidth: 1)
+
+            ForEach(Array(stride(from: 0, through: tickCount, by: 3)), id: \.self) { index in
                 let x = CGFloat(index) / CGFloat(tickCount) * width
-                path.move(to: CGPoint(x: x, y: 5))
-                path.addLine(to: CGPoint(x: x, y: index.isMultiple(of: 3) ? 16 : 11))
+                let seconds = totalDuration * Double(index) / Double(tickCount)
+                Text(recordingEditorDurationText(seconds))
+                    .font(.recordingsNvidia(size: 8, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.38))
+                    .offset(x: index == tickCount ? x - 28 : max(x - (index == 0 ? 0 : 14), 0), y: 16)
             }
         }
-        .stroke(Color.white.opacity(0.14), lineWidth: 1)
     }
 
     private func timelineGesture(width: CGFloat) -> some Gesture {
@@ -224,16 +235,18 @@ struct RecordingTimelineView: View {
     }
 
     private func playheadX(in width: CGFloat) -> CGFloat {
-        guard let selected = segments.first(where: { $0.id == selectedSegmentID }) ?? segments.first else { return 0 }
+        // playheadSeconds is source-timeline seconds (accumulated across all segments).
+        // Walk the segments to find the absolute cursor offset.
         var cursor = 0.0
         for segment in segments {
-            if segment.id == selected.id {
-                let local = min(max(selected.startSeconds, playheadSeconds), selected.endSeconds) - selected.startSeconds
+            let segEnd = cursor + segment.durationSeconds
+            if playheadSeconds <= segEnd || segment.id == segments.last?.id {
+                let local = min(max(0, playheadSeconds - cursor), segment.durationSeconds)
                 return CGFloat((cursor + local) / totalDuration) * width
             }
-            cursor += segment.durationSeconds
+            cursor = segEnd
         }
-        return 0
+        return CGFloat(min(max(0, playheadSeconds), totalDuration) / totalDuration) * width
     }
 
     private func markedSelectionFrame(in width: CGFloat) -> (x: CGFloat, width: CGFloat)? {
