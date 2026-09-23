@@ -145,6 +145,11 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var qosSequence: UInt32 = 0
     var lastQosBytesReceived: UInt64 = 0
     var lastQosDelayMicroseconds: UInt32 = 0
+    /// Incremented each time installBundleHandlers is called.  Every callback closure
+    /// captures the generation at install time; if the generation has advanced by the
+    /// time the closure fires, the bundle that installed it has been torn down and the
+    /// callback is silently discarded.
+    var bundleGeneration: UInt64 = 0
 
     static let targetFrameTimeMicroseconds: UInt32 = 16000
 
@@ -320,7 +325,24 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
             fallbackHost: Self.host(from: allocation.signalingServer),
             allowsAssumedControlPort: !allocation.isResume
         )
-        guard !endpoints.isEmpty else {
+        // On resume the assumed :322 fallback is intentionally suppressed above so that a
+        // fresh session does not accidentally land on a stale seat.  However if the session
+        // JSON's connectionInfo is absent or incomplete the list will be empty and the
+        // transport would fail hard before even attempting RTSP.  Re-collect with the
+        // fallback enabled whenever the first pass yields nothing, so a resume that
+        // arrives before connectionInfo is fully populated still has a candidate to try.
+        let resolvedEndpoints: [String]
+        if endpoints.isEmpty && allocation.isResume {
+            resolvedEndpoints = NvstRtspEndpoints.collect(
+                rawSessionJSON: allocation.rawSessionJSON,
+                fallbackHost: Self.host(from: allocation.signalingServer),
+                allowsAssumedControlPort: true
+            )
+            logger?("NVST resume: connectionInfo yielded no endpoints; retrying with assumed :322 fallback")
+        } else {
+            resolvedEndpoints = endpoints
+        }
+        guard !resolvedEndpoints.isEmpty else {
             throw NativeNVSTError.transportFailed(allocation.isResume
                 ? "This session has not published an RTSPS control endpoint, so the seat has not finished handing it over to this device."
                 : "This session provided no RTSPS control endpoint, so NVST cannot be negotiated.")
@@ -357,7 +379,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         let logger = self.logger
         let negotiator = NvstRtspNegotiator(reserver: reserver, logger: logger)
         let payload = NativeNVSTSessionPayload(allocation: allocation)
-        let input = negotiationInput(sessionID: payload.sessionIdentifier, endpoints: endpoints, profile: profile)
+        let input = negotiationInput(sessionID: payload.sessionIdentifier, endpoints: resolvedEndpoints, profile: profile)
 
         let negotiated: NvstRtspSession
         do {
@@ -692,7 +714,7 @@ extension NVSTCoreTransport {
         hidPassthroughActive.removeAll()
         hidSequences.removeAll()
         pendingHidRegistrations.removeAll()
-        seatHidCapability = NvstHidPassthrough.SeatCapability(raw: 4)
+        seatHidCapability = nil
         inputState.resetHidSlots()
         hidReportsSent = 0
         hidReportFailures = 0
@@ -705,6 +727,32 @@ extension NVSTCoreTransport {
         lastSnapshotLost = 0
         lastAudioJitterSample = nil
         latestSeatStats = nil
+        qosSequence = 0
+        lastQosBytesReceived = 0
+        lastQosDelayMicroseconds = 0
+        qosReportsSent = 0
+        qosReportFailures = 0
+        rtpStatsReportsSent = 0
+        controlStatsReportsSent = 0
+        lastRtpStatsFrame = 0
+        controlStatsLastSentAt = nil
+        lastIdrRequestAt = nil
+        idrRequestsSent = 0
+        lastInvalidationAt = nil
+        invalidationsSent = 0
+        inputEventsSent = 0
+        inputSequence = 0
+        inputSendTotalMs = 0.0
+        inputSendPeakMs = 0.0
+        gamepadPacketsSent = 0
+        gamepadSendFailures = 0
+        gamepadPacketsDroppedForUnannouncedPad = 0
+        lastHandoff = nil
+        negotiatedFps = nil
+        negotiatedResolution = nil
+        negotiatedCodec = nil
+        sessionServerLocation = nil
+        sessionGPUType = nil
         controlKeepAliveTask?.cancel()
         controlKeepAliveTask = nil
         qosFeedbackTask?.cancel()
