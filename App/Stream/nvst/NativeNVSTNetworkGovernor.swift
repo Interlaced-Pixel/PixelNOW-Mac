@@ -23,15 +23,24 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
         self.l4sEnabled = l4sEnabled
     }
 
-    mutating func evaluate(_ snapshot: NativeNVSTPerformanceSnapshot) -> [NativeNVSTNetworkAdjustment] {
+    /// Evaluates the current performance snapshot and returns any adjustments to apply.
+    ///
+    /// - Parameters:
+    ///   - snapshot: The latest performance metrics from the transport.
+    ///   - decodeBudgetOver: True when the client's mean decode time exceeds the frame interval.
+    ///     When the decoder is over-budget the governor switches to `preferFrameRate` and reduces
+    ///     bitrate even on a healthy link, preventing the seat's own DFC from reacting first.
+    mutating func evaluate(_ snapshot: NativeNVSTPerformanceSnapshot,
+                           decodeBudgetOver: Bool) -> [NativeNVSTNetworkAdjustment] {
         guard snapshot.available else { return [] }
 
         let activeBitrate = currentBitrateKbps ?? maximumBitrateKbps
-        let bitrateFloor = min(maximumBitrateKbps, max(15_000, maximumBitrateKbps / 3))
+        let bitrateFloor = resolvedBitrateFloor(snapshot: snapshot)
         let hasSeverePacketLoss = snapshot.packetLossPercent >= 10
         let hasPacketLoss = snapshot.packetLossPercent >= 2
         let hasCongestion = snapshot.jitterMilliseconds >= 35
         let bandwidthIsAvailable = snapshot.packetLossPercent < 1 && snapshot.jitterMilliseconds < 25
+                                   && !decodeBudgetOver
 
         var adjustments: [NativeNVSTNetworkAdjustment] = []
         if hasSeverePacketLoss {
@@ -43,7 +52,14 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
             stableTicks = 0
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
-        } else if hasPacketLoss || hasCongestion {
+        } else if hasPacketLoss || hasCongestion || decodeBudgetOver {
+            if decodeBudgetOver {
+                let reducedBitrate = max(bitrateFloor, UInt32(Double(activeBitrate) * 0.90))
+                if reducedBitrate < activeBitrate {
+                    adjustments.append(.maximumBitrateKbps(reducedBitrate))
+                    currentBitrateKbps = reducedBitrate
+                }
+            }
             stableTicks = 0
             appendMode(.preferFrameRate, to: &adjustments)
             appendL4S(false, to: &adjustments)
@@ -51,7 +67,7 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
             stableTicks += 1
             guard stableTicks >= Self.requiredStableTicks else { return adjustments }
             if activeBitrate < maximumBitrateKbps {
-                let recoveredBitrate = min(maximumBitrateKbps, max(activeBitrate, UInt32(Double(activeBitrate) * 1.05)))
+                let recoveredBitrate = min(maximumBitrateKbps, max(activeBitrate, UInt32(Double(activeBitrate) * 1.12)))
                 if recoveredBitrate > activeBitrate {
                     adjustments.append(.maximumBitrateKbps(recoveredBitrate))
                     currentBitrateKbps = recoveredBitrate
@@ -63,17 +79,30 @@ struct NativeNVSTNetworkGovernor: Equatable, Sendable {
         return adjustments
     }
 
-    private func resolvedBitrateKbps(from snapshot: NativeNVSTPerformanceSnapshot) -> UInt32 {
-        if let currentBitrateKbps {
-            return min(maximumBitrateKbps, max(1_000, currentBitrateKbps))
+    /// Computes a resolution-aware bitrate floor.
+    ///
+    /// The previous fixed floor (`max(15_000, maximumBitrate / 3)`) could fall to 15 Mbps on a
+    /// 45 Mbps cap — an insufficient floor for 4K content. The floor now scales with both the
+    /// configured cap and the stream's negotiated resolution, capping how far the governor will
+    /// reduce bitrate before preferring to cut frame rate instead.
+    private func resolvedBitrateFloor(snapshot: NativeNVSTPerformanceSnapshot) -> UInt32 {
+        let resolutionFloor = minimumBitrateKbps(forResolution: snapshot.resolution)
+        let proportionalFloor = max(15_000, maximumBitrateKbps / 3)
+        return max(resolutionFloor, min(maximumBitrateKbps, proportionalFloor))
+    }
+
+    /// Returns the minimum acceptable bitrate in kbps for a given resolution string,
+    /// e.g. "3840x2160" or "2560x1440". Falls back to 15 Mbps for unknown or empty strings.
+    private func minimumBitrateKbps(forResolution resolution: String) -> UInt32 {
+        let components = resolution.split(separator: "x").compactMap { Int($0) }
+        guard components.count >= 2 else { return 15_000 }
+        let pixelCount = components[0] * components[1]
+        switch pixelCount {
+        case _ where pixelCount >= 8_294_400: return 30_000  // 4K (3840×2160) and above
+        case _ where pixelCount >= 3_686_400: return 20_000  // 1440p (2560×1440)
+        case _ where pixelCount >= 2_073_600: return 10_000  // 1080p (1920×1080)
+        default:                              return 6_000   // 720p and below
         }
-        guard snapshot.bitrateMegabitsPerSecond.isFinite, snapshot.bitrateMegabitsPerSecond > 0 else {
-            return maximumBitrateKbps
-        }
-        let reportedBitrate = snapshot.bitrateMegabitsPerSecond * 1_000
-        guard reportedBitrate.isFinite else { return maximumBitrateKbps }
-        let boundedBitrate = min(Double(maximumBitrateKbps), max(1_000, reportedBitrate))
-        return UInt32(boundedBitrate.rounded())
     }
 
     private mutating func appendMode(_ mode: NativeNVSTDynamicStreamingMode,
