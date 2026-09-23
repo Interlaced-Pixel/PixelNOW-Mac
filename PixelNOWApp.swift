@@ -142,15 +142,15 @@ struct PixelNOWApp: App {
             }
             CommandMenu("Stream") {
                 Button("Toggle Microphone") {
-                    AppDelegate.sendActiveStreamCommand(.toggleMicrophone)
+                    _ = AppDelegate.sendActiveStreamCommand(.toggleMicrophone)
                 }
                 .keyboardShortcut("m", modifiers: .command)
                 Button("Toggle Recording") {
-                    AppDelegate.sendActiveStreamCommand(.toggleRecording)
+                    _ = AppDelegate.sendActiveStreamCommand(.toggleRecording)
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 Button("Toggle Anti-AFK") {
-                    AppDelegate.sendActiveStreamCommand(.toggleAntiAFK)
+                    _ = AppDelegate.sendActiveStreamCommand(.toggleAntiAFK)
                 }
                 .keyboardShortcut("k", modifiers: .command)
             }
@@ -421,13 +421,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateProgressController = nil
         }
 
-        updateInstallTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        updateInstallTask = Task { @MainActor [weak self, weak controller] in
+            guard let self, let controller else { return }
             defer { updateInstallTask = nil }
             do {
-                let launchedInstaller = try await githubUpdater.installRelease(release) { [weak controller] state in
+                let launchedInstaller = try await githubUpdater.installRelease(release) { state in
                     Task { @MainActor in
-                        controller?.updateProgress(state)
+                        controller.updateProgress(state)
                     }
                 }
                 guard launchedInstaller else {

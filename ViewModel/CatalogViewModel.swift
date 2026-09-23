@@ -2162,7 +2162,7 @@ final class CatalogViewModel: ObservableObject {
         self.streamCapabilities = capabilities
         settingsPreferencesTask?.cancel()
         settingsPreferencesTask = Task.detached(priority: .userInitiated) {
-            var profile = StreamPreferences.effectiveProfile(StreamPreferences.loadProfile(), capabilities: capabilities)
+            let profile = StreamPreferences.effectiveProfile(StreamPreferences.loadProfile(), capabilities: capabilities)
             let nativeNVSTRuntimeAvailable = true
             let nativeNVSTRuntimeMessage = "Native NVST runtime is available."
             let snapshot = CatalogSettingsPreferencesSnapshot(

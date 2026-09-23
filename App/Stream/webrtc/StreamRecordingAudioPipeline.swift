@@ -80,7 +80,7 @@ public final class StreamRecordingMicrophoneCapturer: NSObject, AVCaptureAudioDa
     private func selectAudioDevice() -> AVCaptureDevice? {
         if !preferredDeviceId.isEmpty {
             let discovery = AVCaptureDevice.DiscoverySession(
-                deviceTypes: [.builtInMicrophone, .externalUnknown],
+                deviceTypes: [.microphone, .external],
                 mediaType: .audio,
                 position: .unspecified
             )
@@ -300,8 +300,10 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
 
     public func appendMicrophoneAudio(sampleBuffer: CMSampleBuffer) {
         guard microphoneEnabled else { return }
+        let retainedPtr = UInt(bitPattern: Unmanaged.passRetained(sampleBuffer).toOpaque())
         queue.async {
-            guard let micData = self.micConverter.convert(sampleBuffer: sampleBuffer), !micData.isEmpty else { return }
+            let buffer = Unmanaged<CMSampleBuffer>.fromOpaque(UnsafeRawPointer(bitPattern: retainedPtr)!).takeRetainedValue()
+            guard let micData = self.micConverter.convert(sampleBuffer: buffer), !micData.isEmpty else { return }
             self.micBuffer.append(micData)
             if self.micBuffer.count > self.maxMicLatencyBytes {
                 self.micBuffer.removeFirst(self.micBuffer.count - self.maxMicLatencyBytes)

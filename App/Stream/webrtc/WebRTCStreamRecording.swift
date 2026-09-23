@@ -357,13 +357,15 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
     }
 
     private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        let retainedPtr = UInt(bitPattern: Unmanaged.passRetained(sampleBuffer).toOpaque())
         queue.async {
+            let buffer = Unmanaged<CMSampleBuffer>.fromOpaque(UnsafeRawPointer(bitPattern: retainedPtr)!).takeRetainedValue()
             guard self.isRecording,
                   self.capturedVideoFrame,
                   self.writer?.status == .writing,
                   let input = self.audioInput,
                   input.isReadyForMoreMediaData else { return }
-            input.append(sampleBuffer)
+            input.append(buffer)
         }
     }
 

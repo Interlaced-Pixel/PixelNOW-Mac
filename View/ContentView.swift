@@ -177,8 +177,10 @@ private struct WindowTitleConfigurator: NSViewRepresentable {
             let autosaveName = Self.autosaveName
             observerTokens = notifications.map { name in
                 notificationCenter.addObserver(forName: name, object: window, queue: .main) { [weak window] _ in
-                    guard let window, !window.styleMask.contains(.fullScreen) else { return }
-                    window.saveFrame(usingName: autosaveName)
+                    Task { @MainActor [weak window] in
+                        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+                        window.saveFrame(usingName: autosaveName)
+                    }
                 }
             }
         }
