@@ -46,7 +46,7 @@ extension NVSTCoreTransport {
         let (mediaFrames, mediaContinuation) = AsyncStream<NativeNVSTVideoFrame>.makeStream(
             bufferingPolicy: .bufferingNewest(4))
         mediaForwardingTask?.cancel()
-        mediaForwardingTask = Task.detached(priority: .utility) {
+        mediaForwardingTask = Task.detached(priority: .userInitiated) {
             for await frame in mediaFrames {
                 if Task.isCancelled { return }
                 await mediaReceiver.receiveVideoFrame(frame)
@@ -366,6 +366,79 @@ extension NVSTCoreTransport {
         } else {
             qosReportFailures += 1
             if qosReportFailures == 1 { logger?("NVST QoS report write failed") }
+        }
+
+        applyGovernorAdjustments(bundle: bundle, receiver: receiver)
+    }
+
+    private func applyGovernorAdjustments(bundle: NvstWebRtcBundle, receiver: NVSTWireReceiver) {
+        guard networkGovernor != nil else { return }
+        let stats = receiver.stats
+        let counters = receiver.feedbackCounters
+        let now = Date()
+        let elapsed = max(0.001, lastSnapshotAt.map { now.timeIntervalSince($0) } ?? 1)
+        let framesSinceLast = counters.framesEmitted &- lastSnapshotFrames
+        let bytesSinceLast = counters.bytesReceived &- lastSnapshotBytes
+        let instantFps = Double(framesSinceLast) / elapsed
+        let instantMbps = Double(bytesSinceLast) * 8 / elapsed / 1_000_000
+        let lossPercent: Double
+        let totalPackets = UInt64(stats.authenticatedPackets)
+        let totalLost = UInt64(stats.lastCumulativeLost)
+        let packetsDelta = totalPackets >= lastSnapshotPackets ? totalPackets - lastSnapshotPackets : 0
+        let lostDelta = totalLost >= lastSnapshotLost ? totalLost - lastSnapshotLost : 0
+        lossPercent = packetsDelta + lostDelta > 0 ? Double(lostDelta) * 100 / Double(packetsDelta + lostDelta) : 0
+        let jitterMs = Double(stats.lastJitter) * 1000 / Double(NvstVideoToolboxDecoder.clockRate)
+        let video = videoPipeline?.snapshot
+        let decodeMs = (video?.framesHandled ?? 0) > 0
+            ? (video?.total.decode ?? 0) / Double(video?.framesHandled ?? 1)
+            : -1
+        let decodeBudgetOver = NativeNVSTDecodeBudget.level(
+            decodeMilliseconds: decodeMs,
+            framesPerSecond: Double(negotiatedFps ?? 0)
+        ) == .over
+
+        let snapshot = NativeNVSTPerformanceSnapshot(
+            available: counters.framesEmitted > 0,
+            gameFramesPerSecond: latestSeatStats?.gameFramesPerSecond ?? -1,
+            streamFramesPerSecond: instantFps,
+            latencyMilliseconds: bundle.roundTripMilliseconds,
+            jitterMilliseconds: jitterMs,
+            frameLoss: stats.abandonedFrames,
+            totalFrameLoss: stats.abandonedFrames,
+            packetLoss: UInt64(stats.lastCumulativeLost),
+            totalPacketLoss: stats.droppedPackets,
+            packetLossPercent: lossPercent,
+            decodeMilliseconds: decodeMs,
+            bitrateMegabitsPerSecond: instantMbps,
+            bandwidthUtilizationPercent: 0,
+            resolution: negotiatedResolution ?? "",
+            codec: negotiatedCodec ?? "",
+            serverLocation: sessionServerLocation ?? "",
+            negotiatedFramesPerSecond: Double(negotiatedFps ?? 0)
+        )
+
+        let adjustments = networkGovernor!.evaluate(snapshot, decodeBudgetOver: decodeBudgetOver)
+        for adjustment in adjustments {
+            switch adjustment {
+            case .maximumBitrateKbps(let kbps):
+                let command = NvstStreamingCommand.maxBitrateChange(maxBitrateKbps: kbps, streamIndex: 0)
+                let sent = bundle.sendControl(command)
+                logger?("NVST governor: bitrate → \(kbps) kbps sent=\(sent)")
+            case .dynamicStreamingMode(let mode):
+                var writer = NvstByteWriter(capacity: 8)
+                writer.u32LE(0)
+                writer.u32LE(UInt32(mode.rawValue))
+                let command = NvstStreamingCommand(code: .qosPreferenceChange, payload: writer.data)
+                let sent = bundle.sendControl(command)
+                logger?("NVST governor: mode → \(mode) sent=\(sent)")
+            case .l4sEnabled(let enabled):
+                var writer = NvstByteWriter(capacity: 8)
+                writer.u32LE(0)
+                writer.u32LE(enabled ? 1 : 0)
+                let command = NvstStreamingCommand(code: .l4sStateChange, payload: writer.data)
+                let sent = bundle.sendControl(command)
+                logger?("NVST governor: L4S → \(enabled) sent=\(sent)")
+            }
         }
     }
 
@@ -777,7 +850,7 @@ extension NVSTCoreTransport {
     /// device kind is permitted by the current seat capability. Slots that have already been
     /// registered (pending or active) are skipped.
     func sendHidChangeEventsForConnectedControllers() {
-        guard let bundle else { return }
+        guard bundle != nil else { return }
         let capability = seatHidCapability ?? NvstHidPassthrough.SeatCapability(raw: 4)
         let controllers = GCController.controllers().filter { $0.extendedGamepad != nil }
         for controller in controllers {

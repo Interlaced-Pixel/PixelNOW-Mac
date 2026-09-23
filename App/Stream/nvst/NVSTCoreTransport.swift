@@ -28,6 +28,9 @@ final class NvstInputState: @unchecked Sendable {
     private var sendPeakMs: Double = 0
     private var gamepadSequences: [UInt16: UInt16] = [:]
 
+    var leftStickDeadzone: Float = 0.12
+    var rightStickDeadzone: Float = 0.13
+
     func nextSequence() -> UInt32 {
         lock.lock()
         defer { lock.unlock() }
@@ -262,6 +265,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     let configuredColorQuality: String?
     let configuredGameVolume: Double?
     let configuredL4SEnabled: Bool
+    let configuredLeftStickDeadzone: Float
+    let configuredRightStickDeadzone: Float
 
     var configuredAudioChannels: Int = 2
 
@@ -275,6 +280,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
                 configuredColorQuality: String? = nil,
                 configuredGameVolume: Double? = nil,
                 configuredL4SEnabled: Bool = false,
+                configuredLeftStickDeadzone: Float = 0.12,
+                configuredRightStickDeadzone: Float = 0.13,
                 logger: (@Sendable (String) -> Void)? = nil,
                 controlTimeout: Duration = .seconds(20),
                 remoteCoOpVideoRelay: RemoteCoOpHostVideoRelay = RemoteCoOpHostVideoRelay(),
@@ -291,8 +298,12 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         self.configuredColorQuality = configuredColorQuality
         self.configuredGameVolume = configuredGameVolume
         self.configuredL4SEnabled = configuredL4SEnabled
+        self.configuredLeftStickDeadzone = min(max(configuredLeftStickDeadzone, 0), 0.5)
+        self.configuredRightStickDeadzone = min(max(configuredRightStickDeadzone, 0), 0.5)
         self.logger = logger
         self.controlTimeout = controlTimeout
+        inputState.leftStickDeadzone = self.configuredLeftStickDeadzone
+        inputState.rightStickDeadzone = self.configuredRightStickDeadzone
     }
 
     public func prepare() async throws {
@@ -327,6 +338,13 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
         logger?("NVST profile fps=\(profile.fps.map(String.init) ?? "nil") resolution=\(profile.resolution ?? "nil")"
                 + " codec=\(profile.codec ?? "nil") audioChannels=\(audioChannels) pacingTargetUs=\(sessionFrameTimeMicroseconds) maxKbps=\(profile.maximumBitrateKbps.map(String.init) ?? "nil") initKbps=\(profile.bitrateKbps.map(String.init) ?? "nil")")
+
+        if let maxKbps = profile.maximumBitrateKbps, maxKbps > 0 {
+            networkGovernor = NativeNVSTNetworkGovernor(
+                maximumBitrateKbps: UInt32(maxKbps),
+                l4sEnabled: configuredL4SEnabled
+            )
+        }
 
         let stream = AsyncStream<NativeNVSTTransportTermination>.makeStream()
         terminationStream = stream.stream
@@ -536,6 +554,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
     var inputSendTotalMs = 0.0
     var inputSendPeakMs = 0.0
+    var networkGovernor: NativeNVSTNetworkGovernor?
     var lastSnapshotAt: Date?
     var lastSnapshotFrames: UInt64 = 0
     var lastSnapshotBytes: UInt64 = 0
@@ -661,6 +680,7 @@ extension NVSTCoreTransport {
         cancelCursorCaptureWatchdog()
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        networkGovernor = nil
         invalidationFlushTask?.cancel()
         invalidationFlushTask = nil
         pendingInvalidationFirst = nil
