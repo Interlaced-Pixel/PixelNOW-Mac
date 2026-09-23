@@ -1164,41 +1164,6 @@ public enum StreamPreferences {
     public static func saveMicrophonePushToTalkKeyCode(_ value: Int) { storage.set(clamp(value, 0, 127), forKey: k.microphonePushToTalkKeyCode) }
     public static func saveMicrophonePushToTalkModifierMask(_ value: Int) { storage.set(sanitizedPushToTalkModifierMask(value), forKey: k.microphonePushToTalkModifierMask) }
 
-    public static let defaultDesktopMacroInitialDelay: Double = 8.0
-    public static let defaultDesktopMacroKeystrokeDelay: Double = 0.08
-    public static let defaultDesktopMacroNavigationDelay: Double = 1.0
-    public static let defaultDesktopMacroDownloadDelay: Double = 3.0
-
-    public static func loadDesktopMacroInitialDelay() -> Double { double(storage.object(forKey: k.desktopMacroInitialDelay), defaultDesktopMacroInitialDelay) }
-    public static func saveDesktopMacroInitialDelay(_ value: Double) { storage.set(max(1.0, min(value, 30.0)), forKey: k.desktopMacroInitialDelay) }
-
-    public static func loadDesktopMacroKeystrokeDelay() -> Double { double(storage.object(forKey: k.desktopMacroKeystrokeDelay), defaultDesktopMacroKeystrokeDelay) }
-    public static func saveDesktopMacroKeystrokeDelay(_ value: Double) { storage.set(max(0.02, min(value, 0.5)), forKey: k.desktopMacroKeystrokeDelay) }
-
-    public static func loadDesktopMacroNavigationDelay() -> Double { double(storage.object(forKey: k.desktopMacroNavigationDelay), defaultDesktopMacroNavigationDelay) }
-    public static func saveDesktopMacroNavigationDelay(_ value: Double) { storage.set(max(0.2, min(value, 5.0)), forKey: k.desktopMacroNavigationDelay) }
-
-    public static func loadDesktopMacroDownloadDelay() -> Double { double(storage.object(forKey: k.desktopMacroDownloadDelay), defaultDesktopMacroDownloadDelay) }
-    public static func saveDesktopMacroDownloadDelay(_ value: Double) { storage.set(max(1.0, min(value, 15.0)), forKey: k.desktopMacroDownloadDelay) }
-
-    public static func loadDesktopCustomAppId() -> String { string(storage.object(forKey: k.desktopCustomAppId), "") }
-    public static func saveDesktopCustomAppId(_ value: String) {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            storage.removeObject(forKey: k.desktopCustomAppId)
-        } else {
-            storage.set(trimmed, forKey: k.desktopCustomAppId)
-        }
-    }
-
-    public static func restoreDesktopMacroDefaults() {
-        storage.removeObject(forKey: k.desktopMacroInitialDelay)
-        storage.removeObject(forKey: k.desktopMacroKeystrokeDelay)
-        storage.removeObject(forKey: k.desktopMacroNavigationDelay)
-        storage.removeObject(forKey: k.desktopMacroDownloadDelay)
-        storage.removeObject(forKey: k.desktopCustomAppId)
-    }
-
     public static func restoreStreamingProfileDefaults() {
         for key in streamingProfileKeys {
             storage.removeObject(forKey: key)
@@ -2053,11 +2018,6 @@ public enum StreamPreferences {
         static let hdrEnabled = "PixelNOW.Stream.HDREnabled"
         static let gameProfiles = "PixelNOW.Stream.GameProfiles"
         static let gameProfileEnabled = "enabled"
-        static let desktopMacroInitialDelay = "PixelNOW.Desktop.MacroInitialDelay"
-        static let desktopMacroKeystrokeDelay = "PixelNOW.Desktop.MacroKeystrokeDelay"
-        static let desktopMacroNavigationDelay = "PixelNOW.Desktop.MacroNavigationDelay"
-        static let desktopMacroDownloadDelay = "PixelNOW.Desktop.MacroDownloadDelay"
-        static let desktopCustomAppId = "PixelNOW.Desktop.CustomAppId"
     }
 }
 

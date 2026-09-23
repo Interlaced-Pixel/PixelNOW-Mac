@@ -96,16 +96,6 @@ public final class GameLaunchBridge {
         }
         configureServices(token: token, userId: userId)
 
-        if Self.isDesktopLaunchGame(game) {
-            let appId = game.launchAppId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !appId.isEmpty else {
-                completion(false, "Desktop launch is missing a resolved app ID.", nil)
-                return
-            }
-            prepareResolvedLaunchPlan(game: game, selectedVariant: selectedVariant, appId: appId, token: token, userId: userId, idpId: idpId, completion: completion)
-            return
-        }
-
         let gameBox = GameLaunchBridgeSendableValue(game)
         GameService.shared.resolveLaunchAppId(game: game.swiftValue, variantIndex: selectedVariantIndex) { [weak self] appId in
             Task { @MainActor in
@@ -115,10 +105,6 @@ public final class GameLaunchBridge {
                 self.prepareResolvedLaunchPlan(game: game, selectedVariant: selectedVariant, appId: appId, token: token, userId: userId, idpId: idpId, completion: completion)
             }
         }
-    }
-
-    private static func isDesktopLaunchGame(_ game: CatalogGameObject) -> Bool {
-        game.id.hasPrefix("desktop-salsanow") || game.shortName == "SalsaNOW Desktop"
     }
 
     private func prepareResolvedLaunchPlan(game: CatalogGameObject, selectedVariant: CatalogGameVariantObject?, appId: String, token: String, userId: String, idpId: String, completion: @escaping GameLaunchPlanCompletion) {
@@ -251,9 +237,6 @@ public final class GameLaunchBridge {
         if game.displaysOwnRatingDuringGameplay { metadata["gameDisplayOwnRating"] = "true" }
         if let selectedVariant, !selectedVariant.appStore.isEmpty { metadata["storeName"] = selectedVariant.appStore }
         if !imageUrls.isEmpty { metadata["loadingScreenshotUrls"] = imageUrls.joined(separator: "\n") }
-        if game.id.hasPrefix("desktop-salsanow") || game.shortName == "SalsaNOW Desktop" {
-            metadata["isDesktopLaunch"] = "true"
-        }
         return metadata
     }
 }

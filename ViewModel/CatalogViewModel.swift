@@ -207,13 +207,6 @@ final class CatalogViewModel: ObservableObject {
     @Published var ownershipFlowStage = CatalogOwnershipFlowStage.hidden
     @Published var ownershipFlowMessage = ""
     @Published var queuedPatchingLaunchGameTitle = ""
-    @Published var desktopLaunchInProgress = false
-    @Published var desktopMacroStatus = ""
-    @Published var desktopMacroInitialDelay: Double = StreamPreferences.loadDesktopMacroInitialDelay()
-    @Published var desktopMacroKeystrokeDelay: Double = StreamPreferences.loadDesktopMacroKeystrokeDelay()
-    @Published var desktopMacroNavigationDelay: Double = StreamPreferences.loadDesktopMacroNavigationDelay()
-    @Published var desktopMacroDownloadDelay: Double = StreamPreferences.loadDesktopMacroDownloadDelay()
-    @Published var desktopCustomAppId: String = StreamPreferences.loadDesktopCustomAppId()
 
     let account: LoginAccount
     let session: LoginSession
@@ -665,78 +658,6 @@ final class CatalogViewModel: ObservableObject {
         beginVendorLaunch(game: game, variantIndex: variantIndex)
     }
 
-    func launchDesktop() {
-        desktopLaunchInProgress = true
-
-        let customAppId = desktopCustomAppId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedAppId: String
-
-        if let valid = LaunchAppId.resolve(customAppId) {
-            resolvedAppId = valid.stringValue
-            Log.info(.launch, "Using custom configured GFN appId for desktop launch: \(resolvedAppId)")
-        } else {
-            // Battle for Wesnoth via Steam on GFN (GFN appId 106269727, Steam appId 599390).
-            resolvedAppId = "106269727"
-            Log.info(.launch, "Launching desktop via Battle for Wesnoth carrier (appId=\(resolvedAppId))")
-        }
-
-        let desktopGame = CatalogGameObject()
-        desktopGame.id = "desktop-salsanow-\(resolvedAppId)"
-        desktopGame.uuid = desktopGame.id
-        desktopGame.launchAppId = resolvedAppId
-        desktopGame.title = "Windows Desktop"
-        desktopGame.shortName = "SalsaNOW Desktop"
-        desktopGame.gameDescription = "Full Windows desktop environment powered by SalsaNOW on GeForce NOW."
-        desktopGame.isInLibrary = true
-        desktopGame.imageUrl = ""
-        desktopGame.heroImageUrl = ""
-
-        let variant = CatalogGameVariantObject()
-        variant.id = resolvedAppId
-        variant.appStore = "Steam"
-        variant.inLibrary = true
-        variant.librarySelected = true
-        variant.installTimeInMinutes = 1
-        desktopGame.variants = [variant]
-
-        selectGame(desktopGame)
-        launch(game: desktopGame)
-    }
-
-    func setDesktopMacroInitialDelay(_ value: Double) {
-        desktopMacroInitialDelay = value
-        StreamPreferences.saveDesktopMacroInitialDelay(value)
-    }
-
-    func setDesktopMacroKeystrokeDelay(_ value: Double) {
-        desktopMacroKeystrokeDelay = value
-        StreamPreferences.saveDesktopMacroKeystrokeDelay(value)
-    }
-
-    func setDesktopMacroNavigationDelay(_ value: Double) {
-        desktopMacroNavigationDelay = value
-        StreamPreferences.saveDesktopMacroNavigationDelay(value)
-    }
-
-    func setDesktopMacroDownloadDelay(_ value: Double) {
-        desktopMacroDownloadDelay = value
-        StreamPreferences.saveDesktopMacroDownloadDelay(value)
-    }
-
-    func setDesktopCustomAppId(_ value: String) {
-        desktopCustomAppId = value
-        StreamPreferences.saveDesktopCustomAppId(value)
-    }
-
-    func resetDesktopMacroSettings() {
-        StreamPreferences.restoreDesktopMacroDefaults()
-        desktopMacroInitialDelay = StreamPreferences.loadDesktopMacroInitialDelay()
-        desktopMacroKeystrokeDelay = StreamPreferences.loadDesktopMacroKeystrokeDelay()
-        desktopMacroNavigationDelay = StreamPreferences.loadDesktopMacroNavigationDelay()
-        desktopMacroDownloadDelay = StreamPreferences.loadDesktopMacroDownloadDelay()
-        desktopCustomAppId = StreamPreferences.loadDesktopCustomAppId()
-    }
-
     func queuePatchingLaunch(game: CatalogGameObject, variantIndex: Int? = nil) {
         guard Self.isPatching(game) else { return }
         queuedPatchingLaunchIdentity = Self.identity(for: game)
@@ -965,9 +886,6 @@ final class CatalogViewModel: ObservableObject {
         guard activeStreamConfiguration != nil else { return }
         streamProgressGeneration += 1
         cancelActiveStreamAdPlayback()
-        if activeStreamConfiguration?.metadata["isDesktopLaunch"] == "true" {
-            desktopLaunchInProgress = false
-        }
         activeStreamConfiguration = nil
         activeStreamProgress = nil
         isActiveStreamLaunchOverlayVisible = false
@@ -992,9 +910,6 @@ final class CatalogViewModel: ObservableObject {
         activeStreamProgress = nil
         isActiveStreamLaunchOverlayVisible = false
         streamProgressGeneration += 1
-        if finishedConfiguration?.metadata["isDesktopLaunch"] == "true" {
-            desktopLaunchInProgress = false
-        }
         clearLaunchFlow()
         launchMessage = ""
         if let replacementConfiguration, let report, let conflict = StreamSessionConflict(reportMetadata: report.metadata) {
