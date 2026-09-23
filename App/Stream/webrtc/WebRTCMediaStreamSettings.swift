@@ -371,11 +371,9 @@ public enum WebRTCMediaStreamSettingsResolver {
     }
 
     private static func normalizedUpscalingMode(_ mode: Int) -> Int {
-        switch mode {
-        case 0: return 0
-        case 1...4: return 3
-        default: return 0
-        }
+        mode == StreamPreferences.upscalingModeValueMetalFX
+            ? StreamPreferences.upscalingModeValueMetalFX
+            : StreamPreferences.upscalingModeValueOff
     }
 
     private static func normalizedTransportMode(_ mode: String) -> String {

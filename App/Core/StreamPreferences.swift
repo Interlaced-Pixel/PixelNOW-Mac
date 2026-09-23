@@ -366,9 +366,11 @@ public enum StreamPreferences {
         StreamPrefilterModeOption(label: "Custom", value: 2)
     ]
     public static let upscalingModeOptions = [
-        StreamUpscalingModeOption(label: "Off", value: 0),
-        StreamUpscalingModeOption(label: "MetalFX", value: 3)
+        StreamUpscalingModeOption(label: "Off",     value: 0),
+        StreamUpscalingModeOption(label: "MetalFX", value: upscalingModeValueMetalFX)
     ]
+    public static let upscalingModeValueOff: Int = 0
+    public static let upscalingModeValueMetalFX: Int = 3
     public static let upscalingTargetOptions = [
         StreamUpscalingTargetOption(label: "2K", height: 1440),
         StreamUpscalingTargetOption(label: "4K", height: 2160)
