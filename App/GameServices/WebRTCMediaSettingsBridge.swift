@@ -70,7 +70,9 @@ func webRTCMediaProfile(from profile: StreamPreferenceProfile) -> WebRTCMediaStr
         preventDisplaySleepWhileStreaming: profile.preventDisplaySleepWhileStreaming,
         recordingVideoBitrateMbps: profile.recordingVideoBitrateMbps,
         recordingAudioBitrateKbps: profile.recordingAudioBitrateKbps,
-        recordingEnhancedVideoEnabled: profile.recordingEnhancedVideoEnabled
+        recordingEnhancedVideoEnabled: profile.recordingEnhancedVideoEnabled,
+        leftStickDeadzone: profile.leftStickDeadzone,
+        rightStickDeadzone: profile.rightStickDeadzone
     )
 }
 
