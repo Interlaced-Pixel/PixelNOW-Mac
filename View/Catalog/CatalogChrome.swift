@@ -53,12 +53,6 @@ private struct TopNavigationGlassBar: View {
             Button("Library") { viewModel.showCatalogDestination(.library) }
             Button("Recordings") { viewModel.showRecordings() }
             Button("Settings") { viewModel.showSettings() }
-            Button { viewModel.launchDesktop() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "desktopcomputer")
-                    Text("Desktop")
-                }
-            }
             Button { viewModel.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .disabled(viewModel.isCatalogRefreshInProgress)
         }
