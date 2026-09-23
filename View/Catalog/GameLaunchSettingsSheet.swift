@@ -606,6 +606,35 @@ struct GameLaunchSettingsSheet: View {
 
             Divider().background(Color.white.opacity(0.08))
 
+            settingSectionHeader("Gamepad Deadzones")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Left Stick Deadzone").font(.caption).foregroundStyle(.white.opacity(0.7))
+                    Spacer()
+                    Text(String(format: "%.0f%%", profile.leftStickDeadzone * 100)).font(.caption.monospaced()).foregroundStyle(.white)
+                }
+                Slider(value: Binding(
+                    get: { profile.leftStickDeadzone },
+                    set: { profile.leftStickDeadzone = $0; saveCurrentProfile() }
+                ), in: 0.0...0.5, step: 0.01)
+                .tint(Color.pixelNowGreen)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Right Stick Deadzone").font(.caption).foregroundStyle(.white.opacity(0.7))
+                    Spacer()
+                    Text(String(format: "%.0f%%", profile.rightStickDeadzone * 100)).font(.caption.monospaced()).foregroundStyle(.white)
+                }
+                Slider(value: Binding(
+                    get: { profile.rightStickDeadzone },
+                    set: { profile.rightStickDeadzone = $0; saveCurrentProfile() }
+                ), in: 0.0...0.5, step: 0.01)
+                .tint(Color.pixelNowGreen)
+            }
+
+            Divider().background(Color.white.opacity(0.08))
+
             settingSectionHeader("Audio Levels")
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
