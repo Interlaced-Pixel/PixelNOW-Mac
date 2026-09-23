@@ -116,6 +116,8 @@ public struct WebRTCMediaStreamProfile: Equatable, Sendable {
     public var recordingVideoBitrateMbps: Int
     public var recordingAudioBitrateKbps: Int
     public var recordingEnhancedVideoEnabled: Bool
+    public var leftStickDeadzone: Double
+    public var rightStickDeadzone: Double
 
     public init(resolution: WebRTCMediaResolution = WebRTCMediaResolution(width: 1920, height: 1080),
                 fps: Int = 60,
@@ -155,7 +157,9 @@ public struct WebRTCMediaStreamProfile: Equatable, Sendable {
                 preventDisplaySleepWhileStreaming: Bool = true,
                 recordingVideoBitrateMbps: Int = 0,
                 recordingAudioBitrateKbps: Int = 160,
-                recordingEnhancedVideoEnabled: Bool = true) {
+                recordingEnhancedVideoEnabled: Bool = true,
+                leftStickDeadzone: Double = 0.12,
+                rightStickDeadzone: Double = 0.13) {
         self.resolution = resolution
         self.fps = fps
         self.codec = codec
@@ -195,6 +199,8 @@ public struct WebRTCMediaStreamProfile: Equatable, Sendable {
         self.recordingVideoBitrateMbps = max(0, min(recordingVideoBitrateMbps, 200))
         self.recordingAudioBitrateKbps = max(64, min(recordingAudioBitrateKbps, 320))
         self.recordingEnhancedVideoEnabled = recordingEnhancedVideoEnabled
+        self.leftStickDeadzone = min(max(leftStickDeadzone, 0.0), 0.5)
+        self.rightStickDeadzone = min(max(rightStickDeadzone, 0.0), 0.5)
     }
 }
 
@@ -224,6 +230,8 @@ public struct WebRTCMediaResolvedStreamSettings: Equatable, Sendable {
     public var microphonePushToTalkModifierMask: Int
     public var gameVolume: Double
     public var microphoneVolume: Double
+    public var leftStickDeadzone: Double
+    public var rightStickDeadzone: Double
     public var streamMicrophoneEnabled: Bool
     public var showStreamMicToggle: Bool
     public var microphoneShortcutEnabled: Bool
@@ -333,6 +341,8 @@ public enum WebRTCMediaStreamSettingsResolver {
             microphonePushToTalkModifierMask: profile.microphonePushToTalkModifierMask,
             gameVolume: profile.gameVolume,
             microphoneVolume: profile.microphoneVolume,
+            leftStickDeadzone: profile.leftStickDeadzone,
+            rightStickDeadzone: profile.rightStickDeadzone,
             streamMicrophoneEnabled: profile.streamMicrophoneEnabled,
             showStreamMicToggle: profile.showStreamMicToggle,
             microphoneShortcutEnabled: profile.microphoneShortcutEnabled,

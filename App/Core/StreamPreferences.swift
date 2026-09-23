@@ -278,6 +278,8 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var preventDisplaySleepWhileStreaming = true
     public var gameVolume = 1.0
     public var microphoneVolume = 1.0
+    public var leftStickDeadzone: Double = 0.12
+    public var rightStickDeadzone: Double = 0.13
     public var streamMicrophoneEnabled = true
     public var showStreamMicToggle = true
     public var microphoneShortcutEnabled = true
@@ -471,6 +473,8 @@ public enum StreamPreferences {
         Keys.preventDisplaySleepWhileStreaming,
         Keys.gameVolume,
         Keys.microphoneVolume,
+        Keys.leftStickDeadzone,
+        Keys.rightStickDeadzone,
         Keys.streamMicrophoneEnabled,
         Keys.showStreamMicToggle,
         Keys.microphoneShortcutEnabled,
@@ -1153,6 +1157,8 @@ public enum StreamPreferences {
     public static func savePreventDisplaySleepWhileStreaming(_ value: Bool) { storage.set(value, forKey: k.preventDisplaySleepWhileStreaming) }
     public static func saveGameVolume(_ value: Double) { storage.set(min(max(value, 0.0), 1.0), forKey: k.gameVolume) }
     public static func saveMicrophoneVolume(_ value: Double) { storage.set(min(max(value, 0.0), 1.0), forKey: k.microphoneVolume) }
+    public static func saveLeftStickDeadzone(_ value: Double) { storage.set(min(max(value, 0.0), 0.5), forKey: k.leftStickDeadzone) }
+    public static func saveRightStickDeadzone(_ value: Double) { storage.set(min(max(value, 0.0), 0.5), forKey: k.rightStickDeadzone) }
     public static func loadStreamMicrophoneEnabled() -> Bool { bool(storage.object(forKey: k.streamMicrophoneEnabled), true) }
     public static func saveStreamMicrophoneEnabled(_ value: Bool) { storage.set(value, forKey: k.streamMicrophoneEnabled) }
     public static func loadShowStreamMicToggle() -> Bool { bool(storage.object(forKey: k.showStreamMicToggle), true) }
@@ -1251,6 +1257,8 @@ public enum StreamPreferences {
         profile.preventDisplaySleepWhileStreaming = bool(value(dictionary, k.preventDisplaySleepWhileStreaming), true)
         profile.gameVolume = clampedDouble(dictionary, k.gameVolume, 1, 0, 1)
         profile.microphoneVolume = clampedDouble(dictionary, k.microphoneVolume, 1, 0, 1)
+        profile.leftStickDeadzone = clampedDouble(dictionary, k.leftStickDeadzone, 0.12, 0.0, 0.5)
+        profile.rightStickDeadzone = clampedDouble(dictionary, k.rightStickDeadzone, 0.13, 0.0, 0.5)
         profile.streamMicrophoneEnabled = bool(value(dictionary, k.streamMicrophoneEnabled), true)
         profile.showStreamMicToggle = bool(value(dictionary, k.showStreamMicToggle), true)
         profile.microphoneShortcutEnabled = bool(value(dictionary, k.microphoneShortcutEnabled), true)
@@ -1303,6 +1311,8 @@ public enum StreamPreferences {
             k.preventDisplaySleepWhileStreaming: profile.preventDisplaySleepWhileStreaming,
             k.gameVolume: profile.gameVolume,
             k.microphoneVolume: profile.microphoneVolume,
+            k.leftStickDeadzone: profile.leftStickDeadzone,
+            k.rightStickDeadzone: profile.rightStickDeadzone,
             k.streamMicrophoneEnabled: profile.streamMicrophoneEnabled,
             k.showStreamMicToggle: profile.showStreamMicToggle,
             k.microphoneShortcutEnabled: profile.microphoneShortcutEnabled,
@@ -2004,6 +2014,8 @@ public enum StreamPreferences {
         static let preventDisplaySleepWhileStreaming = "PixelNOW.Stream.PreventDisplaySleepWhileStreaming"
         static let gameVolume = "PixelNOW.Stream.GameVolume"
         static let microphoneVolume = "PixelNOW.Stream.MicrophoneVolume"
+        static let leftStickDeadzone = "PixelNOW.Stream.LeftStickDeadzone"
+        static let rightStickDeadzone = "PixelNOW.Stream.RightStickDeadzone"
         static let streamMicrophoneEnabled = "PixelNOW.Stream.MicrophoneEnabled"
         static let showStreamMicToggle = "PixelNOW.Stream.ShowStreamMicToggle"
         static let microphoneShortcutEnabled = "PixelNOW.Stream.MicrophoneShortcutEnabled"
