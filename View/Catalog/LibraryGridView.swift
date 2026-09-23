@@ -15,10 +15,14 @@ struct LibraryGridView: View {
     @ObservedObject var store: CatalogSelectionStore
     let play: (CatalogGameObject) -> Void
 
-    let columns = [GridItem(.adaptive(minimum: 140), spacing: 16)]
-    
     @State private var searchQuery = ""
     @AppStorage("LibrarySortOption") private var sortOption = LibrarySortOption.nameAsc
+    @AppStorage("LibraryCardScale") private var cardScale: Double = 1.0
+    
+    private var columns: [GridItem] {
+        let minCardWidth: CGFloat = 138 * CGFloat(cardScale)
+        return [GridItem(.adaptive(minimum: minCardWidth), spacing: 16)]
+    }
     
     @State private var displayedGames: [CatalogGameObject] = []
     @State private var isProcessing: Bool = false
@@ -81,6 +85,23 @@ struct LibraryGridView: View {
 
                     Spacer()
 
+                    HStack(spacing: 8) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        
+                        Slider(value: $cardScale, in: 0.75...1.5, step: 0.05)
+                            .frame(width: 120)
+                            .controlSize(.small)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.07))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+
                     HStack(spacing: 4) {
                         Text("Sort By")
                             .font(.subheadline)
@@ -138,6 +159,7 @@ struct LibraryGridView: View {
                                     GameCardView(
                                         game: game,
                                         isSelected: isSelected,
+                                        scale: CGFloat(cardScale),
                                         select: { store.selectGame(withId: identity) },
                                         launch: { play(game) },
                                         isFavorite: viewModel.isFavorite(game),
