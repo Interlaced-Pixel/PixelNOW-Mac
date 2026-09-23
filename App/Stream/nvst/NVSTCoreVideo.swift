@@ -206,36 +206,68 @@ extension NVSTCoreTransport {
     private func installBundleHandlers(_ bundle: NvstWebRtcBundle,
                                        sender: NvstFeedbackSender,
                                        logger: (@Sendable (String) -> Void)?) {
+        bundleGeneration = bundleGeneration &+ 1
+        let generation = bundleGeneration
         bundle.onInputProtocolNegotiated = { [weak self] version in
-            Task { await self?.inputDidNegotiate(version) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.inputDidNegotiate(version)
+            }
         }
         bundle.onRemoteCursor = { [weak self] cursor in
-            Task { await self?.handleRemoteCursor(cursor) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleRemoteCursor(cursor)
+            }
         }
         bundle.onSeatStats = { [weak self] stats in
-            Task { await self?.recordSeatStats(stats) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.recordSeatStats(stats)
+            }
         }
         bundle.onHapticEvents = { [weak self] events in
-            Task { await self?.handleHapticEvents(events) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleHapticEvents(events)
+            }
         }
         bundle.onHdrMode = { [weak self] notification in
-            Task { await self?.handleHdrMode(notification) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleHdrMode(notification)
+            }
         }
         bundle.onAudioSurroundInfo = { [weak self] surround in
-            Task { await self?.handleAudioSurroundInfo(surround) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleAudioSurroundInfo(surround)
+            }
         }
         bundle.onSeatTermination = { [weak self] reasonCode, summary in
-            Task { await self?.handleSeatTermination(reasonCode: reasonCode, summary: summary) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleSeatTermination(reasonCode: reasonCode, summary: summary)
+            }
         }
         bundle.onSeatTerminationTimer = { [weak self] code, payload in
-            Task { await self?.handleSeatTerminationTimer(code: code, payload: payload) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleSeatTerminationTimer(code: code, payload: payload)
+            }
         }
         bundle.onRemoteAudio = { [weak self] count in
             logger?("NVST bundle seat offered \(count) audio track(s)")
-            Task { await self?.noteRemoteAudio(trackCount: count) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.noteRemoteAudio(trackCount: count)
+            }
         }
         bundle.onHidChangeResponse = { [weak self] deviceId, status in
-            Task { await self?.handleHidChangeResponse(deviceId: deviceId, status: status) }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.handleHidChangeResponse(deviceId: deviceId, status: status)
+            }
         }
 
         let recorder = self.recorder
@@ -245,11 +277,22 @@ extension NVSTCoreTransport {
             coOpAudioRelay.renderAudioFrame(audioBufferList: audioBufferList, frameCount: frameCount, sampleRate: sampleRate, channels: channels)
         }
         bundle.onPartiallyReliableControlOpen = { [weak self] in
-            Task { await self?.startQosFeedback() }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.startQosFeedback()
+            }
         }
         bundle.onControlChannelOpen = { [weak self] in
+            // startControlKeepAlive gets its own Task so it is not serialised behind
+            // announceClientState / requestInitialKeyframe / activateInputIfNegotiated.
+            // The seat starts its 10 s client-timeout the moment the SCTP association is
+            // up; the first pingBackAck must leave before any of the other setup awaits.
             Task {
+                guard await self?.bundleGeneration == generation else { return }
                 await self?.startControlKeepAlive()
+            }
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
                 await self?.announceClientState()
                 if self?.configuredL4SEnabled == true {
                     try? await self?.setL4SEnabled(true)
@@ -262,8 +305,8 @@ extension NVSTCoreTransport {
             logger?("NVST feedback channel open; starting receiver reports")
             sender.start()
             Task {
+                guard await self?.bundleGeneration == generation else { return }
                 await self?.adoptFeedbackSender(sender)
-
                 await self?.beginVideoHolePunch()
             }
         }
