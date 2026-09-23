@@ -240,6 +240,7 @@ public actor NativeNVSTStreamingPath {
     private var recoveryWindowStartedAt: ContinuousClock.Instant?
 
     private var isRecovering = false
+    private var recoveryCancelledBySeat = false
     private var reportContinuations: [UUID: AsyncStream<StreamReport>.Continuation] = [:]
 
     public static let maximumRecoveryAttempts = 4
@@ -640,7 +641,16 @@ extension NativeNVSTStreamingPath {
     private func handleTransportTermination(_ termination: NativeNVSTTransportTermination) async {
         guard let activeSession else { return }
 
-        guard !isRecovering else { return }
+        if isRecovering {
+            // A seat-initiated termination during recovery means the seat has definitively ended
+            // the session; no amount of retrying will reconnect.  Signal the recovery loop to
+            // abort and fall through to the normal end path.  Client-side transportFailed events
+            // are suppressed because they may be transient and the next attempt might succeed.
+            if case .sessionTerminated = termination {
+                recoveryCancelledBySeat = true
+            }
+            return
+        }
         terminalTask = nil
         if automaticRecovery == .singleAttempt, NativeNVSTRecoveryPolicy.permitsRecovery(termination), activeAllocation != nil, launchConfiguration != nil {
             let reason: String = switch termination {
@@ -694,7 +704,11 @@ extension NativeNVSTStreamingPath {
     public func recoverInPlace(reason: String) async -> Bool {
         guard canRecoverInPlace(), let session = activeSession, let configuration = launchConfiguration else { return false }
         isRecovering = true
-        defer { isRecovering = false }
+        recoveryCancelledBySeat = false
+        defer {
+            isRecovering = false
+            recoveryCancelledBySeat = false
+        }
 
         // Soft Recovery Phase
         NativeNVSTMediaTelemetry.capture("nvst.path.recovery.soft", level: .info, message: "Requesting in-stream soft recovery.", attributes: ["sessionId": session.id, "reason": reason])
@@ -703,6 +717,10 @@ extension NativeNVSTStreamingPath {
 
         try? await Task.sleep(for: .seconds(2))
         await transport.sendRecoveryMode(enabled: false)
+        if recoveryCancelledBySeat {
+            NativeNVSTMediaTelemetry.capture("nvst.path.recovery.aborted", level: .info, message: "Recovery aborted: seat terminated the session during soft recovery.", attributes: ["sessionId": session.id])
+            return false
+        }
         let softRecoverySnapshot = await transport.performanceSnapshot()
         if let softRecoverySnapshot,
            softRecoverySnapshot.decodedFrameCount > baselineDecodedFrameCount {
@@ -719,6 +737,10 @@ extension NativeNVSTStreamingPath {
         }
         if recoveryWindowStartedAt == nil { recoveryWindowStartedAt = .now }
         while recoveryAttempts < Self.maximumRecoveryAttempts {
+            if recoveryCancelledBySeat {
+                NativeNVSTMediaTelemetry.capture("nvst.path.recovery.aborted", level: .info, message: "Recovery aborted: seat terminated the session.", attributes: ["sessionId": session.id])
+                return false
+            }
             let attempt = recoveryAttempts
             recoveryAttempts += 1
             let delay = Self.recoveryAttemptDelays[min(attempt, Self.recoveryAttemptDelays.count - 1)]
