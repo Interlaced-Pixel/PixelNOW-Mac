@@ -160,6 +160,8 @@ final class RecordingEditorViewModel: ObservableObject {
     @Published private(set) var exportProgress = 0.0
     @Published var errorMessage: String?
 
+    private var activeExportSession: AVAssetExportSession?
+
     private var undoStack: [RecordingEditorSnapshot] = []
     private var redoStack: [RecordingEditorSnapshot] = []
 
@@ -194,6 +196,10 @@ final class RecordingEditorViewModel: ObservableObject {
     var canRedo: Bool { !redoStack.isEmpty }
     var canExport: Bool { !isExporting && !segments.isEmpty && outputDurationSeconds > 0.05 }
     var canJoinSelectedSection: Bool { joinablePairContainingSelectedSegment() != nil }
+    var canCutMarkedRange: Bool {
+        guard let markInSeconds, let markOutSeconds else { return false }
+        return abs(markOutSeconds - markInSeconds) > 0.05
+    }
     var previewSignature: String {
         let segmentSignature = segments
             .map { segment in
@@ -515,6 +521,11 @@ final class RecordingEditorViewModel: ObservableObject {
         )
     }
 
+    func cancelExport() {
+        activeExportSession?.cancelExport()
+        activeExportSession = nil
+    }
+
     func export() async throws -> WebRTCStreamRecording {
         guard !isExporting else { throw WebRTCStreamRecordingEditorError.exportFailed("An export is already running.") }
         isExporting = true
@@ -522,15 +533,27 @@ final class RecordingEditorViewModel: ObservableObject {
         errorMessage = nil
         do {
             let request = request()
-            let recording = try await WebRTCStreamRecordingLibrary.exportEditedRecording(request) { [weak self] progress in
-                self?.exportProgress = progress
-            }
+            let recording = try await WebRTCStreamRecordingLibrary.exportEditedRecording(
+                request,
+                sessionHandler: { [weak self] session in
+                    self?.activeExportSession = session
+                },
+                progressHandler: { [weak self] progress in
+                    self?.exportProgress = progress
+                }
+            )
+            activeExportSession = nil
             isExporting = false
             exportProgress = 1
             return recording
         } catch {
+            activeExportSession = nil
             isExporting = false
-            errorMessage = error.localizedDescription
+            if case WebRTCStreamRecordingEditorError.exportCancelled = error {
+                exportProgress = 0
+            } else {
+                errorMessage = error.localizedDescription
+            }
             throw error
         }
     }

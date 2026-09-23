@@ -47,20 +47,11 @@ struct RecordingEditorView: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 7) {
-                    Text("QUICK EDIT")
-                        .font(.recordingsNvidia(size: 10, weight: .bold))
-                        .tracking(1.4)
-                        .foregroundStyle(Color.pixelNowGreen)
-                    Text("EARLY BETA")
-                        .font(.recordingsNvidia(size: 8, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(.black.opacity(0.86))
-                        .padding(.horizontal, 6)
-                        .frame(height: 16)
-                        .background(Color.pixelNowGreen)
-                }
-                Text("Drag the blue handles to trim. Drag across the timeline to select a cut.")
+                Text("RECORDING EDITOR")
+                    .font(.recordingsNvidia(size: 10, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(Color.pixelNowGreen)
+                Text("Drag the green handles to trim. Drag across the timeline to mark a range.")
                     .font(.recordingsNvidia(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
                     .lineLimit(1)
@@ -131,7 +122,7 @@ struct RecordingEditorView: View {
             quickButton("Join", systemImage: "link", isDisabled: !viewModel.canJoinSelectedSection) { viewModel.joinSelectedSection() }
             quickButton("Set In", systemImage: "bracket.left") { applyAtSourcePlayhead(viewModel.markIn) }
             quickButton("Set Out", systemImage: "bracket.right") { applyAtSourcePlayhead(viewModel.markOut) }
-            quickButton("Remove Selection", systemImage: "trash") { viewModel.cutMarkedRange() }
+            quickButton("Remove Selection", systemImage: "trash", isDisabled: !viewModel.canCutMarkedRange) { viewModel.cutMarkedRange() }
             Spacer(minLength: 0)
             Button("Reset") { viewModel.resetEdits() }
                 .disabled(viewModel.isExporting)
@@ -177,16 +168,22 @@ struct RecordingEditorView: View {
                 }
             }
             editorPanel(title: "Add Clip") {
-                Menu {
-                    ForEach(viewModel.library) { recording in
-                        Button("\(recording.title) · \(recordingEditorDurationText(recording.durationSeconds))") {
-                            viewModel.appendRecording(recording)
+                if viewModel.library.isEmpty {
+                    Text("No other recordings in library.")
+                        .font(.recordingsNvidia(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.40))
+                } else {
+                    Menu {
+                        ForEach(viewModel.library) { recording in
+                            Button("\(recording.title) · \(recordingEditorDurationText(recording.durationSeconds))") {
+                                viewModel.appendRecording(recording)
+                            }
                         }
+                    } label: {
+                        menuLabel("Append Recording", systemImage: "plus.rectangle.on.rectangle")
                     }
-                } label: {
-                    menuLabel("Append Recording", systemImage: "plus.rectangle.on.rectangle")
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -203,10 +200,10 @@ struct RecordingEditorView: View {
                     .toggleStyle(.checkbox)
                     .font(.recordingsNvidia(size: 11, weight: .medium))
                 if viewModel.cropEnabled {
-                    compactSlider("X", value: $viewModel.cropX, range: 0...max(0, 1 - viewModel.cropWidth))
-                    compactSlider("Y", value: $viewModel.cropY, range: 0...max(0, 1 - viewModel.cropHeight))
-                    compactSlider("W", value: $viewModel.cropWidth, range: 0.1...max(0.1, 1 - viewModel.cropX))
-                    compactSlider("H", value: $viewModel.cropHeight, range: 0.1...max(0.1, 1 - viewModel.cropY))
+                    compactSlider("X", value: $viewModel.cropX, range: 0...max(0, 1 - viewModel.cropWidth), valueText: String(format: "%.0f%%", viewModel.cropX * 100))
+                    compactSlider("Y", value: $viewModel.cropY, range: 0...max(0, 1 - viewModel.cropHeight), valueText: String(format: "%.0f%%", viewModel.cropY * 100))
+                    compactSlider("W", value: $viewModel.cropWidth, range: 0.1...max(0.1, 1 - viewModel.cropX), valueText: String(format: "%.0f%%", viewModel.cropWidth * 100))
+                    compactSlider("H", value: $viewModel.cropHeight, range: 0.1...max(0.1, 1 - viewModel.cropY), valueText: String(format: "%.0f%%", viewModel.cropHeight * 100))
                 }
             }
             editorPanel(title: "Orientation") {
@@ -223,17 +220,17 @@ struct RecordingEditorView: View {
     private var audioPanel: some View {
         HStack(alignment: .top, spacing: 10) {
             editorPanel(title: "Playback") {
-                compactSlider("Speed \(String(format: "%.2fx", viewModel.playbackRate))", value: $viewModel.playbackRate, range: 0.25...4)
+                compactSlider("Speed", value: $viewModel.playbackRate, range: 0.25...4, valueText: String(format: "%.2fx", viewModel.playbackRate))
             }
             editorPanel(title: "Audio") {
                 Toggle("Mute audio", isOn: $viewModel.isMuted)
                     .toggleStyle(.checkbox)
                     .font(.recordingsNvidia(size: 11, weight: .medium))
-                compactSlider("Volume \(Int(viewModel.volume * 100))%", value: $viewModel.volume, range: 0...2)
+                compactSlider("Volume", value: $viewModel.volume, range: 0...2, valueText: "\(Int(viewModel.volume * 100))%")
                     .disabled(viewModel.isMuted)
-                compactSlider("Fade In", value: $viewModel.fadeInSeconds, range: 0...10)
+                compactSlider("Fade In", value: $viewModel.fadeInSeconds, range: 0...10, valueText: String(format: "%.1fs", viewModel.fadeInSeconds))
                     .disabled(viewModel.isMuted)
-                compactSlider("Fade Out", value: $viewModel.fadeOutSeconds, range: 0...10)
+                compactSlider("Fade Out", value: $viewModel.fadeOutSeconds, range: 0...10, valueText: String(format: "%.1fs", viewModel.fadeOutSeconds))
                     .disabled(viewModel.isMuted)
             }
         }
@@ -266,6 +263,7 @@ struct RecordingEditorView: View {
                     .font(.recordingsNvidia(size: 11, weight: .bold))
                     .foregroundStyle(.white.opacity(0.68))
                 Button("Cancel Export") {
+                    viewModel.cancelExport()
                     exportTask?.cancel()
                     exportTask = nil
                 }
@@ -319,6 +317,7 @@ struct RecordingEditorView: View {
     }
 
     private func startExport() {
+        viewModel.errorMessage = nil
         exportTask = Task {
             do {
                 let recording = try await viewModel.export()
@@ -326,7 +325,6 @@ struct RecordingEditorView: View {
                 onSaved(recording)
             } catch {
                 exportTask = nil
-                viewModel.errorMessage = error.localizedDescription
             }
         }
     }
@@ -345,14 +343,22 @@ struct RecordingEditorView: View {
         .overlay { Rectangle().stroke(Color.white.opacity(0.10), lineWidth: 1) }
     }
 
-    private func compactSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+    private func compactSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, valueText: String? = nil) -> some View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.recordingsNvidia(size: 10, weight: .medium))
                 .foregroundStyle(.white.opacity(0.62))
-                .frame(width: 82, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
+                .lineLimit(1)
             Slider(value: value, in: range)
                 .tint(Color.pixelNowGreen)
+            if let valueText {
+                Text(valueText)
+                    .font(.recordingsNvidia(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(width: 52, alignment: .trailing)
+                    .lineLimit(1)
+            }
         }
     }
 
