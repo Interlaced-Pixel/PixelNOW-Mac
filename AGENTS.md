@@ -110,7 +110,7 @@ Every commit message must follow this exact structure:
 
 # Release Process
 When instructed to create a new GitHub release, strictly follow these steps in order:
-1. **Update Version:** Bump the version using `agvtool new-marketing-version <version>` and `agvtool new-version -all <build>`.
+1. **Update Version:** Increment the marketing version by 1 (e.g., 1.74 → 1.75) and build number by 1 (e.g., 74 → 75) using `agvtool new-marketing-version <new_version>` followed by `agvtool new-version -all <new_build_number>`.
 2. **Commit & Push:** Commit all outstanding changes (including the version bump) and push to the remote repository.
 3. **Write Patch Notes:** Create a text file containing the patch notes for the release (e.g., `patch_notes.txt`).
 4. **Compile:** Compile the release configuration of the app using `xcodebuild -scheme PixelNOW -project PixelNOW.xcodeproj -configuration Release clean build`.
