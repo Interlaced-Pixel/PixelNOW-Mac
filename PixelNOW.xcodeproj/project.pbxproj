@@ -10,6 +10,7 @@
 		7729CE862FDEDAB500D5C9D5 /* WebRTC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */; };
 		7729CE882FDEDAB500D5C9D5 /* WebRTC.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		7729CE912FE1000000D5C9D5 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE922FE1000000D5C9D5 /* AppIntents.framework */; };
+		775F5A063063A59700AEE9B2 /* .env in Resources */ = {isa = PBXBuildFile; fileRef = 775F5A053063A59700AEE9B2 /* .env */; };
 		A00000000000000000000001 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* Resources */; };
 		A00000000000000000000003 /* PixelNOWApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* PixelNOWApp.swift */; };
 		A00000000000000000000401 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000403 /* Sentry */; };
@@ -33,6 +34,7 @@
 		7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PixelNOW.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = WebRTC.framework; sourceTree = "<group>"; };
 		7729CE922FE1000000D5C9D5 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
+		775F5A053063A59700AEE9B2 /* .env */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env; sourceTree = "<group>"; };
 		A00000000000000000000002 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = "<group>"; };
 		A00000000000000000000004 /* PixelNOWApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelNOWApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -82,6 +84,7 @@
 		7729CE6D2FDEDAB300D5C9D5 = {
 			isa = PBXGroup;
 			children = (
+				775F5A053063A59700AEE9B2 /* .env */,
 				B00000000000000000000101 /* Model */,
 				B00000000000000000000102 /* View */,
 				B00000000000000000000110 /* ViewModel */,
@@ -176,6 +179,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				775F5A063063A59700AEE9B2 /* .env in Resources */,
 				A00000000000000000000001 /* Resources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
