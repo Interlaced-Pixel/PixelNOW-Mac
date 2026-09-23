@@ -316,8 +316,9 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
     }
 
     private func claimSession(configuration: PreparedLaunchConfiguration, settings: [String: Any]) async throws -> AllocatedStreamSession {
-        try await withCheckedThrowingContinuation { continuation in
-            SessionManager.shared.claimSession(sessionId: configuration.resumeSessionID, serverIp: configuration.resumeServer, appId: configuration.applicationID, settings: settings, recoveryMode: false) { success, info, error in
+        let isResume = !configuration.resumeSessionID.isEmpty
+        return try await withCheckedThrowingContinuation { continuation in
+            SessionManager.shared.claimSession(sessionId: configuration.resumeSessionID, serverIp: configuration.resumeServer, appId: configuration.applicationID, settings: settings, recoveryMode: isResume) { success, info, error in
                 if success {
                     continuation.resume(returning: AllocatedStreamSession(info))
                 } else {
