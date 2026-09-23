@@ -225,7 +225,7 @@ public final class NVSTCoreVideoRenderer {
                                     pillarboxFillDim: Int,
                                     pillarboxFillColor: Int) {
         videoView.configureEnhancement(sharpness: sharpness, denoise: denoise)
-        setMetalFXEnabled(mode == 3)
+        setMetalFXEnabled(mode == StreamPreferences.upscalingModeValueMetalFX)
     }
 
     func writeOffscreenRenderSnapshot(to url: URL) -> CGSize? {

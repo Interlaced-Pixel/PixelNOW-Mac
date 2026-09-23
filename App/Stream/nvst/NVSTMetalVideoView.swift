@@ -250,13 +250,11 @@ final class NVSTPixelBufferHolder: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer: CVPixelBuffer?
     private var time: CMTime = .invalid
-    private var hasNew = false
 
     func set(_ pixelBuffer: CVPixelBuffer, time: CMTime) {
         lock.lock()
         buffer = pixelBuffer
         self.time = time
-        hasNew = true
         lock.unlock()
     }
 
@@ -267,19 +265,10 @@ final class NVSTPixelBufferHolder: @unchecked Sendable {
         return (buffer, time)
     }
 
-    func consumeIfNew() -> (CVPixelBuffer, CMTime)? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard hasNew, let buffer else { return nil }
-        hasNew = false
-        return (buffer, time)
-    }
-
     func clear() {
         lock.lock()
         buffer = nil
         time = .invalid
-        hasNew = false
         lock.unlock()
     }
 }
@@ -303,9 +292,12 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
     public var isMetalFXEnabled = false {
         didSet {
-            if !isMetalFXEnabled && metalFXState != .disabled {
+            guard isMetalFXEnabled != oldValue else { return }
+            if !isMetalFXEnabled {
                 updateMetalFXState(.disabled)
             }
+            // Transitioning to enabled: active/standby state is resolved on the
+            // next draw(in:) invocation so diagnostics update with real dimensions.
         }
     }
     public private(set) var metalFXState: NVSTMetalFXState = .disabled
@@ -344,7 +336,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             metalLayer.presentsWithTransaction = false
             metalLayer.allowsNextDrawableTimeout = false
             if #available(macOS 10.13, *) {
-                metalLayer.maximumDrawableCount = 3
+                metalLayer.maximumDrawableCount = 2
             }
         }
 
@@ -416,7 +408,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         guard width > 0, height > 0 else { return nil }
         if enhancedPixelBufferPool == nil || enhancedPixelBufferPoolWidth != width || enhancedPixelBufferPoolHeight != height {
             let poolAttributes: [String: Any] = [
-                kCVPixelBufferPoolMinimumBufferCountKey as String: 3
+                kCVPixelBufferPoolMinimumBufferCountKey as String: 2
             ]
             let pixelBufferAttributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -519,7 +511,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             lastDrawLogTime = now
         }
 
-        let image = enhancedImage(CIImage(cvPixelBuffer: pixelBuffer))
+        let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
         let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
         let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
         let outputWidth = currentDrawable.texture.width
@@ -527,7 +519,8 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
         guard sourceWidth > 0, sourceHeight > 0, outputWidth > 0, outputHeight > 0 else { return }
 
-        let isScalingUp = outputWidth >= sourceWidth && outputHeight >= sourceHeight && (outputWidth > sourceWidth || outputHeight > sourceHeight)
+        let isScalingUp = outputWidth >= sourceWidth && outputHeight >= sourceHeight
+            && (outputWidth > sourceWidth || outputHeight > sourceHeight)
         let shouldUpscale = isMetalFXEnabled && upscaler.isAvailable && isScalingUp
 
         if shouldUpscale,
@@ -547,7 +540,8 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                usage: [.shaderRead, .shaderWrite, .renderTarget],
                label: "NVSTMetalVideoView Output"
            ) {
-            let flippedImage = image
+            let filteredImage = enhancedImage(sourceImage)
+            let flippedImage = filteredImage
                 .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
                 .transformed(by: CGAffineTransform(translationX: 0, y: CGFloat(sourceHeight)))
             ciContext.render(
@@ -610,27 +604,34 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             }
         }
 
-        let bounds = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
+        // Fallback / disabled / standby render path.
+        // When MetalFX is in standby (enabled but same dimensions), skip the
+        // enhancement filters — they add GPU work with no upscaling benefit.
+        let isStandby = isMetalFXEnabled && !shouldUpscale
+        let renderImage = isStandby ? sourceImage : enhancedImage(sourceImage)
+        let renderBounds = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
         let scaleX = CGFloat(outputWidth) / CGFloat(sourceWidth)
         let scaleY = CGFloat(outputHeight) / CGFloat(sourceHeight)
-        let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-        ciContext.render(scaledImage, to: currentDrawable.texture, commandBuffer: commandBuffer, bounds: bounds, colorSpace: colorSpace)
+        let scaledImage = (scaleX == 1.0 && scaleY == 1.0)
+            ? renderImage
+            : renderImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        ciContext.render(scaledImage, to: currentDrawable.texture, commandBuffer: commandBuffer, bounds: renderBounds, colorSpace: colorSpace)
         commandBuffer.present(currentDrawable)
         commandBuffer.commit()
     }
 
     private func enhancedImage(_ image: CIImage) -> CIImage {
-        guard isMetalFXEnabled else { return image }
+        guard enhancementSharpness > 0 || enhancementDenoise > 0 else { return image }
         var result = image
         if enhancementDenoise > 0, let filter = CIFilter(name: "CINoiseReduction") {
             filter.setValue(result, forKey: kCIInputImageKey)
-            filter.setValue(Float(enhancementDenoise) / 20 * 0.04, forKey: "inputNoiseLevel")
-            filter.setValue(Float(1 - enhancementDenoise / 20) * 0.5, forKey: "inputSharpness")
+            filter.setValue(Float(enhancementDenoise) / 20.0 * 0.04, forKey: "inputNoiseLevel")
+            filter.setValue((1.0 - Float(enhancementDenoise) / 20.0) * 0.5, forKey: "inputSharpness")
             if let output = filter.outputImage { result = output }
         }
         if enhancementSharpness > 0, let filter = CIFilter(name: "CISharpenLuminance") {
             filter.setValue(result, forKey: kCIInputImageKey)
-            filter.setValue(Float(enhancementSharpness) / 15 * 0.4, forKey: "inputSharpness")
+            filter.setValue(Float(enhancementSharpness) / 15.0 * 0.4, forKey: "inputSharpness")
             if let output = filter.outputImage { result = output }
         }
         return result
