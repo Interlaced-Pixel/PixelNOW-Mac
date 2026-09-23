@@ -535,8 +535,8 @@ final class RecordingEditorViewModel: ObservableObject {
             let request = request()
             let recording = try await WebRTCStreamRecordingLibrary.exportEditedRecording(
                 request,
-                sessionHandler: { [weak self] session in
-                    self?.activeExportSession = session
+                sessionHandler: { [weak self] sessionBox in
+                    self?.activeExportSession = sessionBox.session
                 },
                 progressHandler: { [weak self] progress in
                     self?.exportProgress = progress

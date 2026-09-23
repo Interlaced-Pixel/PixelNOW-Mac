@@ -169,7 +169,7 @@ private struct WebRTCStreamRecordingTimelineBuildResult {
     let renderSize: CGSize
 }
 
-private final class WebRTCStreamRecordingExportSessionBox: @unchecked Sendable {
+public final class WebRTCStreamRecordingExportSessionBox: @unchecked Sendable {
     let session: AVAssetExportSession
 
     init(session: AVAssetExportSession) {
@@ -195,7 +195,7 @@ public extension WebRTCStreamRecordingLibrary {
         )
     }
 
-    static func exportEditedRecording(_ request: WebRTCStreamRecordingEditRequest, sessionHandler: (@MainActor @Sendable (AVAssetExportSession) -> Void)? = nil, progressHandler: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> WebRTCStreamRecording {
+    static func exportEditedRecording(_ request: WebRTCStreamRecordingEditRequest, sessionHandler: (@MainActor (WebRTCStreamRecordingExportSessionBox) -> Void)? = nil, progressHandler: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> WebRTCStreamRecording {
         let normalizedRequest = try validate(request)
         let outputID = UUID()
         let outputDirectory = try ensureDirectory(forGameTitle: normalizedRequest.title)
@@ -215,7 +215,8 @@ public extension WebRTCStreamRecordingLibrary {
             if needsVideoComposition(normalizedRequest, loadedSegments: loadedSegments) {
                 exportSession.videoComposition = try await videoComposition(for: build.composition, request: normalizedRequest, renderSize: build.renderSize)
             }
-            await sessionHandler?(exportSession)
+            let sessionBox = WebRTCStreamRecordingExportSessionBox(session: exportSession)
+            await sessionHandler?(sessionBox)
             await progressHandler?(0)
             try await runExportSession(exportSession, outputURL: outputURL, outputFileType: outputFileType, progressHandler: progressHandler)
             await progressHandler?(1)
