@@ -112,22 +112,24 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     /// otherwise sit above the threshold permanently and skip to a keyframe over and over, turning
     /// steady lag into a stutter loop — worse to play than the lag it was meant to remove.
     public static let minimumResyncInterval = 2.0
-    /// Consecutive over-threshold frames before the pipeline is declared behind — about 250 ms at
+    /// Consecutive over-threshold frames before the pipeline is declared behind — about 125 ms at
     /// 120 fps.
     ///
     /// Queue depth alone is the wrong trigger: a burst of a dozen frames arrives normally, right
     /// after a keyframe, and drains in milliseconds. Acting on one such burst cost a measured
     /// session 1,937 failed decodes against 4,427 good ones, because the resync broke the reference
     /// chain for a transient that would have cleared itself. Only a backlog that persists is a
-    /// pipeline that cannot keep up.
-    public static let sustainedBacklogFrames = 30
-    /// How long to keep skipping while waiting for the keyframe, re-asking as it goes. Resuming on
-    /// a broken chain rejects every frame until the next keyframe arrives — at the seat's own
-    /// keyframe cadence that can be many seconds — so this waits considerably longer than it did
-    /// before giving up.
-    public static let maximumKeyframeWait = 2.0
-    /// How often to re-ask for the keyframe while waiting.
-    public static let keyframeRetryInterval = 0.4
+    /// pipeline that cannot keep up. Reduced from 30 to 15: the lower threshold catches decode
+    /// saturation ~2× faster while still clearing transient keyframe bursts that drain in < 10
+    /// frames at any real stream rate.
+    public static let sustainedBacklogFrames = 15
+    /// How long to keep skipping while waiting for the keyframe, re-asking as it goes. Reduced
+    /// from 2.0 s to 1.0 s: the seat answers IDR requests in < 100 ms under normal conditions;
+    /// 1.0 s still covers a heavily-loaded seat while halving the worst-case freeze window.
+    public static let maximumKeyframeWait = 1.0
+    /// How often to re-ask for the keyframe while waiting. Reduced from 0.4 s to 0.2 s so a
+    /// dropped IDR request is retried within two frame intervals at 60 fps instead of four.
+    public static let keyframeRetryInterval = 0.2
 
     let decoder: NvstVideoToolboxDecoder
     private let clock: NvstSessionClock
@@ -449,9 +451,14 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         // What we can actually measure: how long this frame spent between leaving the reassembler
         // and finishing decode. The capture's five marks are a rising series from one frame origin,
         // so a single measured latency repeated across them is the honest reading of it.
-        let pacedInterFrame = min(measuredInterFrame, frameTimeMicroseconds)
+        //
+        // Both pacedInterFrame and ackLatency were previously clamped to at most one frame interval
+        // (frameTimeMicroseconds / 1000 ms). That cap hid genuine overruns from the seat's dynamic
+        // frame controller: a 2× overrun looked identical to a 1× one. Sending the raw measured
+        // values lets the pacer react proportionally to real decode pressure.
+        let pacedInterFrame = measuredInterFrame
         let latencyMilliseconds = Float(timings.hop + timings.decode)
-        let ackLatency = min(latencyMilliseconds, Float(frameTimeMicroseconds) / 1000.0)
+        let ackLatency = latencyMilliseconds
         let ack = NvstFrameAck(
             frameNumber: frameAckNumber,
             // Session-relative, not epoch. Only the delta matters to the pacer, and the remote-input
@@ -480,17 +487,17 @@ public final class NvstVideoPipeline: @unchecked Sendable {
             // and 31–71 Mbps with either value (84–107 and 31–67 the run before). The seat's
             // frame controller is not steering off this field; the plateau is seat-side.
             let clientMicroseconds = Int((timings.hop + timings.decode) * 1000)
-            let pacedMeasuredMicroseconds = min(UInt32(clamping: clientMicroseconds), frameTimeMicroseconds)
+            let measuredMicroseconds = UInt32(clamping: clientMicroseconds)
             let pacing = NvstFramePacingReport(
                 frameNumber: frameAckNumber,
                 targetFrameTimeMicroseconds: frameTimeMicroseconds,
-                measuredFrameTimeMicroseconds: pacedMeasuredMicroseconds,
+                measuredFrameTimeMicroseconds: measuredMicroseconds,
                 displayVsyncMicroseconds: displayVsyncMicroseconds,
                 groupCount: UInt32(clamping: framesSincePacingReport)
             )
             framesSincePacingReport = 0
             if bundle.sendPartiallyReliableControl(pacing.command) { pacingSent = 1 } else { pacingFailed = 1 }
-            logFeedbackSample(interFrame: measuredInterFrame, measuredFrameTimeMicroseconds: Int(pacedMeasuredMicroseconds),
+            logFeedbackSample(interFrame: measuredInterFrame, measuredFrameTimeMicroseconds: Int(measuredMicroseconds),
                               clientMicroseconds: clientMicroseconds, hopMs: timings.hop, decodeMs: timings.decode)
         }
         let acked = bundle.sendPartiallyReliableControl(ack.command)
