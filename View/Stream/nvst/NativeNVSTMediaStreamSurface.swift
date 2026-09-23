@@ -500,6 +500,8 @@ struct NativeNVSTMediaStreamSurface: View {
             configuredColorQuality: resolved.colorQuality,
             configuredGameVolume: resolved.gameVolume,
             configuredL4SEnabled: resolved.enableL4S,
+            configuredLeftStickDeadzone: Float(resolved.leftStickDeadzone),
+            configuredRightStickDeadzone: Float(resolved.rightStickDeadzone),
             logger: { message in
                 NativeNVSTMediaTelemetry.capture("nvst.core", level: .info, message: message)
                 diagnosticLog.append(message)
@@ -1295,7 +1297,8 @@ struct NativeNVSTMediaStreamSurface: View {
                 if let snapshot, snapshot.available, isConnected, !isEnding, !didEnd {
                     latestNativeStats = snapshot
                     recordNativeNetworkTelemetry(snapshot)
-                    let adjustments = networkGovernor?.evaluate(snapshot) ?? []
+                    let decodeBudgetOver = NativeNVSTDecodeBudget.level(for: snapshot) == .over
+                    let adjustments = networkGovernor?.evaluate(snapshot, decodeBudgetOver: decodeBudgetOver) ?? []
                     for adjustment in adjustments { await applyNativeNetworkAdjustment(adjustment, path: path) }
                 }
                 if isConnected, !isEnding, !didEnd,
