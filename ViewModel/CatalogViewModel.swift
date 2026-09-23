@@ -323,25 +323,22 @@ final class CatalogViewModel: ObservableObject {
     }
 
     var catalogSections: [CatalogSectionModel] {
-        if selectedCatalogDestination == .library, !isBrowseMode {
-            return libraryGames.isEmpty ? [] : [CatalogSectionModel(id: "my-library", title: "My Library", games: libraryGames, kind: .library)]
-        }
-        if selectedCatalogDestination == .home, !isBrowseMode {
-            let games = favoriteGames.isEmpty ? featuredGames : favoriteGames
-            let title = favoriteGames.isEmpty ? "Featured Games" : "My Favorites"
-            return games.isEmpty ? [] : [CatalogSectionModel(id: "home-games", title: title, games: games, kind: .panel)]
+        if isBrowseMode && !catalogGames.isEmpty {
+            return [CatalogSectionModel(id: "catalog-results", title: "Search Results", games: catalogGames, kind: .catalog)]
         }
 
-        if isBrowseMode, !catalogGames.isEmpty {
-            return [CatalogSectionModel(id: "catalog-results", title: "Search Results", games: catalogGames, kind: .catalog)]
+        let homeGames = favoriteGames.isEmpty ? featuredGames : favoriteGames
+        let title = favoriteGames.isEmpty ? "Featured Games" : "My Favorites"
+        if !homeGames.isEmpty {
+            return [CatalogSectionModel(id: "home-games", title: title, games: homeGames, kind: .panel)]
         }
 
         var sections: [CatalogSectionModel] = []
         var seenTitles = Set<String>()
         for panel in mainPanels {
             for section in panel.sections where !section.games.isEmpty {
-                let title = section.title.isEmpty ? panel.title : section.title
-                let resolvedTitle = title.isEmpty ? "Featured Games" : title
+                let sectionTitle = section.title.isEmpty ? panel.title : section.title
+                let resolvedTitle = sectionTitle.isEmpty ? "Featured Games" : sectionTitle
                 guard !seenTitles.contains(resolvedTitle) else { continue }
                 seenTitles.insert(resolvedTitle)
                 let sectionId = section.sectionIdentity(fallbackPanelId: panel.id)
@@ -1193,11 +1190,6 @@ final class CatalogViewModel: ObservableObject {
                 }
             }
         } else {
-            if favoriteGames.count >= Self.maxFavoritesLimit {
-                favoriteReplacementCandidate = selectedGame
-                return
-            }
-
             favoriteGameIdentities.insert(identity)
             updateGameFavoriteState(identity: identity, isFavorited: true)
             let favoriteSnapshot = Self.snapshotObject(for: selectedGame)
@@ -2082,9 +2074,6 @@ final class CatalogViewModel: ObservableObject {
             guard !identity.isEmpty, identities.insert(identity).inserted else { continue }
             game.isFavorited = true
             uniqueGames.append(game)
-            if uniqueGames.count >= Self.maxFavoritesLimit {
-                break
-            }
         }
         favoriteGames = uniqueGames
         favoriteGameIdentities = identities

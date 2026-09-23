@@ -47,33 +47,52 @@ struct LibraryGridView: View {
         let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                HStack(spacing: 16) {
-                    HStack {
+                HStack(spacing: 12) {
+                    HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         TextField("Search all games...", text: $searchQuery)
                             .textFieldStyle(.plain)
-                            .onChange(of: searchQuery) { _, newQuery in
-                                let trimmed = newQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if viewModel.searchQuery != trimmed {
-                                    viewModel.searchQuery = trimmed
-                                }
+                        if !searchQuery.isEmpty {
+                            Button {
+                                searchQuery = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
                             }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .padding(8)
-                    .background(Color.black.opacity(0.3))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.white.opacity(0.07))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .frame(maxWidth: 300)
+                    .frame(maxWidth: 320)
+
+                    if !displayedGames.isEmpty {
+                        Text(displayedGames.count == 1 ? "1 game" : "\(displayedGames.count) games")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Spacer()
 
-                    Picker("Sort By", selection: $sortOption) {
-                        ForEach(LibrarySortOption.allCases) { option in
-                            Text(option.rawValue).tag(option)
+                    HStack(spacing: 4) {
+                        Text("Sort By")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: $sortOption) {
+                            ForEach(LibrarySortOption.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .frame(minWidth: 155)
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 175)
                 }
                 .padding(.horizontal, 40)
                 .padding(.top, 90)
@@ -454,12 +473,17 @@ private struct LibrarySidePanel: View {
                 }
             }
         } else {
-            VStack {
+            VStack(spacing: 12) {
                 Spacer()
-                Text("Select a game to view details")
+                Image(systemName: "gamecontroller")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(.white.opacity(0.25))
+                Text("Select a Game")
                     .font(.headline)
                     .foregroundStyle(.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, alignment: .center)
+                Text("Click any title to view details")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.3))
                 Spacer()
             }
             .padding(.top, 80)
@@ -821,8 +845,13 @@ private struct LibrarySidePanel: View {
     }
 
     private func storeIconName(for lower: String) -> String {
-        if lower.contains("steam") { return "gamecontroller.fill" }
-        if lower.contains("xbox") { return "gamecontroller" }
+        if lower.contains("steam") { return "flame.fill" }
+        if lower.contains("xbox") || lower.contains("msstore") || lower.contains("microsoft") { return "gamecontroller" }
+        if lower.contains("epic") { return "bolt.fill" }
+        if lower.contains("ea") || lower.contains("origin") { return "sportscourt.fill" }
+        if lower.contains("gog") { return "star.fill" }
+        if lower.contains("battle") || lower.contains("bnet") { return "shield.fill" }
+        if lower.contains("ubisoft") || lower.contains("uplay") { return "u.circle.fill" }
         return "cart.fill"
     }
 
@@ -969,11 +998,11 @@ private struct SidePanelSectionHeader: View {
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.white.opacity(0.6))
             Text(title.uppercased())
                 .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(0.45))
-                .tracking(0.5)
+                .foregroundStyle(.white.opacity(0.6))
+                .tracking(0.8)
         }
     }
 }
@@ -999,6 +1028,10 @@ private struct SidePanelChip: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(tintColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(foregroundColor.opacity(0.2), lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }

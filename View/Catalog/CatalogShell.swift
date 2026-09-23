@@ -62,15 +62,6 @@ struct CatalogShell: View {
                     onForget: onForget
                 )
             }
-            .overlay {
-                if let candidate = viewModel.favoriteReplacementCandidate {
-                    FavoriteLimitReplacementOverlay(
-                        viewModel: viewModel,
-                        candidateGame: candidate
-                    )
-                    .transition(.opacity)
-                }
-            }
             .focusable(true)
             .focusEffectDisabled()
             .focused($catalogHasFocus)
@@ -125,7 +116,7 @@ struct CatalogShell: View {
             if let game = store.selectedGame {
                 viewModel.selectGame(game)
             }
-            if newDest != .library {
+            if newDest == .home {
                 homeStore.load(from: viewModel.catalogSections)
             }
         }
