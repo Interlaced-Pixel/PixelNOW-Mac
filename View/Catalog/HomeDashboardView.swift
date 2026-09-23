@@ -24,21 +24,37 @@ struct HomeDashboardView: View {
                                 }
                             }
                         )
-                        
-                        HStack(spacing: 12) {
-                            ForEach(Array(store.games.prefix(5).enumerated()), id: \.element.id) { index, game in
-                                GameCardView(
-                                    game: game,
-                                    isSelected: index == store.selectedIndex,
-                                    scale: 0.8,
-                                    select: { store.select(at: index) },
-                                    launch: { play(game) },
-                                    isFavorite: viewModel.isFavorite(game),
-                                    onToggleFavorite: { viewModel.toggleFavorite(for: game) },
-                                    onSelectPlatform: { idx in viewModel.selectVariant(for: game, variantIndex: idx) },
-                                    onAddShortcut: { viewModel.addShortcut(for: game) },
-                                    onOpenStore: { viewModel.openStore(for: game) }
-                                )
+
+                        ScrollViewReader { proxy in
+                            GeometryReader { railGeometry in
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(Array(store.games.enumerated()), id: \.element.id) { index, game in
+                                            GameCardView(
+                                                game: game,
+                                                isSelected: index == store.selectedIndex,
+                                                scale: 0.8,
+                                                select: { store.select(at: index) },
+                                                launch: { play(game) },
+                                                onToggleFavorite: { viewModel.toggleFavorite(for: game) },
+                                                onSelectPlatform: { idx in viewModel.selectVariant(for: game, variantIndex: idx) },
+                                                onAddShortcut: { viewModel.addShortcut(for: game) },
+                                                onOpenStore: { viewModel.openStore(for: game) }
+                                            )
+                                            .id(CatalogSelectionStore.gameIdentity(game))
+                                        }
+                                    }
+                                    .frame(minWidth: railGeometry.size.width)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                }
+                            }
+                            .frame(height: 207 * 0.8 + 11 * 0.8 + 5)
+                            .onChange(of: store.selectedIndex) { _, newIndex in
+                                guard store.games.indices.contains(newIndex) else { return }
+                                let identity = CatalogSelectionStore.gameIdentity(store.games[newIndex])
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    proxy.scrollTo(identity, anchor: nil)
+                                }
                             }
                         }
                     }
@@ -239,36 +255,55 @@ struct PlayerStatsWidgetView: View {
     let statistics: CatalogPlaytimeStatistics
     let subscriptionStatus: CatalogSubscriptionStatus
 
+    private var usageProgress: Double {
+        guard subscriptionStatus.totalHours > 0 else { return 0 }
+        return min(subscriptionStatus.usedHours / subscriptionStatus.totalHours, 1.0)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Player Stats")
                 .font(.title2).bold()
                 .foregroundStyle(.white)
 
-            VStack(alignment: .leading, spacing: 12) {
-                StatRow(label: "Remaining Playtime", value: subscriptionStatus.remainingPlaytimeText)
-                if subscriptionStatus.isAvailable && !subscriptionStatus.isUnlimited && !subscriptionStatus.usageText.isEmpty {
-                    StatRow(label: "Monthly Usage", value: subscriptionStatus.usageText)
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    StatRow(icon: "clock.fill", label: "Remaining Playtime", value: subscriptionStatus.remainingPlaytimeText)
+                    if subscriptionStatus.isAvailable && !subscriptionStatus.isUnlimited && !subscriptionStatus.usageText.isEmpty {
+                        UsageRow(
+                            usedHours: subscriptionStatus.usedHours,
+                            totalHours: subscriptionStatus.totalHours,
+                            progress: usageProgress
+                        )
+                    }
+                    if subscriptionStatus.rolledOverHours > 0 {
+                        StatRow(icon: "arrow.clockwise", label: "Rolled Over", value: CatalogSubscriptionStatus.hoursText(subscriptionStatus.rolledOverHours))
+                    }
+                    if subscriptionStatus.purchasedHours > 0 {
+                        StatRow(icon: "plus.circle.fill", label: "Extra Playtime", value: CatalogSubscriptionStatus.hoursText(subscriptionStatus.purchasedHours))
+                    }
                 }
-                if subscriptionStatus.rolledOverHours > 0 {
-                    StatRow(label: "Rolled Over", value: CatalogSubscriptionStatus.hoursText(subscriptionStatus.rolledOverHours))
-                }
-                if subscriptionStatus.purchasedHours > 0 {
-                    StatRow(label: "Extra Playtime", value: CatalogSubscriptionStatus.hoursText(subscriptionStatus.purchasedHours))
-                }
-                StatRow(label: "Total Playtime", value: formatDuration(statistics.totalSeconds))
-                StatRow(label: "Total Sessions", value: "\(statistics.sessionCount)")
-                if statistics.lastSessionSeconds > 0 {
-                    StatRow(label: "Last Session", value: formatDuration(statistics.lastSessionSeconds))
-                }
-                if statistics.averageSessionSeconds > 0 {
-                    StatRow(label: "Average Session", value: formatDuration(statistics.averageSessionSeconds))
-                }
-                if statistics.longestSessionSeconds > 0 {
-                    StatRow(label: "Longest Session", value: formatDuration(statistics.longestSessionSeconds))
-                }
-                if !statistics.lastPlayedTitle.isEmpty {
-                    StatRow(label: "Last Played", value: statistics.lastPlayedTitle)
+                .padding(.bottom, 10)
+
+                Divider()
+                    .background(Color.white.opacity(0.12))
+                    .padding(.bottom, 10)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    StatRow(icon: "timer", label: "Total Playtime", value: formatDuration(statistics.totalSeconds))
+                    StatRow(icon: "gamecontroller.fill", label: "Total Sessions", value: "\(statistics.sessionCount)")
+                    if statistics.lastSessionSeconds > 0 {
+                        StatRow(icon: "play.circle.fill", label: "Last Session", value: formatDuration(statistics.lastSessionSeconds))
+                    }
+                    if statistics.averageSessionSeconds > 0 {
+                        StatRow(icon: "chart.bar.fill", label: "Average Session", value: formatDuration(statistics.averageSessionSeconds))
+                    }
+                    if statistics.longestSessionSeconds > 0 {
+                        StatRow(icon: "trophy.fill", label: "Longest Session", value: formatDuration(statistics.longestSessionSeconds))
+                    }
+                    if !statistics.lastPlayedTitle.isEmpty {
+                        StatRow(icon: "sparkles", label: "Last Played", value: statistics.lastPlayedTitle)
+                    }
                 }
             }
             .padding()
@@ -278,7 +313,7 @@ struct PlayerStatsWidgetView: View {
         .padding()
         .background(.ultraThinMaterial)
         .cornerRadius(16)
-        .frame(width: 300)
+        .frame(width: 320)
     }
 
     private func formatDuration(_ seconds: Double) -> String {
@@ -295,12 +330,49 @@ struct PlayerStatsWidgetView: View {
     }
 }
 
+private struct UsageRow: View {
+    let usedHours: Double
+    let totalHours: Double
+    let progress: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Image(systemName: "calendar.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                Text("Monthly Usage")
+                    .foregroundStyle(.secondary)
+                    .layoutPriority(1)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(CatalogSubscriptionStatus.hoursText(usedHours))
+                        .foregroundStyle(.white)
+                        .bold()
+                    if totalHours > 0 {
+                        Text("of \(CatalogSubscriptionStatus.hoursText(totalHours))")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+            }
+            ProgressView(value: progress)
+                .tint(progress >= 0.9 ? .red : progress >= 0.7 ? .orange : .blue)
+                .padding(.leading, 22)
+        }
+    }
+}
+
 struct StatRow: View {
+    let icon: String
     let label: String
     let value: String
 
     var body: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
             Text(label)
                 .foregroundStyle(.secondary)
                 .layoutPriority(1)
@@ -308,7 +380,8 @@ struct StatRow: View {
             Text(value)
                 .foregroundStyle(.white)
                 .bold()
-                .lineLimit(1)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
         }
     }
 }
