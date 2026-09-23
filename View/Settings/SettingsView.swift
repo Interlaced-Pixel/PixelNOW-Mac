@@ -1160,7 +1160,6 @@ private enum StoreIconAsset: CaseIterable {
 
 private struct ExperimentalFeaturesSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
-    @AppStorage(RecordingEditorBetaPreference.key) private var recordingEditorEarlyBetaEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1172,20 +1171,7 @@ private struct ExperimentalFeaturesSettingsPage: View {
                     action: viewModel.setRemoteCoOpAlphaOptedIn
                 )
             }
-
-            SettingsCard(title: "Recording") {
-                SettingsToggleRow(
-                    title: "Recording Editor Early Beta",
-                    subtitle: recordingEditorEarlyBetaEnabled ? "Editing tools unlocked in Recordings tab." : "Unlock clip trimming, arrangement, and export tools in Recordings.",
-                    isOn: recordingEditorEarlyBetaEnabled,
-                    action: setRecordingEditorEarlyBetaEnabled
-                )
-            }
         }
-    }
-
-    private func setRecordingEditorEarlyBetaEnabled(_ enabled: Bool) {
-        recordingEditorEarlyBetaEnabled = enabled
     }
 }
 

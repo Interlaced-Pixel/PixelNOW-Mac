@@ -18,12 +18,7 @@ extension Font {
     }
 }
 
-enum RecordingEditorBetaPreference {
-    static let key = "PixelNOW.Recordings.EditorEarlyBetaOptIn"
-}
-
 struct RecordingsView: View {
-    @AppStorage(RecordingEditorBetaPreference.key) private var recordingEditorEarlyBetaEnabled = false
     @State private var recordings: [WebRTCStreamRecording] = []
     @State private var selectedRecording: WebRTCStreamRecording?
     @State private var player: AVPlayer?
@@ -73,11 +68,6 @@ struct RecordingsView: View {
             guard let selectedRecording, !ids.contains(selectedRecording.id) else { return }
             select(visibleRecordings.first, autoplay: false)
         }
-        .onChange(of: recordingEditorEarlyBetaEnabled) { _, enabled in
-            guard !enabled, editorViewModel != nil else { return }
-            closeEditor()
-            message = "Recording editor early beta disabled. Editing tools are locked."
-        }
         .confirmationDialog(deleteDialogTitle, isPresented: deleteDialogPresented) {
             Button("Delete Recording", role: .destructive) { deletePendingRecording() }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
@@ -110,16 +100,12 @@ struct RecordingsView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 10) {
                         ForEach(visibleRecordings) { recording in
-                            RecordingRow(recording: recording, isSelected: selectedRecording?.id == recording.id, editorEarlyBetaEnabled: recordingEditorEarlyBetaEnabled) {
+                            RecordingRow(recording: recording, isSelected: selectedRecording?.id == recording.id) {
                                 select(recording, autoplay: true)
                             }
                             .contextMenu {
                                 Button("Open Recording") { open(recording) }
-                                if recordingEditorEarlyBetaEnabled {
-                                    Button("Edit Recording") { startEditing(recording) }
-                                } else {
-                                    Button("Enable in Settings > Experimental Features") { showRecordingEditorBetaSettingsMessage() }
-                                }
+                                Button("Edit Recording") { startEditing(recording) }
                                 Button("Reveal in Finder") { reveal(recording) }
                                 Button("Copy File Path") { copyPath(recording) }
                                 Divider()
@@ -255,10 +241,8 @@ struct RecordingsView: View {
                 recording: recording,
                 copiedPath: copiedPathRecordingID == recording.id,
                 message: message,
-                editorEarlyBetaEnabled: recordingEditorEarlyBetaEnabled,
                 onRestart: { restart(recording) },
                 onEdit: { startEditing(recording) },
-                onEditorLocked: showRecordingEditorBetaSettingsMessage,
                 onOpen: { open(recording) },
                 onReveal: { reveal(recording) },
                 onCopyPath: { copyPath(recording) },
@@ -273,7 +257,7 @@ struct RecordingsView: View {
                     onSaved: editedRecordingSaved,
                     onPreviewChanged: { refreshEditedPreview(debounce: true) }
                 )
-                .frame(maxHeight: 390)
+                .frame(maxHeight: 540)
             }
         }
     }
@@ -363,10 +347,6 @@ struct RecordingsView: View {
     }
 
     private func startEditing(_ recording: WebRTCStreamRecording) {
-        guard recordingEditorEarlyBetaEnabled else {
-            showRecordingEditorBetaSettingsMessage()
-            return
-        }
         if selectedRecording?.id != recording.id { select(recording, autoplay: false) }
         player?.pause()
         editorViewModel = RecordingEditorViewModel(recording: recording, library: recordings)
@@ -379,10 +359,6 @@ struct RecordingsView: View {
         editorViewModel = nil
         if let selectedRecording { select(selectedRecording, autoplay: false) }
         message = "Editor closed."
-    }
-
-    private func showRecordingEditorBetaSettingsMessage() {
-        message = "Enable Recording Editor Early Beta in Settings > Experimental Features."
     }
 
     private func editedRecordingSaved(_ recording: WebRTCStreamRecording) {
@@ -583,19 +559,14 @@ private struct RecordingFilterChip: View {
 private struct RecordingRow: View {
     let recording: WebRTCStreamRecording
     let isSelected: Bool
-    let editorEarlyBetaEnabled: Bool
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
-        if editorEarlyBetaEnabled {
-            content
-                .onDrag {
-                    NSItemProvider(object: RecordingEditorDragPayload.recording(recording.id).stringValue as NSString)
-                }
-        } else {
-            content
-        }
+        content
+            .onDrag {
+                NSItemProvider(object: RecordingEditorDragPayload.recording(recording.id).stringValue as NSString)
+            }
     }
 
     private var content: some View {
@@ -799,10 +770,8 @@ private struct RecordingInspector: View {
     let recording: WebRTCStreamRecording
     let copiedPath: Bool
     let message: String
-    let editorEarlyBetaEnabled: Bool
     let onRestart: () -> Void
     let onEdit: () -> Void
-    let onEditorLocked: () -> Void
     let onOpen: () -> Void
     let onReveal: () -> Void
     let onCopyPath: () -> Void
@@ -824,13 +793,8 @@ private struct RecordingInspector: View {
                 Spacer(minLength: 12)
                 Button("Restart", action: onRestart)
                     .buttonStyle(RecordingActionButtonStyle(tone: .primary))
-                if editorEarlyBetaEnabled {
-                    Button("Edit", action: onEdit)
-                        .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                } else {
-                    Button("Editor Locked", action: onEditorLocked)
-                        .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                }
+                Button("Edit", action: onEdit)
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
                 Button("Open", action: onOpen)
                     .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
                 Button("Reveal", action: onReveal)
@@ -1003,18 +967,20 @@ struct RecordingActionButtonStyle: ButtonStyle {
     }
 
     let tone: Tone
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.recordingsNvidia(size: 12, weight: .bold))
-            .foregroundStyle(foreground)
+            .foregroundStyle(foreground(isEnabled: isEnabled))
             .padding(.horizontal, 14)
             .frame(height: 36)
-            .background(background(isPressed: configuration.isPressed))
-            .overlay { Rectangle().stroke(stroke, lineWidth: 1) }
+            .background(background(isPressed: configuration.isPressed, isEnabled: isEnabled))
+            .overlay { Rectangle().stroke(stroke(isEnabled: isEnabled), lineWidth: 1) }
+            .opacity(isEnabled ? 1 : 0.42)
     }
 
-    private var foreground: Color {
+    private func foreground(isEnabled: Bool) -> Color {
         switch tone {
         case .primary: return .black.opacity(0.88)
         case .secondary: return .white.opacity(0.90)
@@ -1022,17 +988,17 @@ struct RecordingActionButtonStyle: ButtonStyle {
         }
     }
 
-    private func background(isPressed: Bool) -> Color {
+    private func background(isPressed: Bool, isEnabled: Bool) -> Color {
         switch tone {
-        case .primary: return Color.pixelNowGreen.opacity(isPressed ? 0.78 : 1)
-        case .secondary: return Color.white.opacity(isPressed ? 0.14 : 0.075)
-        case .destructive: return RecordingsLayout.danger.opacity(isPressed ? 0.18 : 0.10)
+        case .primary: return Color.pixelNowGreen.opacity(isPressed ? 0.68 : 1)
+        case .secondary: return Color.white.opacity(isPressed ? 0.16 : 0.075)
+        case .destructive: return RecordingsLayout.danger.opacity(isPressed ? 0.22 : 0.10)
         }
     }
 
-    private var stroke: Color {
+    private func stroke(isEnabled: Bool) -> Color {
         switch tone {
-        case .primary: return Color.pixelNowGreen
+        case .primary: return Color.pixelNowGreen.opacity(isEnabled ? 1 : 0.5)
         case .secondary: return RecordingsLayout.stroke
         case .destructive: return RecordingsLayout.danger.opacity(0.36)
         }
