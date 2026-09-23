@@ -1602,7 +1602,8 @@ struct NativeNVSTMediaStreamSurface: View {
                 nativeStatsStandardRow(label: "Resolution", value: resolution, detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
                 nativeStatsStandardRow(label: "Codec", value: codec, detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
                 nativeStatsStandardRow(label: "Server", value: nonEmptyNativeStat(latestNativeStats?.serverLocation, fallback: "--"), detail: nil, color: NativeNVSTMediaStreamTheme.textPrimary)
-                nativeStatsStandardRow(label: "MetalFX", value: nativeView?.currentNVSTCoreRenderer?.metalFXStatusDescription ?? (streamUpscalingMode == 3 ? "Active" : "Off"), detail: nil, color: streamUpscalingMode == 3 ? NativeNVSTMediaStreamTheme.accent : NativeNVSTMediaStreamTheme.textTertiary)
+                let metalFXIsActive = nativeView?.currentNVSTCoreRenderer?.isMetalFXActivelyScaling ?? false
+                nativeStatsStandardRow(label: "MetalFX", value: nativeView?.currentNVSTCoreRenderer?.metalFXStatusDescription ?? (streamUpscalingMode == StreamPreferences.upscalingModeValueMetalFX ? "Enabled" : "Off"), detail: nil, color: metalFXIsActive ? NativeNVSTMediaStreamTheme.accent : NativeNVSTMediaStreamTheme.textTertiary)
             }
             .padding(8)
             .background(Color.black.opacity(0.25))
@@ -1971,7 +1972,15 @@ struct NativeNVSTMediaStreamSurface: View {
                     get: { streamUpscalingMode },
                     set: { newValue in
                         streamUpscalingMode = newValue
-                        nativeView?.currentNVSTCoreRenderer?.setMetalFXEnabled(newValue == 3)
+                        nativeView?.currentNVSTCoreRenderer?.setVideoEnhancement(
+                            mode: newValue,
+                            sharpness: streamUpscalingSharpness,
+                            denoise: streamUpscalingDenoise,
+                            targetHeight: profile.upscalingTargetHeight,
+                            pillarboxFillMode: 0,
+                            pillarboxFillDim: 0,
+                            pillarboxFillColor: 0
+                        )
                         StreamPreferences.saveUpscalingSettings(
                             mode: newValue,
                             sharpness: streamUpscalingSharpness,
@@ -1980,15 +1989,15 @@ struct NativeNVSTMediaStreamSurface: View {
                         )
                     }
                 )) {
-                    Text("Off").tag(0)
-                    Text("MetalFX").tag(3)
+                    Text("Off").tag(StreamPreferences.upscalingModeValueOff)
+                    Text("MetalFX").tag(StreamPreferences.upscalingModeValueMetalFX)
                 }
                 .font(.nativeNVSTStreamNvidia(size: 12, weight: .medium))
                 .pickerStyle(.segmented)
                 .tint(Color.pixelNowGreen)
                 .disabled(!sidebarCapabilities.supports(.videoEnhancement))
 
-                if streamUpscalingMode == 3 {
+                if streamUpscalingMode == StreamPreferences.upscalingModeValueMetalFX {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("Clarity")
@@ -2058,7 +2067,8 @@ struct NativeNVSTMediaStreamSurface: View {
                     }
                 }
 
-                let metalFXDesc = nativeView?.currentNVSTCoreRenderer?.metalFXStatusDescription ?? (streamUpscalingMode == 3 ? "Active" : "Off")
+                let metalFXDesc = nativeView?.currentNVSTCoreRenderer?.metalFXStatusDescription
+                    ?? (streamUpscalingMode == StreamPreferences.upscalingModeValueMetalFX ? "Enabled" : "Off")
                 nativeHUDDetailRow(label: "MetalFX State", value: metalFXDesc)
                 let targetResolutionText: String = {
                     if let win = nativeView?.window {
@@ -2069,7 +2079,7 @@ struct NativeNVSTMediaStreamSurface: View {
                             return "\(w) x \(h)"
                         }
                     }
-                    return streamUpscalingMode == 3 ? "Display Native" : "1:1 Native"
+                    return streamUpscalingMode == StreamPreferences.upscalingModeValueMetalFX ? "Display Native" : "1:1 Native"
                 }()
                 nativeHUDDetailRow(label: "Target", value: targetResolutionText)
                 nativeHUDDetailRow(label: "Resolution", value: "\(profile.resolution.width) x \(profile.resolution.height)")

@@ -1431,7 +1431,7 @@ private struct ResolutionUpscalingSettingsPage: View {
                 SettingsToggleRow(
                     title: "MetalFX Upscaling",
                     subtitle: viewModel.isMetalFXHardwareSupported ? "Spatial upscaling for Apple Silicon with automatic fallback." : "MetalFX spatial scaling is unavailable on this hardware (requires Apple Silicon / macOS 13+).",
-                    isOn: viewModel.streamProfile.upscalingMode == 3
+                    isOn: viewModel.streamProfile.upscalingMode == StreamPreferences.upscalingModeValueMetalFX
                 ) { enabled in viewModel.setUpscalingModeIndex(enabled ? 1 : 0) }
                 SettingsDivider()
                 SettingsInfoRow(label: "Hardware Status", value: viewModel.isMetalFXHardwareSupported ? "Supported (Apple Silicon)" : "Unsupported")

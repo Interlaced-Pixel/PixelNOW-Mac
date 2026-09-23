@@ -458,9 +458,9 @@ struct GameLaunchSettingsSheet: View {
             settingSectionHeader("MetalFX Resolution Upscaling")
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Enable MetalFX Upscaling", isOn: Binding(
-                    get: { profile.upscalingMode == 3 },
+                    get: { profile.upscalingMode == StreamPreferences.upscalingModeValueMetalFX },
                     set: { enabled in
-                        profile.upscalingMode = enabled ? 3 : 0
+                        profile.upscalingMode = enabled ? StreamPreferences.upscalingModeValueMetalFX : StreamPreferences.upscalingModeValueOff
                         profile.upscalingModeIndex = enabled ? 1 : 0
                         profile.upscalingModeOption = StreamPreferences.upscalingModeOptions[profile.upscalingModeIndex]
                         saveCurrentProfile()
@@ -468,7 +468,7 @@ struct GameLaunchSettingsSheet: View {
                 ))
                 .toggleStyle(SwitchToggleStyle(tint: Color.pixelNowGreen))
 
-                if profile.upscalingMode == 3 {
+                if profile.upscalingMode == StreamPreferences.upscalingModeValueMetalFX {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("Sharpness").font(.caption).foregroundStyle(.white.opacity(0.7))
