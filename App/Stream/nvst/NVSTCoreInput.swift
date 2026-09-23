@@ -35,8 +35,8 @@ extension NVSTCoreTransport {
             let sequence = (gamepadSequences[UInt16(padIndex)] ?? 0) &+ 1
             gamepadSequences[UInt16(padIndex)] = sequence
 
-            let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, Self.leftStickDeadzone)
-            let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, Self.rightStickDeadzone)
+            let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, configuredLeftStickDeadzone)
+            let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, configuredRightStickDeadzone)
             let packet = NvstGamepadEvent(
                 sequence: sequence,
                 timestampMicroseconds: sessionElapsedMicroseconds(),
@@ -104,8 +104,8 @@ extension NVSTCoreTransport {
             // If HID passthrough is active for this slot, suppress XInput translation.
             guard !inputState.isHidActive(slot: padIndex) else { return }
             let sequence = inputState.nextGamepadSequence(padIndex: UInt16(padIndex))
-            let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, Self.leftStickDeadzone)
-            let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, Self.rightStickDeadzone)
+            let (lx, ly) = Self.deadzoned(state.leftStickX, state.leftStickY, inputState.leftStickDeadzone)
+            let (rx, ry) = Self.deadzoned(state.rightStickX, state.rightStickY, inputState.rightStickDeadzone)
             let bitmap: UInt8 = 1 << padIndex
             let packet = NvstGamepadEvent(
                 sequence: sequence,
@@ -413,8 +413,8 @@ extension NVSTCoreTransport {
         try sendFramedRemoteInput(packet)
     }
 
-    static let leftStickDeadzone: Float = 0.2395
-    static let rightStickDeadzone: Float = 0.2651
+    static let defaultLeftStickDeadzone: Float = 0.12
+    static let defaultRightStickDeadzone: Float = 0.13
 
     static func deadzoned(_ x: Float, _ y: Float, _ deadzone: Float) -> (Float, Float) {
         let magnitude = (x * x + y * y).squareRoot()
