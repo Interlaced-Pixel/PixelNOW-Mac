@@ -599,3 +599,96 @@ public struct RemoteCoOpInputPacket: Codable, Equatable, Sendable {
         min(1, max(-1, value.isFinite ? value : 0))
     }
 }
+
+public struct RemoteCoOpPINAuthenticator {
+    private static let maxAttempts = 3
+    private static let pinExpiration: TimeInterval = 300
+    
+    private var pendingPINs: [String: PINState] = [:]
+    private let lock = NSLock()
+    
+    public init() {}
+    
+    public mutating func generatePIN(for hostID: UUID, clientIP: String) -> (pin: String, expiresAt: Date) {
+        var generator = SystemRandomNumberGenerator()
+        let pin = String((0..<6).map { _ in Character(String(UInt8.random(in: 0...9, using: &generator))) })
+        let expiresAt = Date().addingTimeInterval(Self.pinExpiration)
+        
+        lock.withLock {
+            pendingPINs[pin] = PINState(
+                hostID: hostID,
+                clientIP: clientIP,
+                createdAt: Date(),
+                expiresAt: expiresAt,
+                attempts: 0
+            )
+        }
+        
+        return (pin, expiresAt)
+    }
+    
+    public mutating func validate(_ pin: String, from clientIP: String) throws -> Bool {
+        let state = lock.withLock { pendingPINs[pin] }
+        guard let state else { throw PINError.invalid }
+        guard state.createdAt.addingTimeInterval(Self.pinExpiration) > Date() else {
+            lock.withLock { pendingPINs[pin] = nil }
+            throw PINError.expired
+        }
+        guard state.attempts < Self.maxAttempts else {
+            lock.withLock { pendingPINs[pin] = nil }
+            throw PINError.tooManyAttempts
+        }
+        let newState = PINState(
+            hostID: state.hostID,
+            clientIP: state.clientIP,
+            createdAt: state.createdAt,
+            expiresAt: state.expiresAt,
+            attempts: state.attempts + 1
+        )
+        lock.withLock { pendingPINs[pin] = newState }
+        
+        if state.clientIP != clientIP {
+            throw PINError.ipMismatch
+        }
+        
+        return true
+    }
+    
+    private mutating func remove(_ pin: String) {
+        lock.withLock {
+            pendingPINs[pin] = nil
+        }
+    }
+}
+
+public struct PINState: Hashable, Codable, Sendable {
+    public let hostID: UUID
+    public let clientIP: String
+    public let createdAt: Date
+    public let expiresAt: Date
+    public var attempts: Int
+    
+    public init(hostID: UUID, clientIP: String, createdAt: Date, expiresAt: Date, attempts: Int) {
+        self.hostID = hostID
+        self.clientIP = clientIP
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+        self.attempts = attempts
+    }
+}
+
+public enum PINError: LocalizedError, Equatable, Sendable {
+    case invalid
+    case expired
+    case tooManyAttempts
+    case ipMismatch
+    
+    public var errorDescription: String? {
+        switch self {
+        case .invalid: return "Invalid PIN."
+        case .expired: return "PIN has expired."
+        case .tooManyAttempts: return "Too many failed attempts."
+        case .ipMismatch: return "IP address mismatch."
+        }
+    }
+}

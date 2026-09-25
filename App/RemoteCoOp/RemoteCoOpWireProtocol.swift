@@ -186,8 +186,119 @@ public enum RemoteCoOpWireCodec {
         let data = Data(text.utf8)
         return try JSONDecoder().decode(RemoteCoOpWireMessage.self, from: data)
     }
-
+    
     public static func decode(_ data: Data) throws -> RemoteCoOpWireMessage {
         try JSONDecoder().decode(RemoteCoOpWireMessage.self, from: data)
+    }
+}
+
+public enum DirectSignalingMessageKind: String, Codable, Equatable, Sendable {
+    case hostWelcome
+    case guestJoinRequest
+    case guestJoinAccepted
+    case guestJoinRejected
+    case sdpOffer
+    case sdpAnswer
+    case iceCandidate
+    case networkConfiguration
+    case ping
+    case pong
+    case disconnect
+}
+
+public struct DirectSignalingMessage: Codable, Equatable, Sendable {
+    public var protocolVersion: Int
+    public var kind: DirectSignalingMessageKind
+    public var participantID: UUID?
+    public var pin: String?
+    public var hostIP: String?
+    public var signal: DirectSignalingSignal?
+    public var networkConfiguration: RemoteCoOpNetworkConfiguration?
+    public var reason: String?
+    public var timestamp: Int64
+    
+    enum CodingKeys: String, CodingKey {
+        case protocolVersion, kind, participantID, pin, hostIP, signal, networkConfiguration, reason, timestamp
+    }
+    
+    public init(kind: DirectSignalingMessageKind,
+                participantID: UUID? = nil,
+                pin: String? = nil,
+                hostIP: String? = nil,
+                signal: DirectSignalingSignal? = nil,
+                networkConfiguration: RemoteCoOpNetworkConfiguration? = nil,
+                reason: String? = nil,
+                timestamp: Int64 = Int64(Date().timeIntervalSince1970.rounded())) {
+        self.protocolVersion = 1
+        self.kind = kind
+        self.participantID = participantID
+        self.pin = pin
+        self.hostIP = hostIP
+        self.signal = signal
+        self.networkConfiguration = networkConfiguration
+        self.reason = reason
+        self.timestamp = timestamp
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        protocolVersion = try container.decodeIfPresent(Int.self, forKey: .protocolVersion) ?? 1
+        kind = try container.decode(DirectSignalingMessageKind.self, forKey: .kind)
+        participantID = try container.decodeIfPresent(UUID.self, forKey: .participantID)
+        pin = try container.decodeIfPresent(String.self, forKey: .pin)
+        hostIP = try container.decodeIfPresent(String.self, forKey: .hostIP)
+        signal = try container.decodeIfPresent(DirectSignalingSignal.self, forKey: .signal)
+        networkConfiguration = try container.decodeIfPresent(RemoteCoOpNetworkConfiguration.self, forKey: .networkConfiguration)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        timestamp = try container.decodeIfPresent(Int64.self, forKey: .timestamp) ?? Int64(Date().timeIntervalSince1970.rounded())
+    }
+}
+
+public enum DirectSignalingSignal: Codable, Equatable, Sendable {
+    case offer(sdp: String)
+    case answer(sdp: String)
+    case iceCandidate(candidate: String, sdpMid: String?, sdpMLineIndex: Int?)
+    
+    enum CodingKeys: String, CodingKey {
+        case kind, sdp, candidate, sdpMid, sdpMLineIndex
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+        
+        switch kind {
+        case "offer":
+            let sdp = try container.decode(String.self, forKey: .sdp)
+            self = .offer(sdp: sdp)
+        case "answer":
+            let sdp = try container.decode(String.self, forKey: .sdp)
+            self = .answer(sdp: sdp)
+        case "iceCandidate":
+            let candidate = try container.decode(String.self, forKey: .candidate)
+            let sdpMid = try container.decodeIfPresent(String.self, forKey: .sdpMid)
+            let sdpMLineIndex = try container.decodeIfPresent(Int.self, forKey: .sdpMLineIndex)
+            self = .iceCandidate(candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "Unknown signal kind")
+        }
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        
+        switch self {
+        case .offer(let sdp):
+            try container.encode("offer", forKey: .kind)
+            try container.encode(sdp, forKey: .sdp)
+        case .answer(let sdp):
+            try container.encode("answer", forKey: .kind)
+            try container.encode(sdp, forKey: .sdp)
+        case .iceCandidate(let candidate, let sdpMid, let sdpMLineIndex):
+            try container.encode("iceCandidate", forKey: .kind)
+            try container.encode(candidate, forKey: .candidate)
+            try container.encodeIfPresent(sdpMid, forKey: .sdpMid)
+            try container.encodeIfPresent(sdpMLineIndex, forKey: .sdpMLineIndex)
+        }
     }
 }

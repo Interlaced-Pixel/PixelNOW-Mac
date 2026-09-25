@@ -228,11 +228,3 @@ final class RemoteCoOpHostAudioDevice: NSObject, RTCAudioDevice, @unchecked Send
         }
     }
 }
-
-private extension NSLock {
-    func withLock<T>(_ body: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body()
-    }
-}

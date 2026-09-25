@@ -1120,11 +1120,3 @@ private func bool(_ value: Any?, fallback: Bool = false) -> Bool {
     if let value = value as? String { return (value as NSString).boolValue }
     return fallback
 }
-
-private extension NSLock {
-    func withLock<T>(_ body: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body()
-    }
-}

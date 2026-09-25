@@ -43,11 +43,3 @@ public final class RemoteCoOpHostVideoRelay: @unchecked Sendable {
         for sink in currentSinks { sink.renderVideoFrame(frame) }
     }
 }
-
-private extension NSLock {
-    func withLock<T>(_ body: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body()
-    }
-}

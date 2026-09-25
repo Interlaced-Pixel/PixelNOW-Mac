@@ -409,11 +409,3 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-
-private extension NSLock {
-    func withLock<T>(_ body: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body()
-    }
-}
