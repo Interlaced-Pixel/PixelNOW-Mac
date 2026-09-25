@@ -21,11 +21,12 @@ public enum RemoteCoOpPreferencesStore {
 
     public static func load() -> RemoteCoOpPreferences {
         let latencyMode = migratedLatencyMode()
+        let transportMode = migratedTransportMode(RemoteCoOpTransportMode(rawValue: string(storage.object(forKey: transportModeKey))) ?? .automatic)
         return RemoteCoOpPreferences(
             isAlphaOptedIn: isAlphaOptedIn,
             isEnabled: bool(storage.object(forKey: enabledKey), defaultValue: false),
             reservedGuestSlots: int(storage.object(forKey: reservedGuestSlotsKey), defaultValue: 1),
-            transportMode: RemoteCoOpTransportMode(rawValue: string(storage.object(forKey: transportModeKey))) ?? .automatic,
+            transportMode: transportMode,
             qualityPreset: RemoteCoOpQualityPreset(rawValue: string(storage.object(forKey: qualityPresetKey))) ?? .p720f60,
             latencyMode: latencyMode,
             requireHostApproval: bool(storage.object(forKey: requireHostApprovalKey), defaultValue: true),
@@ -161,5 +162,14 @@ public enum RemoteCoOpPreferencesStore {
         storage.set(lowLatencyDefaultMigrationVersion, forKey: lowLatencyDefaultMigrationVersionKey)
         storage.synchronize()
         return .lowLatency
+    }
+
+    private static func migratedTransportMode(_ currentMode: RemoteCoOpTransportMode) -> RemoteCoOpTransportMode {
+        let storedValue = string(storage.object(forKey: transportModeKey))
+        guard storedValue.contains("broker") || storedValue.contains("relayOnly") else { return currentMode }
+        
+        storage.set(RemoteCoOpTransportMode.directOnly.rawValue, forKey: transportModeKey)
+        storage.synchronize()
+        return .directOnly
     }
 }

@@ -57,6 +57,11 @@ public actor RemoteCoOpHostSession {
         self.isDirectMode = isDirectMode
     }
 
+    @available(*, deprecated, message: "Broker mode is deprecated. Use direct mode instead.")
+    public static func supportsBrokerMode() -> Bool {
+        false
+    }
+
     public func updatePreferences(_ preferences: RemoteCoOpPreferences) async {
         self.preferences = preferences
         await inputRouter.replaceParticipants(participants)
@@ -69,7 +74,7 @@ public actor RemoteCoOpHostSession {
     public func startInvite(applicationID: String = "", title: String = "", joinBaseURL: URL? = nil, signalingServerURL: String = "", lifetimeSeconds: TimeInterval = 3_600) throws -> RemoteCoOpInvite {
         guard preferences.isAvailable else { throw RemoteCoOpHostSessionError.disabled }
         guard preferences.effectiveReservedGuestSlots > 0 else { throw RemoteCoOpHostSessionError.noAvailablePlayerSlots }
-        if isDirectMode && preferences.transportMode != .directOnly && preferences.transportMode != .automatic {
+        if isDirectMode && preferences.transportMode != .directOnly {
             throw RemoteCoOpHostSessionError.disabled
         }
         let now = Date()

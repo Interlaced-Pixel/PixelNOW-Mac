@@ -1,0 +1,65 @@
+{
+  "remoteCoOpConfig": {
+    "version": "1.0",
+    "mode": "direct",
+    "connectionMode": "direct",
+    "transportSettings": {
+      "transportMode": "directOnly",
+      "latencyMode": "lowLatency",
+      "qualityPreset": "p720f60",
+      "maxBitrateBps": 12000000
+    },
+    "networkConfiguration": {
+      "transportMode": "directOnly",
+      "latencyMode": "lowLatency",
+      "iceServers": [
+        {
+          "urls": [
+            "stun:stun.l.google.com:19302",
+            "stun:stun1.l.google.com:19302"
+          ]
+        }
+      ],
+      "dataChannelInputEnabled": true,
+      "websocketInputFallbackEnabled": false
+    },
+    "discoverySettings": {
+      "enableBonjour": true,
+      "enableUPnP": true,
+      "signalingPort": 32189,
+      "pinAttempts": 3,
+      "pinExpiration": 300
+    },
+    "securitySettings": {
+      "requireHostApproval": true,
+      "hideGuestInviteDetails": false,
+      "maxGuestSlots": 3,
+      "timeoutSeconds": 3600
+    },
+    "signaling": {
+      "type": "direct",
+      "port": 32189,
+      "protocol": "ws",
+      "hostIP": "auto",
+      "pinAuthentication": true
+    },
+    "inputSettings": {
+      "dataChannelEnabled": true,
+      "coalesceLowLatency": true,
+      "coalesceDelayMs": 4
+    },
+    "recommendedNetwork": {
+      "localLan": true,
+      "natType": "fullCone",
+      "requiredPorts": [32189],
+      "tcpPorts": [32189],
+      "udpPorts": [32189]
+    },
+    "troubleshooting": {
+      "checkFirewall": true,
+      "checkUPnP": true,
+      "checkBonjour": true,
+      "enableDebugLogs": false
+    }
+  }
+}

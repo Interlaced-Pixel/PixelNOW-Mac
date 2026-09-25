@@ -299,17 +299,96 @@ input {
 input::placeholder { color: rgba(245, 247, 239, 0.28); }
 
 .status {
-  min-height: 0;
-  margin: 0;
-  color: var(--quiet);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
+    min-height: 0;
+    margin: 0;
+    color: var(--quiet);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
 
-.micro-status {
+  .mode-switcher {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+  }
+
+  .mode-tab {
+    flex: 1;
+    min-height: 36px;
+    padding: 0 12px;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 850;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+  }
+
+  .mode-tab:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .mode-tab.active {
+    color: #071007;
+    background: linear-gradient(135deg, var(--green-hot), var(--green));
+    border-color: rgba(202, 255, 92, 0.58);
+    box-shadow: 0 2px 8px rgba(118, 185, 0, 0.25);
+  }
+
+  .direct-panel {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    background: rgba(7, 10, 7, 0.92);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .direct-panel .code-field input {
+    min-height: 54px;
+    font-size: 24px;
+  }
+
+  .direct-panel .field input {
+    min-height: 42px;
+  }
+
+  .direct-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .direct-actions button {
+    flex: 1;
+    min-height: 42px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .status {
+    min-height: 0;
+    margin: 0;
+    color: var(--quiet);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .micro-status {
   position: relative;
   z-index: 2;
   display: flex;

@@ -35,6 +35,11 @@
               <input id="invite-code" inputmode="text" autocomplete="one-time-code" maxlength="128" spellcheck="false" placeholder="ABC123" aria-describedby="join-status">
             </label>
 
+            <div id="mode-switcher" class="mode-switcher" role="tablist" aria-label="Connection mode">
+              <button data-mode="invite" class="mode-tab active" type="button" role="tab" aria-selected="true">Invite Code</button>
+              <button data-mode="direct" class="mode-tab" type="button" role="tab" aria-selected="false">Direct P2P</button>
+            </div>
+
             <label class="field" for="display-name">
               <span>Player</span>
               <input id="display-name" autocomplete="nickname" maxlength="32" placeholder="Guest">

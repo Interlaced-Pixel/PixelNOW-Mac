@@ -8,6 +8,13 @@ const elements = {
   displayName: document.querySelector("#display-name"),
   joinButton: document.querySelector("#join-button"),
   joinStatus: document.querySelector("#join-status"),
+  modeSwitcher: document.querySelector("#mode-switcher"),
+  directHostIP: document.querySelector("#direct-host-ip"),
+  directPIN: document.querySelector("#direct-pin"),
+  directDiscoverButton: document.querySelector("#direct-discover-button"),
+  directManualButton: document.querySelector("#direct-manual-button"),
+  directConnectButton: document.querySelector("#direct-connect-button"),
+  directStatus: document.querySelector("#direct-status")
   state: document.querySelector("#session-state"),
   detail: document.querySelector("#session-detail"),
   dot: document.querySelector("#connection-dot"),
@@ -21,7 +28,14 @@ const elements = {
   copyDiagnosticsButton: document.querySelector("#copy-diagnostics-button"),
   playerBadge: document.querySelector("#player-badge"),
   playerNumber: document.querySelector("#player-number"),
-  disconnectButton: document.querySelector("#disconnect-button")
+  disconnectButton: document.querySelector("#disconnect-button"),
+  modeSwitcher: document.querySelector("#mode-switcher"),
+  directHostIP: document.querySelector("#direct-host-ip"),
+  directPIN: document.querySelector("#direct-pin"),
+  directDiscoverButton: document.querySelector("#direct-discover-button"),
+  directManualButton: document.querySelector("#direct-manual-button"),
+  directConnectButton: document.querySelector("#direct-connect-button"),
+  directStatus: document.querySelector("#direct-status")
 };
 
 const url = new URL(window.location.href);
@@ -46,11 +60,17 @@ let statsHandle = 0;
 let diagnostics = initialDiagnostics();
 let sessionState = "Connecting";
 const playbackPromises = new WeakMap();
+let connectionMode = "invite";
+let directConnection = null;
 
 renderInvite(inviteToken);
 renderDiagnostics();
 if (inviteFromURL && elements.inviteCode) elements.inviteCode.readOnly = true;
 
+elements.modeSwitcher?.addEventListener("change", switchConnectionMode);
+elements.directDiscoverButton?.addEventListener("click", discoverHostByPIN);
+elements.directManualButton?.addEventListener("click", showManualIP);
+elements.directConnectButton?.addEventListener("click", directConnect);
 elements.inviteCode?.addEventListener("input", () => {
   if (!inviteFromURL) normalizeInviteCodeInput();
   renderInvite(currentInviteToken());
@@ -957,4 +977,725 @@ function decodeInvite(token) {
 function base64URLDecode(value) {
   const base64 = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(value.length + (4 - (value.length % 4 || 4)), "=");
   return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+}
+
+class DirectGuestConnection {
+  #pin;
+  #hostIP;
+  #wsURL;
+  #peerConnection;
+  #dataChannel;
+  #isConnected = false;
+  #onConnected;
+  #onDisconnected;
+  #onError;
+  #signalCallback;
+  #iceCallback;
+  #statsCallback;
+  #candidateGathered = false;
+  #ws = null;
+
+  constructor(options = {}) {
+    this.#pin = options.pin || null;
+    this.#hostIP = options.hostIP || null;
+    this.#onConnected = options.onConnected || null;
+    this.#onDisconnected = options.onDisconnected || null;
+    this.#onError = options.onError || null;
+    this.#signalCallback = options.onSignal || null;
+    this.#iceCallback = options.onICE || null;
+    this.#statsCallback = options.onStats || null;
+  }
+
+  get isConnected() {
+    return this.#isConnected;
+  }
+
+  get wsURL() {
+    return this.#wsURL;
+  }
+
+  set hostIP(ip) {
+    this.#hostIP = ip;
+  }
+
+  set pin(pin) {
+    this.#pin = pin;
+  }
+
+  async connect() {
+    try {
+      this.#updateStatus("Connecting to host...");
+      
+      if (!this.#hostIP && !this.#pin) {
+        throw new Error("HOST_IP or PIN required for connection");
+      }
+
+      if (this.#pin) {
+        await this.#discoverWithPIN();
+      }
+
+      if (!this.#hostIP) {
+        throw new Error("Unable to discover host");
+      }
+
+      await this.#establishWebSocket();
+      await this.#setupWebRTC();
+      
+      this.#isConnected = true;
+      this.#updateStatus("Connected successfully");
+      this.#onConnected?.();
+      return true;
+    } catch (error) {
+      this.#updateStatus(`Connection failed: ${error.message}`);
+      this.#onError?.(error);
+      return false;
+    }
+  }
+
+  async disconnect() {
+    this.#isConnected = false;
+    await this.#closePeerConnection();
+    await this.#closeWebSocket();
+    this.#updateStatus("Disconnected");
+    this.#onDisconnected?.();
+  }
+
+  async sendSignal(signal) {
+    if (!this.#wsURL) {
+      throw new Error("WebSocket not established");
+    }
+    
+    const message = JSON.stringify({
+      kind: "peerSignal",
+      pin: this.#pin,
+      signal
+    });
+
+    try {
+      await fetch(`${this.#wsURL}/signal`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: message
+      });
+    } catch (error) {
+      this.#onError?.(error);
+      throw error;
+    }
+  }
+
+  sendICECandidate(candidate) {
+    this.sendSignal({
+      kind: "iceCandidate",
+      candidate
+    }).catch(() => {});
+  }
+
+  async createOffer() {
+    if (!this.#peerConnection) {
+      throw new Error("WebRTC not initialized");
+    }
+
+    const offer = await this.#peerConnection.createOffer();
+    await this.#peerConnection.setLocalDescription(offer);
+    return offer;
+  }
+
+  async setAnswer(answer) {
+    if (!this.#peerConnection) {
+      throw new Error("WebRTC not initialized");
+    }
+    
+    await this.#peerConnection.setRemoteDescription(answer);
+  }
+
+  async getStats() {
+    if (!this.#peerConnection) {
+      return null;
+    }
+    return this.#peerConnection.getStats();
+  }
+
+  async fetchDataChannel() {
+    return this.#dataChannel;
+  }
+
+  #updateStatus(message) {
+    console.log(`[DirectGuest] ${message}`);
+  }
+
+  async #discoverWithPIN() {
+    this.#updateStatus("Discovering host via PIN...");
+
+    const pin = this.#pin.trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(pin)) {
+      throw new Error("Invalid PIN format. Must be 6 alphanumeric characters.");
+    }
+
+    try {
+      const response = await fetch(`/api/discover/${pin}`, {
+        method: "GET",
+        headers: {
+          "Accept": "application/json"
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Discovery failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.hostIP) {
+        throw new Error("Host not found for PIN");
+      }
+
+      this.#hostIP = data.hostIP;
+      this.#wsURL = `ws://${this.#hostIP}:32188/remote-coop`;
+      
+      this.#updateStatus(`Host discovered: ${this.#hostIP}`);
+    } catch (error) {
+      this.#updateStatus(`Discovery failed: ${error.message}. Enter manual IP.`);
+      throw error;
+    }
+  }
+
+  async #establishWebSocket() {
+    this.#updateStatus(`Connecting to WebSocket at ws://${this.#hostIP}:32188/remote-coop...`);
+
+    return new Promise((resolve, reject) => {
+      this.#ws = new WebSocket(`ws://${this.#hostIP}:32188/remote-coop`);
+      
+      this.#ws.onopen = () => {
+        this.#updateStatus("WebSocket connected");
+        
+        const joinMessage = {
+          kind: "guestJoinRequested",
+          roomID: this.#pin,
+          participantID: this.#generateParticipantID(),
+          displayName: "Direct Guest",
+          directMode: true
+        };
+
+        this.#ws.send(JSON.stringify(joinMessage));
+        resolve(this.#ws);
+      };
+
+      this.#ws.onclose = () => {
+        this.#updateStatus("WebSocket disconnected");
+        reject(new Error("WebSocket connection closed"));
+      };
+
+      this.#ws.onerror = (error) => {
+        this.#updateStatus("WebSocket error");
+        reject(error);
+      };
+    });
+  }
+
+  async #setupWebRTC() {
+    this.#updateStatus("Setting up WebRTC connection...");
+
+    this.#peerConnection = new RTCPeerConnection({
+      iceServers: [
+        { urls: ["stun:stun.l.google.com:19302"] }
+      ]
+    });
+
+    this.#peerConnection.addEventListener("icecandidate", (event) => {
+      if (event.candidate) {
+        this.#candidateGathered = true;
+        this.sendICECandidate(event.candidate);
+        this.#iceCallback?.(event.candidate);
+      }
+    });
+
+    this.#peerConnection.addEventListener("iceconnectionstatechange", () => {
+      this.#updateStatus(`ICE connection state: ${this.#peerConnection.iceConnectionState}`);
+      
+      if (this.#peerConnection.iceConnectionState === "connected" || 
+          this.#peerConnection.iceConnectionState === "completed") {
+        this.#onConnected?.();
+      }
+      
+      if (this.#peerConnection.iceConnectionState === "failed") {
+        this.#onError?.(new Error("ICE connection failed"));
+      }
+    });
+
+    this.#peerConnection.addEventListener("connectionstatechange", () => {
+      this.#updateStatus(`Connection state: ${this.#peerConnection.connectionState}`);
+    });
+
+    this.#peerConnection.addEventListener("datachannel", (event) => {
+      this.#bindDataChannel(event.channel);
+    });
+
+    const videoTransceiver = this.#peerConnection.addTransceiver("video", {
+      direction: "recvonly"
+    });
+
+    const audioTransceiver = this.#peerConnection.addTransceiver("audio", {
+      direction: "recvonly"
+    });
+
+    videoTransceiver.receiver.addEventListener("track", (event) => {
+      this.#handleRemoteTrack(event.track, event.receiver, "video");
+    });
+
+    audioTransceiver.receiver.addEventListener("track", (event) => {
+      this.#handleRemoteTrack(event.track, event.receiver, "audio");
+    });
+
+    this.#dataChannel = this.#peerConnection.createDataChannel("input", {
+      ordered: false,
+      maxRetransmits: 0
+    });
+
+    this.#bindDataChannel(this.#dataChannel);
+  }
+
+  #bindDataChannel(channel) {
+    this.#dataChannel = channel;
+    
+    channel.addEventListener("open", () => {
+      this.#updateStatus("Data channel opened");
+    });
+
+    channel.addEventListener("close", () => {
+      this.#updateStatus("Data channel closed");
+    });
+
+    channel.addEventListener("error", (error) => {
+      this.#onError?.(error);
+    });
+  }
+
+  #handleRemoteTrack(track, receiver, kind) {
+    const mediaElement = kind === "video" ? document.querySelector("#remote-video") : document.querySelector("#remote-audio");
+    
+    if (mediaElement) {
+      const stream = mediaElement.srcObject || new MediaStream();
+      if (!stream.getTracks().some(t => t.id === track.id)) {
+        stream.addTrack(track);
+      }
+      mediaElement.srcObject = stream;
+      mediaElement.autoplay = true;
+      mediaElement.playsInline = true;
+      mediaElement.muted = kind === "video";
+    }
+
+    if (kind === "video" && this.#statsCallback) {
+      this.#pollStats(receiver);
+    }
+  }
+
+  async #pollStats(receiver) {
+    try {
+      const report = await this.#peerConnection.getStats();
+      this.#statsCallback?.(report);
+    } catch (error) {
+      this.#onError?.(error);
+    }
+  }
+
+  async #closePeerConnection() {
+    if (this.#peerConnection) {
+      this.#peerConnection.close();
+      this.#peerConnection = null;
+    }
+  }
+
+  async #closeWebSocket() {
+    if (this.#ws) {
+      this.#ws.close();
+      this.#ws = null;
+    }
+  }
+
+  #generateParticipantID() {
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    
+    const bytes = new Uint8Array(16);
+    if (typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = Math.floor(Math.random() * 256);
+      }
+    }
+    
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    return Array.from(bytes, (byte, index) => {
+      const value = byte.toString(16).padStart(2, "0");
+      return [4, 6, 8, 10].includes(index) ? `-${value}` : value;
+    }).join("");
+  }
+}
+
+class DiscoveryService {
+  static async discoverByPIN(pin) {
+    const response = await fetch(`/api/discover/${pin}`, {
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    });
+
+    if (!response.ok) {
+      throw new Error("Host not found");
+    }
+
+    return response.json();
+  }
+
+  static async discoverMDNS() {
+    try {
+      const response = await fetch("/api/discover/mdns", {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      return response.json();
+    } catch {
+      return [];
+    }
+  }
+}
+
+class PINValidator {
+  static isValid(pin) {
+    return /^[A-Z0-9]{6}$/.test(pin?.trim().toUpperCase());
+  }
+
+  static normalize(pin) {
+    return pin?.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  }
+}
+
+class IPValidator {
+  static isValid(ip) {
+    const ipv4Regex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+    return ipv4Regex.test(ip?.trim());
+  }
+}
+
+
+function switchConnectionMode(event) {
+  const button = event.target.closest("[data-mode]");
+  if (!button) return;
+
+  const mode = button.dataset.mode;
+  if (mode === connectionMode) return;
+
+  connectionMode = mode;
+
+  const tabs = document.querySelectorAll(".mode-tab");
+  for (const tab of tabs) {
+    const isActive = tab.dataset.mode === mode;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+  }
+
+  if (mode === "direct") {
+    elements.joinCard.classList.add("hidden");
+    const newJoinCard = document.createElement("section");
+    newJoinCard.id = "join-card";
+    newJoinCard.className = "home";
+    newJoinCard.setAttribute("aria-label", "Direct P2P Connection");
+    
+    const header = document.createElement("header");
+    header.className = "topbar";
+    header.innerHTML = `
+      <a class="brand" href="./" aria-label="PixelNOW Remote Co-Op home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">PixelNOW</span>
+      </a>
+      <span class="mode-pill" id="network-state">DIRECT</span>
+    `;
+    
+    const entryStage = document.createElement("section");
+    entryStage.className = "entry-stage";
+    entryStage.setAttribute("aria-labelledby", "title");
+    
+    const signalMark = document.createElement("div");
+    signalMark.className = "signal-mark";
+    signalMark.setAttribute("aria-hidden", "true");
+    signalMark.innerHTML = '<span></span><span></span><span></span>';
+    
+    const directConsole = document.createElement("section");
+    directConsole.className = "join-console";
+    directConsole.setAttribute("aria-label", "Direct P2P Connection");
+    directConsole.innerHTML = `
+      <p class="eyebrow" id="invite-source">DIRECT P2P</p>
+      <h1 id="title">P2P</h1>
+      <p id="subtitle" class="sr-only">Enter PIN for direct connection.</p>
+      
+      <label class="field code-field" for="direct-pin">
+        <span>PIN</span>
+        <input id="direct-pin" inputmode="text" maxlength="6" spellcheck="false" placeholder="ABC123">
+      </label>
+
+      <label class="field" for="direct-host-ip">
+        <span>Host IP (optional)</span>
+        <input id="direct-host-ip" inputmode="numeric" maxlength="15" spellcheck="false" placeholder="192.168.1.100">
+      </label>
+
+      <div class="direct-actions">
+        <button id="direct-discover-button" type="button">Discover</button>
+        <button id="direct-manual-button" type="button">Manual IP</button>
+      </div>
+
+      <button id="direct-connect-button" type="button">Connect</button>
+      <p class="status" id="direct-status" role="status">Select PIN or enter IP</p>
+    `;
+    
+    const microStatus = document.createElement("section");
+    microStatus.className = "micro-status";
+    microStatus.setAttribute("aria-label", "Direct P2P status");
+    microStatus.innerHTML = `
+      <span id="network-detail">Direct</span>
+      <span id="gamepad-name">Controller</span>
+      <span id="gamepad-detail">Waiting</span>
+      <span id="session-state">Home</span>
+      <span id="session-detail">Idle</span>
+    `;
+    
+    entryStage.appendChild(signalMark);
+    entryStage.appendChild(directConsole);
+    newJoinCard.appendChild(header);
+    newJoinCard.appendChild(entryStage);
+    newJoinCard.appendChild(microStatus);
+    
+    document.querySelector("main").replaceChildren(newJoinCard);
+  } else {
+    const currentCard = document.querySelector("#join-card");
+    const header = currentCard.querySelector(".topbar");
+    const entryStage = currentCard.querySelector(".entry-stage");
+    const microStatus = currentCard.querySelector(".micro-status");
+    const visibleCode = currentCard.querySelector("#invite-code");
+    
+    header.querySelector(".mode-pill").textContent = "CODE";
+    header.querySelector(".brand-mark").innerHTML = "";
+    header.querySelector(".brand-text").textContent = "PixelNOW";
+    
+    entryStage.innerHTML = `
+      <div class="signal-mark" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+
+      <section class="join-console" aria-label="Join Remote Co-Op room">
+        <p class="eyebrow" id="invite-source">REMOTE CO-OP</p>
+        <h1 id="title">CO-OP</h1>
+        <p id="subtitle" class="sr-only">Enter an invite code and join.</p>
+
+        <label class="field code-field" for="invite-code">
+          <span>Code</span>
+          <input id="invite-code" inputmode="text" autocomplete="one-time-code" maxlength="128" spellcheck="false" placeholder="ABC123" aria-describedby="join-status">
+        </label>
+
+        <label class="field" for="display-name">
+          <span>Player</span>
+          <input id="display-name" autocomplete="nickname" maxlength="32" placeholder="Guest">
+        </label>
+
+        <button id="join-button" type="button">Join</button>
+        <p class="status" id="join-status" role="status">Code required</p>
+      </section>
+    `;
+    
+    document.querySelector("#join-button").addEventListener("click", joinRoom);
+    
+    if (currentCard.querySelector(".micro-status")) {
+      currentCard.replaceChildren(header, entryStage, microStatus);
+    }
+  }
+}
+
+async function discoverHostByPIN() {
+  const pinInput = connectionMode === "direct" ? document.querySelector("#direct-pin") : elements.inviteCode;
+  const statusOutput = connectionMode === "direct" ? document.querySelector("#direct-status") : elements.joinStatus;
+  const pin = (pinInput?.value || "").trim().toUpperCase();
+
+  if (!/^[A-Z0-9]{6}$/.test(pin)) {
+    if (statusOutput) statusOutput.textContent = "Invalid PIN format";
+    return;
+  }
+
+  if (statusOutput) statusOutput.textContent = "Discovering host...";
+  
+  try {
+    const response = await fetch(`/api/discover/${pin}`, {
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Discovery failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.hostIP) {
+      throw new Error("Host not found for PIN");
+    }
+
+    if (connectionMode === "direct") {
+      const hostIPInput = document.querySelector("#direct-host-ip");
+      if (hostIPInput) hostIPInput.value = data.hostIP;
+      
+      if (statusOutput) statusOutput.textContent = `Host found: ${data.hostIP}`;
+    }
+  } catch (error) {
+    if (statusOutput) statusOutput.textContent = `Discovery failed: ${error.message}`;
+  }
+}
+
+function showManualIP() {
+  const hostIPInput = connectionMode === "direct" ? document.querySelector("#direct-host-ip") : null;
+  if (hostIPInput) hostIPInput.focus();
+}
+
+async function directConnect() {
+  const pinInput = connectionMode === "direct" ? document.querySelector("#direct-pin") : null;
+  const hostIPInput = connectionMode === "direct" ? document.querySelector("#direct-host-ip") : null;
+  const statusOutput = connectionMode === "direct" ? document.querySelector("#direct-status") : null;
+  
+  const pin = (pinInput?.value || "").trim().toUpperCase();
+  const hostIP = (hostIPInput?.value || "").trim();
+  
+  if (!hostIP && !pin) {
+    if (statusOutput) statusOutput.textContent = "Enter PIN or IP";
+    return;
+  }
+
+  if (statusOutput) statusOutput.textContent = "Connecting...";
+  
+  directConnection?.disconnect();
+  
+  directConnection = new DirectGuestConnection({
+    pin: pin || null,
+    hostIP: hostIP || null,
+    onConnected: () => {
+      if (statusOutput) statusOutput.textContent = "Connected!";
+    },
+    onDisconnected: () => {
+      if (statusOutput) statusOutput.textContent = "Disconnected";
+    },
+    onError: (error) => {
+      if (statusOutput) statusOutput.textContent = `Error: ${error.message}`;
+    },
+    onSignal: (signal) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        send({
+          kind: "peerSignal",
+          roomID: pin || undefined,
+          participantID,
+          peerSignal: signal
+        });
+      }
+    },
+    onICE: (candidate) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        send({
+          kind: "peerSignal",
+          roomID: pin || undefined,
+          participantID,
+          peerSignal: {
+            kind: "iceCandidate",
+            candidate
+          }
+        });
+      }
+    },
+    onStats: (report) => {
+      try {
+        const selected = selectedRouteFromStats(report);
+        const statsSummary = inboundStatsSummary(report);
+        
+        if (elements.networkDetail) {
+          elements.networkDetail.textContent = selected || "Connected";
+        }
+        
+        if (diagnostics.selectedRoute !== selected || !diagnostics.stats.includes(statsSummary)) {
+          updateDiagnostics({
+            selectedRoute: selected,
+            stats: statsSummary
+          });
+        }
+      } catch {
+        // Ignore stats errors
+      }
+    }
+  });
+
+  const connected = await directConnection.connect();
+  
+  if (!connected) {
+    if (statusOutput) statusOutput.textContent = "Connection failed";
+    return;
+  }
+
+  const wsUrl = directConnection.wsURL;
+  
+  resetInputHistory();
+  diagnostics = initialDiagnostics();
+  updateDiagnostics({ websocket: `direct connection`, transportMode: "directOnly", latencyMode: "lowLatency" });
+  
+  const ws = new WebSocket(wsUrl);
+  socket = ws;
+  
+  elements.joinButton.disabled = true;
+  elements.joinStatus.textContent = "Connecting";
+  
+  ws.addEventListener("open", () => {
+    updateDiagnostics({ websocket: "open" });
+    send({
+      kind: "guestJoinRequested",
+      roomID: pin || undefined,
+      participantID,
+      inviteToken: pin || undefined,
+      displayName: displayName(),
+      directMode: true
+    });
+    
+    if (elements.joinCard) elements.joinCard.classList.add("hidden");
+    if (elements.sessionCard) elements.sessionCard.classList.remove("hidden");
+    
+    setState("Waiting", "Host", false);
+  });
+
+  ws.addEventListener("message", (event) => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      updateDiagnostics({ websocket: "invalid message" });
+      setNetworkState("Error", "Broker");
+      return;
+    }
+    
+    handleMessage(message).catch((error) => {
+      setNetworkState("Error", "Peer");
+      updateDiagnostics({ signaling: error.message || "WebRTC negotiation failed" });
+    });
+  });
+
+  ws.addEventListener("close", () => {
+    stopPolling();
+    updateDiagnostics({ websocket: "closed" });
+    if (!hasTerminalState()) setState("Closed", "Offline", false);
+    elements.joinButton.disabled = false;
+  });
+
+  ws.addEventListener("error", () => updateDiagnostics({ websocket: "error" }));
 }
