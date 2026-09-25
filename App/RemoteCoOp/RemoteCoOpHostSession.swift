@@ -49,10 +49,12 @@ public actor RemoteCoOpHostSession {
     private var participants: [RemoteCoOpParticipant] = []
     private let inviteSigner: RemoteCoOpInviteTokenSigner
     private let inputRouter = RemoteCoOpInputRouter()
+    private let isDirectMode: Bool
 
-    public init(preferences: RemoteCoOpPreferences = RemoteCoOpPreferencesStore.load(), inviteSigner: RemoteCoOpInviteTokenSigner = RemoteCoOpInviteTokenSigner()) {
+    public init(preferences: RemoteCoOpPreferences = RemoteCoOpPreferencesStore.load(), inviteSigner: RemoteCoOpInviteTokenSigner = RemoteCoOpInviteTokenSigner(), isDirectMode: Bool = false) {
         self.preferences = preferences
         self.inviteSigner = inviteSigner
+        self.isDirectMode = isDirectMode
     }
 
     public func updatePreferences(_ preferences: RemoteCoOpPreferences) async {
@@ -67,6 +69,9 @@ public actor RemoteCoOpHostSession {
     public func startInvite(applicationID: String = "", title: String = "", joinBaseURL: URL? = nil, signalingServerURL: String = "", lifetimeSeconds: TimeInterval = 3_600) throws -> RemoteCoOpInvite {
         guard preferences.isAvailable else { throw RemoteCoOpHostSessionError.disabled }
         guard preferences.effectiveReservedGuestSlots > 0 else { throw RemoteCoOpHostSessionError.noAvailablePlayerSlots }
+        if isDirectMode && preferences.transportMode != .directOnly && preferences.transportMode != .automatic {
+            throw RemoteCoOpHostSessionError.disabled
+        }
         let now = Date()
         let inviteID = UUID()
         let code = Self.makeInviteCode()

@@ -24,7 +24,7 @@ public actor UPnPManager {
         }
     }
     
-    public enum UPnPProtocol: String, Codable {
+    public enum UPnPProtocol: String, Codable, Sendable {
         case tcp
         case udp
     }
@@ -36,16 +36,16 @@ public actor UPnPManager {
     
     public init() {}
     
-    public func setEnabled(_ enabled: Bool) {
+    public func setEnabled(_ enabled: Bool) async {
         lock.withLock { self.enabled = enabled }
     }
     
-    public func isEnabled() -> Bool {
+    public func isEnabled() async -> Bool {
         lock.withLock { self.enabled }
     }
     
     public func discoverRouter() async throws {
-        guard isEnabled() else { throw Error.disabledByUser }
+        guard await isEnabled() else { throw Error.disabledByUser }
         
         // Stub implementation for discovery
         // In production, would use SSDP to discover UPnP routers
@@ -54,7 +54,7 @@ public actor UPnPManager {
     }
     
     public func mapPort(_ port: UInt16, protocol: UPnPProtocol) async throws {
-        guard isEnabled() else { throw Error.disabledByUser }
+        guard await isEnabled() else { throw Error.disabledByUser }
         guard router != nil else { throw Error.noRouterFound }
         
         // Stub implementation for port mapping
@@ -64,7 +64,7 @@ public actor UPnPManager {
         }
     }
     
-    public func clearAllMappings() {
+    public func clearAllMappings() async {
         lock.withLock {
             mappedPorts.removeAll()
             router = nil
