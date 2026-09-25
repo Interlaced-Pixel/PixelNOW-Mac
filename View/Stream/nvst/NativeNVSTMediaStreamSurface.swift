@@ -392,6 +392,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var sessionLimit: NativeNVSTStreamSessionSidebarLimit?
     @State private var sessionStartedAt: Date?
     @State private var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
+    @State private var remoteCoOpDirectHostSessionManager: RemoteCoOpDirectHostSessionManager?
     @State private var networkGovernor: NativeNVSTNetworkGovernor?
     @State private var networkPathTask: Task<Void, Never>?
     @State private var networkPathAvailable = true
@@ -1951,16 +1952,29 @@ struct NativeNVSTMediaStreamSurface: View {
                 }
                 NativeNVSTStreamHUDActionRow(
                     title: "Create Invite",
-                    subtitle: "Unavailable with native NVST",
+                    subtitle: remoteCoOpDirectHostSessionManager != nil ? "Ready" : "Starting...",
                     systemName: "person.badge.plus",
-                    isActive: false,
+                    isActive: remoteCoOpDirectHostSessionManager != nil,
                     isDisabled: !sidebarCapabilities.supports(.remoteCoOp),
-                    action: {}
+                    action: { Task { await handleCreateInvite() } }
                 )
                 nativeHUDDetailRow(label: "Slots", value: "\(remoteCoOpPreferences.effectiveReservedGuestSlots)")
                 nativeHUDDetailRow(label: "Quality", value: remoteCoOpPreferences.qualityPreset.label)
                 nativeHUDDetailRow(label: "Latency", value: remoteCoOpPreferences.latencyMode.label)
             }
+        }
+    }
+    
+    private func handleCreateInvite() async {
+        do {
+            let manager = RemoteCoOpDirectHostSessionManager()
+            try await manager.start()
+            self.remoteCoOpDirectHostSessionManager = manager
+            try await manager.startInvite(applicationID: configuration.applicationID, title: configuration.title)
+            print("Invite created successfully")
+        } catch {
+            print("Failed to create invite: \(error)")
+            WebRTCMediaTelemetry.capture("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
         }
     }
 

@@ -54,6 +54,25 @@ public actor RemoteCoOpDirectHostSessionManager {
         return result
     }
     
+    public func startInvite(applicationID: String = "", title: String = "") async throws -> RemoteCoOpInvite {
+        let preferences = RemoteCoOpPreferences(
+            isAlphaOptedIn: true,
+            isEnabled: true,
+            reservedGuestSlots: directPreferences.effectiveReservedGuestSlots,
+            transportMode: .automatic,
+            qualityPreset: directPreferences.qualityPreset,
+            latencyMode: directPreferences.latencyMode,
+            requireHostApproval: true,
+            signalingServerURL: "wss://\(directPreferences.signalingServerURL)",
+            guestJoinBaseURL: "https://\(directPreferences.signalingServerURL)",
+            hideGuestInviteDetails: false
+        )
+        
+        let hostSession = RemoteCoOpHostSession(preferences: preferences)
+        let invite = try await hostSession.startInvite(applicationID: applicationID, title: title)
+        return invite
+    }
+    
     public func validatePIN(_ pin: String, from clientIP: String) throws -> Bool {
         var pinAuthenticator = RemoteCoOpPINAuthenticator()
         return try pinAuthenticator.validate(pin, from: clientIP)

@@ -11,6 +11,12 @@ public struct RemoteCoOpDirectPreferences: Codable, Equatable, Sendable {
     public var nvstLocalPort: UInt16
     public var nvstHandoffConfig: RemoteCoOpNVSTHandoffConfig
     
+    public var effectiveReservedGuestSlots: Int { 3 }
+    public var qualityPreset: RemoteCoOpQualityPreset { .p720f60 }
+    public var latencyMode: RemoteCoOpLatencyMode { .lowLatency }
+    public var signalingServerURL: String { "wss://localhost:\(signalingPort)/remote-coop-direct" }
+    public var guestJoinBaseURL: String { "https://localhost:\(signalingPort)" }
+    
     public init(connectionMode: RemoteCoOpDirectConnectionMode = .autoDiscover,
                 enableUPnP: Bool = true,
                 enableBonjour: Bool = true,
