@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const args = new Set(process.argv.slice(2));
 const root = dirname(fileURLToPath(import.meta.url));
 const brokerScript = join(root, "server", "broker.mjs");
+const directBrokerScript = join(root, "server", "direct-broker.mjs");
 const turnScript = join(root, "turn", "turn-server.mjs");
 const productionHost = "198.12.95.48";
 
@@ -29,6 +30,7 @@ let stopping = false;
 sendPanelMessage({ kind: "remoteCoOpRunnerStarted" });
 startChild("turn", [turnScript]);
 startChild("broker", [brokerScript], { ipc: true });
+startChild("direct-broker", [directBrokerScript], { ipc: true });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => stopAll(signal, 0));
@@ -49,6 +51,9 @@ function buildConfig() {
   const brokerPort = integerEnv("PIXELNOW_REMOTE_COOP_PORT", 32188);
   const brokerPortCandidates = portCandidates(brokerPort, environmentValue("PIXELNOW_REMOTE_COOP_PORT_ALTERNATES"));
   const brokerBindHost = stringEnv("PIXELNOW_REMOTE_COOP_BIND_HOST", publicHost);
+  const directBrokerPort = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_PORT", 32189);
+  const directBrokerPortCandidates = portCandidates(directBrokerPort, environmentValue("PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES"));
+  const directBrokerBindHost = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST", publicHost);
   const turnListeningIP = stringEnv("PIXELNOW_REMOTE_COOP_TURN_LISTENING_IP", publicHost);
   const turnURLs = stringEnv("PIXELNOW_REMOTE_COOP_TURN_URLS", buildTurnURLs(publicHost, turnPort, turnTLSPort, tlsEnabled));
   const env = {
@@ -63,12 +68,17 @@ function buildConfig() {
     PIXELNOW_REMOTE_COOP_TURN_URLS: turnURLs,
     PIXELNOW_REMOTE_COOP_TURN_TTL_SECONDS: stringEnv("PIXELNOW_REMOTE_COOP_TURN_TTL_SECONDS", "3600"),
     PIXELNOW_REMOTE_COOP_BROKER_CERT: brokerCertificatePath,
-    PIXELNOW_REMOTE_COOP_BROKER_KEY: brokerKeyPath
+    PIXELNOW_REMOTE_COOP_BROKER_KEY: brokerKeyPath,
+    PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST: directBrokerBindHost,
+    PIXELNOW_REMOTE_COOP_DIRECT_PORT: String(directBrokerPort),
+    PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES: directBrokerPortCandidates.filter(candidate => candidate !== directBrokerPort).join(","),
+    PIXELNOW_REMOTE_COOP_DIRECT_CERT: brokerCertificatePath,
+    PIXELNOW_REMOTE_COOP_DIRECT_KEY: brokerKeyPath
   };
   if (isLoopbackHost(env.PIXELNOW_REMOTE_COOP_TURN_PUBLIC_HOST) && !environmentValue("PIXELNOW_REMOTE_COOP_TURN_DEV_ALLOW_LOOPBACK")) {
     env.PIXELNOW_REMOTE_COOP_TURN_DEV_ALLOW_LOOPBACK = "1";
   }
-  return { publicHost, generatedSecret, sharedSecret, turnURLs, brokerBindHost, brokerPort, brokerPortCandidates, brokerTLSEnabled, turnListeningIP, env };
+  return { publicHost, generatedSecret, sharedSecret, turnURLs, brokerBindHost, brokerPort, brokerPortCandidates, brokerTLSEnabled, turnListeningIP, directBrokerBindHost, directBrokerPort, directBrokerPortCandidates, env };
 }
 
 function startChild(label, scriptArgs, options = {}) {
@@ -79,6 +89,9 @@ function startChild(label, scriptArgs, options = {}) {
     child.on("message", message => {
       if (label === "broker" && message?.kind === "remoteCoOpBrokerListening") {
         printBrokerEndpoints(config, message.port, message.secure === true);
+        sendPanelMessage(brokerListeningMessage(config, message));
+      } else if (label === "direct-broker" && message?.kind === "remoteCoOpDirectBrokerListening") {
+        printDirectBrokerEndpoints(config, message.port, message.secure === true);
         sendPanelMessage(brokerListeningMessage(config, message));
       } else if (label === "broker" && message?.kind === "remoteCoOpBrokerStats") {
         sendPanelMessage(message);
@@ -147,6 +160,7 @@ function printSummary(config) {
   console.log("PixelNOW Remote Co-Op all-server runner");
   console.log(`  broker bind: ${config.brokerBindHost}:${config.brokerPort}${alternatePortSummary(config.brokerPortCandidates)}`);
   console.log(`  broker TLS: ${config.brokerTLSEnabled ? "enabled" : "disabled"}`);
+  console.log(`  direct-broker bind: ${config.directBrokerBindHost}:${config.directBrokerPort}${alternatePortSummary(config.directBrokerPortCandidates)}`);
   console.log(`  turn listen: ${config.turnListeningIP}`);
   console.log(`  public host: ${config.publicHost}`);
   console.log(`  TURN URLs: ${config.turnURLs}`);
@@ -167,6 +181,10 @@ function brokerListeningMessage(config, message) {
     browserURL: `${secure ? "https" : "http"}://${config.publicHost}:${message.port}/`,
     websocketURL: `${secure ? "wss" : "ws"}://${config.publicHost}:${message.port}/remote-coop`
   };
+}
+
+function printDirectBrokerEndpoints(config, directBrokerPort, secure) {
+  console.log(`  direct websocket URL: ${secure ? "wss" : "ws"}://${config.publicHost}:${directBrokerPort}/remote-coop-direct`);
 }
 
 function alternatePortSummary(candidates) {
@@ -217,8 +235,9 @@ function printHelp() {
 
 Starts all Remote Co-Op server-side Node processes and binds them to the
 production public IP by default:
-  - broker: PIXELNOW_REMOTE_COOP_BIND_HOST=198.12.95.48
-  - TURN:   PIXELNOW_REMOTE_COOP_TURN_LISTENING_IP=198.12.95.48
+  - broker:        PIXELNOW_REMOTE_COOP_BIND_HOST=198.12.95.48
+  - direct-broker: PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST=198.12.95.48
+  - TURN:          PIXELNOW_REMOTE_COOP_TURN_LISTENING_IP=198.12.95.48
 
 The runner defaults to 198.12.95.48 for production URLs. Override it with
 PIXELNOW_REMOTE_COOP_PUBLIC_HOST for LAN deployments, or set the lower level
@@ -229,6 +248,8 @@ Useful environment:
   PIXELNOW_REMOTE_COOP_PUBLIC_HOST          Public DNS/IP to print and use for TURN URLs, default 198.12.95.48
   PIXELNOW_REMOTE_COOP_PORT                 Broker HTTP/WebSocket port, default 32188
   PIXELNOW_REMOTE_COOP_PORT_ALTERNATES      Comma-separated fallback broker ports, default next two ports
+  PIXELNOW_REMOTE_COOP_DIRECT_PORT          Direct broker WebSocket port, default 32189
+  PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES Comma-separated fallback direct broker ports
   PIXELNOW_REMOTE_COOP_BROKER_CERT          HTTPS certificate for broker; defaults to TURN cert
   PIXELNOW_REMOTE_COOP_BROKER_KEY           HTTPS private key for broker; defaults to TURN key
   PIXELNOW_REMOTE_COOP_TURN_SHARED_SECRET   Shared TURN REST secret; generated if omitted
