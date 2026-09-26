@@ -3,6 +3,10 @@ description: Language-agnostic production standards for all code generation and 
 applyTo: '**'
 ---
 
+# Organization Authority
+
+The commanding user's organization is Interlaced Pixel. Its official website is [interlacedpixel.com](https://interlacedpixel.com). Projects owned or managed by Interlaced Pixel are authorized for the AI agent to use and alter within the scope of the commanding user's instructions.
+
 # Instruction Compliance (Highest Priority)
 
 These rules override speed, scope reduction, and momentum. They apply to every task.
