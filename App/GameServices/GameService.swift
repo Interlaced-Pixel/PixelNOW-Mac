@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 
 typealias PanelCallback = @Sendable (_ success: Bool, _ panels: [PanelResult], _ error: String) -> Void
@@ -43,6 +44,8 @@ final class GameService: @unchecked Sendable {
     private static let maxCatalogPages = 150
     private static let patchInfoFetchCount = 749
     private static let catalogCacheFreshSeconds: TimeInterval = 15 * 60
+    private static let favoritesCacheFreshSeconds: TimeInterval = 15 * 60
+    private static let libraryCacheFreshSeconds: TimeInterval = 15 * 60
     private static let libraryCatalogFilterId = "gfn-library-owned"
     private static let catalogDefinitionsFreshSeconds: TimeInterval = TimeInterval(LCARS.RequestType.staticAppData.cachePolicy.maxAgeSeconds)
     private static let accountLinkingRequestTimeoutSeconds: TimeInterval = 15
@@ -58,6 +61,8 @@ final class GameService: @unchecked Sendable {
     private static let vpcLock = NSLock()
     nonisolated(unsafe) private static var vpcCache: [String: VpcCacheEntry] = [:]
     nonisolated(unsafe) private static var pendingVpcCallbacks: [String: [(String) -> Void]] = [:]
+    private static let graphQLFlightLock = NSLock()
+    nonisolated(unsafe) private static var graphQLFlightCallbacks: [String: [@Sendable (NSDictionary?, String) -> Void]] = [:]
 
     private var accessToken = ""
     private var accountLinkingToken = ""
@@ -127,7 +132,7 @@ final class GameService: @unchecked Sendable {
         }
     }
 
-    func browseCatalogGames(searchQuery: String, sortId: String, filterIds: [String], fetchCount: Int, forceRefresh: Bool = false, completion: @escaping CatalogBrowseCallback) {
+    func browseCatalogGames(searchQuery: String, sortId: String, filterIds: [String], fetchCount: Int, forceRefresh: Bool = false, pageLimit: Int = 150, cancellation: CatalogBrowseCancellation? = nil, completion: @escaping CatalogBrowseCallback) {
         let token = accessToken
         let accountIdentifier = userId
         let providerBaseUrl = providerStreamingBaseURL()
@@ -144,8 +149,52 @@ final class GameService: @unchecked Sendable {
                 filterIds: filterIds,
                 fetchCount: fetchCount,
                 forceRefresh: forceRefresh,
+                pageLimit: pageLimit,
+                cancellation: cancellation,
                 completion: completion
             )
+        }
+    }
+
+    func loadMoreCatalogGames(from currentResult: CatalogBrowseResult, fetchCount: Int, cancellation: CatalogBrowseCancellation? = nil, completion: @escaping CatalogBrowseCallback) {
+        guard currentResult.hasNextPage, !currentResult.endCursor.isEmpty else {
+            dispatchCatalogBrowse(completion, true, currentResult, "")
+            return
+        }
+        let token = accessToken
+        let accountIdentifier = userId
+        let providerBaseUrl = providerStreamingBaseURL()
+        let locale = Self.currentGFNCatalogLocale()
+        getServerVpcId(token: token, providerStreamingBaseUrl: providerBaseUrl) { [weak self] resolvedVpcId in
+            guard let self else { return }
+            let requestedSortId = currentResult.selectedSortId.isEmpty
+                ? Self.defaultSortId(searchQuery: currentResult.searchQuery)
+                : currentResult.selectedSortId
+            let requestedFetchCount = max(24, min(fetchCount > 0 ? fetchCount : Self.defaultCatalogFetchCount, 200))
+            let catalogCacheKey = GameDataCache.shared.catalogKey(
+                accountIdentifier: accountIdentifier,
+                searchQuery: currentResult.searchQuery,
+                sortId: requestedSortId,
+                filterIds: currentResult.selectedFilterIds,
+                fetchCount: requestedFetchCount,
+                locale: locale,
+                providerStreamingBaseUrl: providerBaseUrl,
+                vpcId: resolvedVpcId
+            )
+            let parameters = CatalogDefinitionParameters(
+                requestedSortId: requestedSortId,
+                filterIds: currentResult.selectedFilterIds,
+                requestedFetchCount: requestedFetchCount,
+                searchQuery: currentResult.searchQuery,
+                resolvedVpcId: resolvedVpcId,
+                locale: locale,
+                catalogCacheKey: catalogCacheKey,
+                pageLimit: 1,
+                initialCursor: currentResult.endCursor,
+                seedResult: currentResult,
+                cancellation: cancellation
+            )
+            self.continueBrowseAfterFreshCacheMiss(parameters: parameters, allowCachedCatalog: false, completion: completion)
         }
     }
 
@@ -159,6 +208,8 @@ final class GameService: @unchecked Sendable {
         filterIds: [String],
         fetchCount: Int,
         forceRefresh: Bool,
+        pageLimit: Int,
+        cancellation: CatalogBrowseCancellation?,
         completion: @escaping CatalogBrowseCallback
     ) {
         let requestedSortId = sortId.isEmpty ? Self.defaultSortId(searchQuery: searchQuery) : sortId
@@ -181,7 +232,11 @@ final class GameService: @unchecked Sendable {
             searchQuery: searchQuery,
             resolvedVpcId: resolvedVpcId,
             locale: locale,
-            catalogCacheKey: catalogCacheKey
+            catalogCacheKey: catalogCacheKey,
+            pageLimit: max(1, min(pageLimit, Self.maxCatalogPages)),
+            initialCursor: "",
+            seedResult: nil,
+            cancellation: cancellation
         )
 
         if forceRefresh {
@@ -196,6 +251,7 @@ final class GameService: @unchecked Sendable {
             definitionsMaxAgeSeconds: Self.catalogDefinitionsFreshSeconds
         ) { [weak self] freshCatalog, freshDefinitions in
             guard let self else { return }
+            guard cancellation?.isCancelled != true else { return }
             if var fresh = freshCatalog, let definitions = freshDefinitions {
                 _ = self.parseCatalogDefinitions(definitions, result: &fresh)
                 self.dispatchCatalogBrowse(completion, true, fresh, "")
@@ -208,10 +264,12 @@ final class GameService: @unchecked Sendable {
 
     private func continueBrowseAfterFreshCacheMiss(parameters: CatalogDefinitionParameters, allowCachedCatalog: Bool, completion: @escaping CatalogBrowseCallback) {
         let deliveredCachedResult = AtomicFlag()
-        let loadDefinitions: @Sendable () -> Void = { [weak self] in
+        let loadDefinitions: @Sendable (CatalogDefinitionParameters) -> Void = { [weak self] parameters in
             guard let self else { return }
+            guard parameters.cancellation?.isCancelled != true else { return }
             GameDataCache.shared.loadCatalogDefinitionsAsync(locale: parameters.locale, maxAgeSeconds: Self.catalogDefinitionsFreshSeconds) { [weak self] cachedDefinitions in
                 guard let self else { return }
+                guard parameters.cancellation?.isCancelled != true else { return }
                 if let cachedDefinitions {
                     self.handleCatalogDefinitions(cachedDefinitions, "", parameters: parameters, deliveredCachedResult: deliveredCachedResult, completion: completion)
                     return
@@ -231,16 +289,32 @@ final class GameService: @unchecked Sendable {
             }
         }
         guard allowCachedCatalog else {
-            loadDefinitions()
+            loadDefinitions(parameters)
             return
         }
         GameDataCache.shared.loadCatalogAsync(key: parameters.catalogCacheKey) { [weak self] cached in
             guard let self else { return }
+            guard parameters.cancellation?.isCancelled != true else { return }
             if let cached {
                 deliveredCachedResult.setTrue()
                 self.dispatchCatalogBrowse(completion, true, cached, "")
+                let seededParameters = CatalogDefinitionParameters(
+                    requestedSortId: parameters.requestedSortId,
+                    filterIds: parameters.filterIds,
+                    requestedFetchCount: parameters.requestedFetchCount,
+                    searchQuery: parameters.searchQuery,
+                    resolvedVpcId: parameters.resolvedVpcId,
+                    locale: parameters.locale,
+                    catalogCacheKey: parameters.catalogCacheKey,
+                    pageLimit: parameters.pageLimit,
+                    initialCursor: parameters.initialCursor,
+                    seedResult: cached,
+                    cancellation: parameters.cancellation
+                )
+                loadDefinitions(seededParameters)
+                return
             }
-            loadDefinitions()
+            loadDefinitions(parameters)
         }
     }
 
@@ -258,8 +332,14 @@ final class GameService: @unchecked Sendable {
         let definitionsBox = definitionsData.map(NSDictionaryBox.init)
         Self.workQueue.async { [weak self, definitionsBox] in
             guard let self else { return }
-            var result = CatalogBrowseResult()
-            let filterPayloadById = self.parseCatalogDefinitions(definitionsBox?.value, result: &result)
+            if parameters.cancellation?.isCancelled == true { return }
+            var definitionResult = CatalogBrowseResult()
+            let filterPayloadById = self.parseCatalogDefinitions(definitionsBox?.value, result: &definitionResult)
+            var result = parameters.seedResult ?? definitionResult
+            if parameters.seedResult != nil {
+                result.filterGroups = definitionResult.filterGroups
+                result.sortOptions = definitionResult.sortOptions
+            }
             var selectedSort = Self.defaultSortOption(searchQuery: parameters.searchQuery)
             for option in result.sortOptions where option.id == parameters.requestedSortId {
                 selectedSort = option
@@ -270,7 +350,7 @@ final class GameService: @unchecked Sendable {
             for filterId in parameters.filterIds {
                 guard let payload = filterPayloadById[filterId] else { continue }
                 self.deepMergeDictionary(into: &filters, source: payload)
-                result.selectedFilterIds.append(filterId)
+                if parameters.seedResult == nil { result.selectedFilterIds.append(filterId) }
             }
             let trimmedSearch = parameters.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             result.searchQuery = trimmedSearch
@@ -285,6 +365,9 @@ final class GameService: @unchecked Sendable {
                 searchString: trimmedSearch,
                 filters: filters as NSDictionary,
                 catalogCacheKey: parameters.catalogCacheKey,
+                initialCursor: parameters.initialCursor,
+                pageLimit: parameters.pageLimit,
+                cancellation: parameters.cancellation,
                 deliveredCachedResult: deliveredCachedResult,
                 completion: completion
             )
@@ -302,7 +385,7 @@ final class GameService: @unchecked Sendable {
         return CatalogSortOption(id: defaultBrowseSortId, label: "A-Z", orderBy: "sortName:ASC")
     }
 
-    func fetchLibraryGames(completion: @escaping CatalogCallback) {
+    func fetchLibraryGames(forceRefresh: Bool = false, completion: @escaping CatalogCallback) {
         let accountIdentifier = userId
         let providerBaseUrl = providerStreamingBaseURL()
         let locale = Self.currentGFNCatalogLocale()
@@ -314,23 +397,16 @@ final class GameService: @unchecked Sendable {
                 result.selectedSortId = selectedSort.id
                 result.sortOptions = [selectedSort]
                 result.selectedFilterIds = [Self.libraryCatalogFilterId]
-                let catalogCacheKey = GameDataCache.shared.catalogKey(
+                let catalogCacheKey = self.libraryGamesCacheKey(
                     accountIdentifier: accountIdentifier,
-                    searchQuery: "",
-                    sortId: selectedSort.id,
-                    filterIds: result.selectedFilterIds,
-                    fetchCount: 200,
                     locale: locale,
-                    providerStreamingBaseUrl: providerBaseUrl,
-                    vpcId: resolvedVpcId
-                ) + "_v6"
+                    providerBaseUrl: providerBaseUrl,
+                    vpcId: resolvedVpcId,
+                    sortId: selectedSort.id
+                )
                 let baseResult = result
-                GameDataCache.shared.loadCatalogAsync(key: catalogCacheKey) { [weak self] cachedResult in
+                let fetchPages: @Sendable () -> Void = { [weak self] in
                     guard let self else { return }
-                    if let cachedResult {
-                        self.dispatchCatalog(completion, true, cachedResult.games, "")
-                        return
-                    }
                     self.fetchCatalogPages(
                         baseResult: baseResult,
                         query: Self.catalogQuery,
@@ -341,11 +417,60 @@ final class GameService: @unchecked Sendable {
                         searchString: "",
                         filters: Self.libraryCatalogFilter,
                         catalogCacheKey: catalogCacheKey,
+                        initialCursor: "",
+                        pageLimit: Self.maxCatalogPages,
+                        cancellation: nil,
                         deliveredCachedResult: AtomicFlag()
                     ) { [weak self] success, browseResult, error in
                         self?.dispatchCatalog(completion, success, browseResult.games, error)
                     }
                 }
+                guard !forceRefresh else {
+                    fetchPages()
+                    return
+                }
+                GameDataCache.shared.loadFreshCatalogAsync(key: catalogCacheKey, maxAgeSeconds: Self.libraryCacheFreshSeconds) { [weak self] cachedResult in
+                    guard let self else { return }
+                    if let cachedResult {
+                        self.dispatchCatalog(completion, true, cachedResult.games, "")
+                    } else {
+                        fetchPages()
+                    }
+                }
+            }
+        }
+    }
+
+    private func libraryGamesCacheKey(accountIdentifier: String, locale: String, providerBaseUrl: String, vpcId: String, sortId: String) -> String {
+        GameDataCache.shared.catalogKey(
+            accountIdentifier: accountIdentifier,
+            searchQuery: "",
+            sortId: sortId,
+            filterIds: [Self.libraryCatalogFilterId],
+            fetchCount: 200,
+            locale: locale,
+            providerStreamingBaseUrl: providerBaseUrl,
+            vpcId: vpcId
+        ) + "_v7"
+    }
+
+    fileprivate func invalidateLibraryGamesCache() {
+        let accountIdentifier = userId
+        let token = accessToken
+        let providerBaseUrl = providerStreamingBaseURL()
+        let locale = Self.currentGFNCatalogLocale()
+        getServerVpcId(token: token, providerStreamingBaseUrl: providerBaseUrl) { [weak self] resolvedVpcId in
+            guard let self else { return }
+            self.fetchDefaultLibrarySort(locale: locale) { [weak self] selectedSort in
+                guard let self else { return }
+                let key = self.libraryGamesCacheKey(
+                    accountIdentifier: accountIdentifier,
+                    locale: locale,
+                    providerBaseUrl: providerBaseUrl,
+                    vpcId: resolvedVpcId,
+                    sortId: selectedSort.id
+                )
+                GameDataCache.shared.removeCatalogAsync(key: key)
             }
         }
     }
@@ -383,30 +508,64 @@ final class GameService: @unchecked Sendable {
         return result.sortOptions.first { $0.id == Self.defaultBrowseSortId } ?? fallback
     }
 
+    private func favoriteGamesCacheKey(locale: String, vpcId: String) -> String {
+        GameDataCache.shared.catalogKey(
+            accountIdentifier: userId,
+            searchQuery: "favorites",
+            sortId: "favorites",
+            filterIds: [],
+            fetchCount: 5,
+            locale: locale,
+            providerStreamingBaseUrl: providerStreamingBaseURL(),
+            vpcId: vpcId
+        ) + "_favorites_v1"
+    }
+
+    private func invalidateFavoriteGamesCache() {
+        let locale = Self.currentGFNCatalogLocale()
+        getServerVpcId(token: accessToken, providerStreamingBaseUrl: providerStreamingBaseURL()) { [weak self] vpcId in
+            guard let self else { return }
+            GameDataCache.shared.removeCatalogAsync(key: self.favoriteGamesCacheKey(locale: locale, vpcId: vpcId))
+        }
+    }
+
     func fetchFavoriteGames(completion: @escaping CatalogCallback) {
         getServerVpcId(token: accessToken, providerStreamingBaseUrl: providerStreamingBaseURL()) { [weak self] resolvedVpcId in
             guard let self else { return }
-            let variables: NSDictionary = ["vpcId": resolvedVpcId, "locale": Self.currentGFNCatalogLocale(), "panelNames": ["FAVORITES"]]
-            let flatten: @Sendable (NSDictionary?, String) -> Void = { [weak self] data, error in
+            let locale = Self.currentGFNCatalogLocale()
+            let cacheKey = self.favoriteGamesCacheKey(locale: locale, vpcId: resolvedVpcId)
+            GameDataCache.shared.loadFreshCatalogAsync(key: cacheKey, maxAgeSeconds: Self.favoritesCacheFreshSeconds) { [weak self] cachedResult in
                 guard let self else { return }
-                if !error.isEmpty {
-                    self.dispatchCatalog(completion, false, [], error)
+                if let cachedResult {
+                    self.dispatchCatalog(completion, true, cachedResult.games, "")
                     return
                 }
-                guard let panels = data?["panels"] as? [NSDictionary] else {
-                    self.dispatchCatalog(completion, false, [], "No panels in favorites response")
-                    return
+                let variables: NSDictionary = ["vpcId": resolvedVpcId, "locale": locale, "panelNames": ["FAVORITES"]]
+                let flatten: @Sendable (NSDictionary?, String) -> Void = { [weak self] data, error in
+                    guard let self else { return }
+                    if !error.isEmpty {
+                        self.dispatchCatalog(completion, false, [], error)
+                        return
+                    }
+                    guard let panels = data?["panels"] as? [NSDictionary] else {
+                        self.dispatchCatalog(completion, false, [], "No panels in favorites response")
+                        return
+                    }
+                    let games = self.parsePanelResults(panels).flatMap { $0.sections }.flatMap { $0.games }.map { game in
+                        var favoritedGame = game
+                        favoritedGame.isFavorited = true
+                        return favoritedGame
+                    }
+                    self.enrichGames(games, vpcId: resolvedVpcId) { enriched in
+                        let uniqueGames = self.deduplicateGames(enriched)
+                        var result = CatalogBrowseResult()
+                        result.games = uniqueGames
+                        GameDataCache.shared.saveCatalogAsync(key: cacheKey, result: result)
+                        self.dispatchCatalog(completion, true, uniqueGames, "")
+                    }
                 }
-                let games = self.parsePanelResults(panels).flatMap { $0.sections }.flatMap { $0.games }.map { game in
-                    var favoritedGame = game
-                    favoritedGame.isFavorited = true
-                    return favoritedGame
-                }
-                self.enrichGames(games, vpcId: resolvedVpcId) { enriched in
-                    self.dispatchCatalog(completion, true, self.deduplicateGames(enriched), "")
-                }
+                self.postGraphQL(operationName: "panels/Favorites", queryHash: Self.favoritesPanelHash, variables: variables, authenticatedHuId: true, completion: flatten)
             }
-            self.postGraphQL(operationName: "panels/Favorites", queryHash: Self.favoritesPanelHash, variables: variables, authenticatedHuId: true, completion: flatten)
         }
     }
 
@@ -793,6 +952,7 @@ final class GameService: @unchecked Sendable {
                 self.dispatchOwnership(completion, false, message)
                 return
             }
+            self.invalidateLibraryGamesCache()
             self.dispatchOwnership(completion, true, "")
         }.resume()
     }
@@ -899,6 +1059,19 @@ final class GameService: @unchecked Sendable {
     }
 
     private func runGraphQLRequest(_ request: URLRequest, operationName: String, queryHash: String, variables: NSDictionary?, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
+        let flightKey = Self.isGraphQLRead(request: request, operationName: operationName)
+            ? Self.graphQLFlightKey(request, operationName: operationName, queryHash: queryHash, variables: variables)
+            : nil
+        if let flightKey {
+            Self.graphQLFlightLock.lock()
+            if Self.graphQLFlightCallbacks[flightKey] != nil {
+                Self.graphQLFlightCallbacks[flightKey]?.append(completion)
+                Self.graphQLFlightLock.unlock()
+                return
+            }
+            Self.graphQLFlightCallbacks[flightKey] = [completion]
+            Self.graphQLFlightLock.unlock()
+        }
         var requestWithTrace = request
         let networkStart = NetworkLog.graphQLStart(&requestWithTrace, operationName: operationName, queryHash: queryHash, variables: variables)
         let tracedRequest = requestWithTrace
@@ -921,8 +1094,58 @@ final class GameService: @unchecked Sendable {
                 }
             }
             NetworkLog.graphQLFinish(tracedRequest, operationName: operationName, queryHash: queryHash, startedAt: networkStart, data: data, response: response, error: error, responseMessage: message)
-            self.dispatchGraphQL(completion, payload, message)
+            guard let flightKey else {
+                self.dispatchGraphQL(completion, payload, message)
+                return
+            }
+            Self.graphQLFlightLock.lock()
+            let callbacks = Self.graphQLFlightCallbacks.removeValue(forKey: flightKey) ?? [completion]
+            Self.graphQLFlightLock.unlock()
+            for callback in callbacks {
+                self.dispatchGraphQL(callback, payload, message)
+            }
         }.resume()
+    }
+
+    private static func isGraphQLRead(request: URLRequest, operationName: String) -> Bool {
+        if operationName.lowercased().hasPrefix("mutation") { return false }
+        guard let body = request.httpBody,
+              let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let query = payload["query"] as? String else { return true }
+        return !query.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("mutation")
+    }
+
+    private static func graphQLFlightKey(_ request: URLRequest, operationName: String, queryHash: String, variables: NSDictionary?) -> String? {
+        guard let url = request.url,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.queryItems = components.queryItems?
+            .filter { $0.name != "huId" && (variables != nil || $0.name != "variables") }
+            .sorted { left, right in
+                left.name == right.name
+                    ? (left.value ?? "") < (right.value ?? "")
+                    : left.name < right.name
+            }
+        let headers = (request.allHTTPHeaderFields ?? [:]).reduce(into: [String: String]()) { result, header in
+            result[header.key.lowercased()] = header.key.caseInsensitiveCompare("Authorization") == .orderedSame
+                ? SHA256.hash(data: Data(header.value.utf8)).map { String(format: "%02x", $0) }.joined()
+                : header.value
+        }
+        let canonicalVariables = variables.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+            .map { String(decoding: $0, as: UTF8.self) } ?? ""
+        let canonicalBody = request.httpBody
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) }
+            .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+            .map { String(decoding: $0, as: UTF8.self) } ?? ""
+        let material = [
+            request.httpMethod ?? "GET",
+            components.string ?? url.absoluteString,
+            headers.keys.sorted().map { "\($0):\(headers[$0] ?? "")" }.joined(separator: "\n"),
+            operationName,
+            queryHash,
+            canonicalVariables,
+            canonicalBody,
+        ].joined(separator: "\u{1f}")
+        return SHA256.hash(data: Data(material.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func fetchAppMetadata(appIds: [String], vpcId: String, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
@@ -956,18 +1179,19 @@ final class GameService: @unchecked Sendable {
         }
     }
 
-    private func fetchCatalogPages(baseResult: CatalogBrowseResult, query: String, vpcId: String, locale: String, sortString: String, fetchCount: Int, searchString: String, filters: NSDictionary, catalogCacheKey: String, deliveredCachedResult: AtomicFlag, completion: @escaping CatalogBrowseCallback) {
+    private func fetchCatalogPages(baseResult: CatalogBrowseResult, query: String, vpcId: String, locale: String, sortString: String, fetchCount: Int, searchString: String, filters: NSDictionary, catalogCacheKey: String, initialCursor: String, pageLimit: Int, cancellation: CatalogBrowseCancellation?, deliveredCachedResult: AtomicFlag, completion: @escaping CatalogBrowseCallback) {
         let state = CatalogPageState(result: baseResult)
         let filterBox = NSDictionaryBox(filters)
         let fetchPage = RecursiveCatalogPageFetcher()
         fetchPage.action = { [weak self, state, fetchPage] page, cursor in
-            guard let self else { return }
+            guard let self, cancellation?.isCancelled != true else { return }
             var variables: [String: Any] = ["vpcId": vpcId, "locale": locale, "sortString": sortString, "fetchCount": fetchCount, "cursor": cursor, "filters": filterBox.value]
             if !searchString.isEmpty { variables["searchString"] = searchString }
             postGraphQlJson(query: query, variables: variables as NSDictionary) { [weak self] data, error in
-                guard let self else { return }
+                guard let self, cancellation?.isCancelled != true else { return }
                 let dataBox = data.map(NSDictionaryBox.init)
                 Self.workQueue.async { [dataBox] in
+                    guard cancellation?.isCancelled != true else { return }
                     if !error.isEmpty {
                         if !deliveredCachedResult.value { self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), error) }
                         return
@@ -985,26 +1209,27 @@ final class GameService: @unchecked Sendable {
                     state.result.totalCount = self.safeInt(pageInfo?["totalCount"])
                     state.result.hasNextPage = hasNextPage
                     if !endCursor.isEmpty { state.result.endCursor = endCursor }
-                    if hasNextPage, !endCursor.isEmpty, page + 1 < Self.maxCatalogPages {
+                    if hasNextPage, !endCursor.isEmpty, page + 1 < pageLimit {
                         fetchPage.action?(page + 1, endCursor)
                         return
                     }
                     let games = state.collectedApps.map { self.parseGameItem($0) }.filter { !$0.id.isEmpty && !$0.title.isEmpty && !$0.variants.isEmpty }
                     state.result.numberSupported = max(state.result.numberSupported, games.count)
                     state.result.totalCount = max(state.result.totalCount, games.count)
-                    self.enrichGames(games, vpcId: vpcId) { enriched in
+                    self.enrichGames(games, vpcId: vpcId, cancellation: cancellation) { enriched in
                         var finalResult = state.result
-                        finalResult.games = enriched
+                        finalResult.games = self.deduplicateGames(finalResult.games + enriched)
                         GameDataCache.shared.saveCatalogAsync(key: catalogCacheKey, result: finalResult)
                         self.dispatchCatalogBrowse(completion, true, finalResult, "")
                     }
                 }
             }
         }
-        fetchPage.action?(0, "")
+        fetchPage.action?(0, initialCursor)
     }
 
-    private func enrichGames(_ games: [GameInfo], vpcId: String, completion: @escaping @Sendable ([GameInfo]) -> Void) {
+    private func enrichGames(_ games: [GameInfo], vpcId: String, cancellation: CatalogBrowseCancellation? = nil, completion: @escaping @Sendable ([GameInfo]) -> Void) {
+        guard cancellation?.isCancelled != true else { return }
         let appIds = Array(Set(games.map(\.uuid).filter { !$0.isEmpty }))
         if appIds.isEmpty {
             completion(games)
@@ -1014,6 +1239,7 @@ final class GameService: @unchecked Sendable {
         let chunks = stride(from: 0, to: appIds.count, by: 40).map { Array(appIds[$0..<min($0 + 40, appIds.count)]) }
 
         @Sendable func finish() {
+            guard cancellation?.isCancelled != true else { return }
             Self.workQueue.async { [weak self] in
                 let enriched = games.map { game in
                     guard let metadata = metadataState.metadataById[game.uuid] else { return game }
@@ -1058,7 +1284,9 @@ final class GameService: @unchecked Sendable {
                     return merged
                 }
                 if let self = self {
+                    guard cancellation?.isCancelled != true else { return }
                     self.fetchCampaignPromoTags(vpcId: vpcId, locale: Self.currentGFNCatalogLocale()) { tagsByCampaignId in
+                        guard cancellation?.isCancelled != true else { return }
                         let campaignEnriched = enriched.map { game in
                             guard game.promoTag.isEmpty else { return game }
                             var merged = game
@@ -1073,26 +1301,27 @@ final class GameService: @unchecked Sendable {
             }
         }
 
-        @Sendable func fetchChunk(_ index: Int) {
-            if index >= chunks.count {
-                finish()
-                return
-            }
-            self.fetchAppMetadata(appIds: chunks[index], vpcId: vpcId) { [weak self] data, _ in
-                if let items = (data?["apps"] as? NSDictionary)?["items"] as? [NSDictionary] {
+        let scheduler = CatalogMetadataChunkScheduler(chunkCount: chunks.count, maximumConcurrent: 3)
+        @Sendable func fetchAvailableChunks() {
+            guard cancellation?.isCancelled != true else { return }
+            for index in scheduler.startAvailableChunks() {
+                self.fetchAppMetadata(appIds: chunks[index], vpcId: vpcId) { [weak self] data, _ in
+                    let items = (data?["apps"] as? NSDictionary)?["items"] as? [NSDictionary] ?? []
                     let itemsBox = NSDictionaryArrayBox(items)
                     Self.workQueue.async { [itemsBox, weak self] in
                         for item in itemsBox.values {
                             if let appId = self?.safeString(item["id"]) { metadataState.metadataById[appId] = item }
                         }
-                        fetchChunk(index + 1)
+                        if scheduler.completeChunk() {
+                            finish()
+                        } else {
+                            fetchAvailableChunks()
+                        }
                     }
-                } else {
-                    Self.workQueue.async { fetchChunk(index + 1) }
                 }
             }
         }
-        fetchChunk(0)
+        fetchAvailableChunks()
     }
 
     private func enrichRatingMetadata(_ games: [GameInfo], locale: String, completion: @escaping @Sendable ([GameInfo]) -> Void) {
@@ -1567,6 +1796,7 @@ final class GameService: @unchecked Sendable {
             guard let self else { return }
             if !error.isEmpty {
                 if mutationName == "RemoveOwnedVariant", Self.isGraphQLNotFoundError(error) {
+                    self.invalidateLibraryGamesCache()
                     self.dispatchOwnership(completion, true, "")
                     return
                 }
@@ -1578,6 +1808,7 @@ final class GameService: @unchecked Sendable {
                 self.dispatchOwnership(completion, false, "Ownership mutation response did not include an app ID")
                 return
             }
+            self.invalidateLibraryGamesCache()
             self.dispatchOwnership(completion, true, "")
         }
     }
@@ -1593,6 +1824,7 @@ final class GameService: @unchecked Sendable {
             guard let self else { return }
             if !error.isEmpty {
                 if mutationName == "RemoveFavoriteApp", Self.isGraphQLNotFoundError(error) {
+                    self.invalidateFavoriteGamesCache()
                     self.dispatchFavorite(completion, true, "")
                     return
                 }
@@ -1604,6 +1836,7 @@ final class GameService: @unchecked Sendable {
                 self.dispatchFavorite(completion, false, "Favorite mutation response did not include an app ID")
                 return
             }
+            self.invalidateFavoriteGamesCache()
             self.dispatchFavorite(completion, true, "")
         }
     }
@@ -2342,9 +2575,27 @@ public final class GameServiceSwiftAdapter: NSObject {
         }
     }
 
+    static func browseCatalogObject(searchQuery: String, sortId: String, filterIds: [String], fetchCount: Int, forceRefresh: Bool, pageLimit: Int, cancellation: CatalogBrowseCancellation, completion: @escaping @Sendable (Bool, CatalogBrowseResultObject, String) -> Void) {
+        GameService.shared.browseCatalogGames(searchQuery: searchQuery, sortId: sortId, filterIds: filterIds, fetchCount: fetchCount, forceRefresh: forceRefresh, pageLimit: pageLimit, cancellation: cancellation) { success, result, error in
+            completion(success, CatalogBrowseResultObject(result: result), error)
+        }
+    }
+
+    static func loadMoreCatalogObject(from result: CatalogBrowseResultObject, fetchCount: Int, cancellation: CatalogBrowseCancellation, completion: @escaping @Sendable (Bool, CatalogBrowseResultObject, String) -> Void) {
+        GameService.shared.loadMoreCatalogGames(from: result.swiftValue, fetchCount: fetchCount, cancellation: cancellation) { success, nextResult, error in
+            completion(success, CatalogBrowseResultObject(result: nextResult), error)
+        }
+    }
+
     @objc(fetchLibraryGameObjectsWithCompletion:)
     public static func fetchLibraryGameObjects(completion: @escaping @Sendable (Bool, [CatalogGameObject], String) -> Void) {
         GameService.shared.fetchLibraryGames { success, games, error in
+            completion(success, games.map(CatalogGameObject.init), error)
+        }
+    }
+
+    public static func fetchLibraryGameObjects(forceRefresh: Bool, completion: @escaping @Sendable (Bool, [CatalogGameObject], String) -> Void) {
+        GameService.shared.fetchLibraryGames(forceRefresh: forceRefresh) { success, games, error in
             completion(success, games.map(CatalogGameObject.init), error)
         }
     }
@@ -2591,6 +2842,10 @@ private struct CatalogDefinitionParameters: Sendable {
     let resolvedVpcId: String
     let locale: String
     let catalogCacheKey: String
+    let pageLimit: Int
+    let initialCursor: String
+    let seedResult: CatalogBrowseResult?
+    let cancellation: CatalogBrowseCancellation?
 }
 
 private struct PublicGameListItem: Decodable, Sendable {
@@ -2648,6 +2903,55 @@ private final class AtomicFlag: @unchecked Sendable {
         lock.lock()
         storage = true
         lock.unlock()
+    }
+}
+
+final class CatalogBrowseCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+}
+
+private final class CatalogMetadataChunkScheduler: @unchecked Sendable {
+    private let lock = NSLock()
+    private let chunkCount: Int
+    private let maximumConcurrent: Int
+    private var nextChunkIndex = 0
+    private var activeChunkCount = 0
+
+    init(chunkCount: Int, maximumConcurrent: Int) {
+        self.chunkCount = max(0, chunkCount)
+        self.maximumConcurrent = max(1, maximumConcurrent)
+    }
+
+    func startAvailableChunks() -> [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        var indices: [Int] = []
+        while activeChunkCount < maximumConcurrent, nextChunkIndex < chunkCount {
+            indices.append(nextChunkIndex)
+            nextChunkIndex += 1
+            activeChunkCount += 1
+        }
+        return indices
+    }
+
+    func completeChunk() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        activeChunkCount = max(0, activeChunkCount - 1)
+        return activeChunkCount == 0 && nextChunkIndex >= chunkCount
     }
 }
 
@@ -2782,6 +3086,7 @@ private final class AccountLinkingCallbackListener: @unchecked Sendable {
             } else if hasError {
                 service.dispatchOwnership(completion, false, "Account linking was not completed")
             } else {
+                service.invalidateLibraryGamesCache()
                 service.dispatchOwnership(completion, true, "")
             }
         }

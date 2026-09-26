@@ -107,9 +107,21 @@ final class GameDataCache: NSObject, @unchecked Sendable {
         }
     }
 
+    func loadFreshCatalogAsync(key: String, maxAgeSeconds: TimeInterval, completion: @escaping @Sendable (CatalogBrowseResult?) -> Void) {
+        ioQueue.async { [self] in
+            completion(loadFreshCatalog(key: key, maxAgeSeconds: maxAgeSeconds))
+        }
+    }
+
     func saveCatalogAsync(key: String, result: CatalogBrowseResult) {
         ioQueue.async { [self] in
             saveCatalog(key: key, result: result)
+        }
+    }
+
+    func removeCatalogAsync(key: String) {
+        ioQueue.async { [self] in
+            try? FileManager.default.removeItem(atPath: catalogFilePath(key: key))
         }
     }
 
