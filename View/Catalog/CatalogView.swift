@@ -2148,6 +2148,24 @@ private struct CatalogContentView: View {
                             }
                         }
 
+                        if viewModel.isBrowseMode && viewModel.hasMoreCatalogResults {
+                            Button(action: viewModel.loadMoreCatalogResults) {
+                                HStack(spacing: 9) {
+                                    if viewModel.isLoadingMoreCatalogResults { ProgressView().controlSize(.small) }
+                                    Text(viewModel.isLoadingMoreCatalogResults ? "LOADING MORE RESULTS" : "LOAD MORE RESULTS")
+                                        .font(.nvidia(size: 12, weight: .bold))
+                                }
+                                .foregroundStyle(.white.opacity(0.88))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 42)
+                                .background(Color.white.opacity(0.08))
+                                .overlay { Rectangle().stroke(Color.white.opacity(0.14), lineWidth: 1) }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(viewModel.isLoadingMoreCatalogResults)
+                            .padding(.horizontal, CatalogVendorLayout.sectionHeaderMargin)
+                        }
+
                         if sections.isEmpty && !viewModel.isLoading && !viewModel.isLoadingPanels {
                             CatalogEmptyDestinationView(viewModel: viewModel, destination: viewModel.selectedCatalogDestination)
                                 .padding(.horizontal, CatalogVendorLayout.sectionHeaderMargin)
@@ -3129,6 +3147,7 @@ private struct CatalogShowAllOverlay: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let matchingGames = filteredGames
             let panelSize = overlaySize(for: proxy.size)
             let panelOffset = clampedOffset(userOffset, panelSize: panelSize, containerSize: proxy.size)
             ZStack {
@@ -3143,7 +3162,7 @@ private struct CatalogShowAllOverlay: View {
                                 .font(.nvidia(size: 24, weight: .bold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
-                            Text(resultSummary)
+                            Text(resultSummary(matchingCount: matchingGames.count))
                                 .font(.nvidia(size: 12, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.56))
                         }
@@ -3182,7 +3201,7 @@ private struct CatalogShowAllOverlay: View {
 
                     ScrollView {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                            ForEach(Array(filteredGames.enumerated()), id: \.offset) { _, game in
+                            ForEach(Array(matchingGames.enumerated()), id: \.offset) { _, game in
                                 CatalogGameTile(
                                     game: game,
                                     imageURL: viewModel.optimizedImageURL(game.bestWideImageURL, width: 620),
@@ -3204,7 +3223,7 @@ private struct CatalogShowAllOverlay: View {
                         .padding(.bottom, 10)
                     }
                     .overlay {
-                        if filteredGames.isEmpty {
+                        if matchingGames.isEmpty {
                             CatalogShowAllEmptySearchView(query: searchQuery)
                         }
                     }
@@ -3224,13 +3243,12 @@ private struct CatalogShowAllOverlay: View {
         let terms = CatalogSearchQueryParser.terms(from: searchQuery)
         guard !terms.isEmpty else { return section.games }
         return section.games.filter { game in
-            let searchableText = game.advancedSearchText
+            let searchableText = viewModel.searchText(for: game)
             return terms.allSatisfy { searchableText.contains($0) }
         }
     }
 
-    private var resultSummary: String {
-        let count = filteredGames.count
+    private func resultSummary(matchingCount count: Int) -> String {
         let total = section.games.count
         if section.isLoadingFullList, searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Loading full list... \(total) games loaded" }
         if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "\(total) games" }

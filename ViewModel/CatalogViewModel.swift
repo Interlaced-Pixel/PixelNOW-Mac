@@ -167,12 +167,19 @@ final class CatalogViewModel: ObservableObject {
     @Published var totalCatalogCount = 0
     @Published var supportedCatalogCount = 0
     @Published var hasMoreCatalogResults = false
+    @Published var isLoadingMoreCatalogResults = false
     @Published var expandedSectionIds: Set<String> = []
     @Published var accountStores: [CatalogStoreAccount] = []
     @Published var accountSubscriptions: [String] = []
     @Published var storeDefinitions: [CatalogStoreDefinition] = []
     @Published var subscriptionDefinitions: [CatalogSubscriptionDefinition] = []
-    @Published var selectedGame: CatalogGameObject?
+    @Published var selectedGame: CatalogGameObject? {
+        didSet {
+            let identityChanged = oldValue.map { Self.identity(for: $0) } != selectedGame.map { Self.identity(for: $0) }
+            let patchingChanged = oldValue.map(Self.isPatching) != selectedGame.map(Self.isPatching)
+            if identityChanged || patchingChanged { schedulePatchingPollIfNeeded() }
+        }
+    }
     @Published var selectedSectionId = ""
     @Published var selectedVariantIndex = -1
     @Published var activeStreamConfiguration: PreparedLaunchConfiguration?
@@ -216,7 +223,36 @@ final class CatalogViewModel: ObservableObject {
         subscriptionStatus.isAvailable && subscriptionStatus.isFreeTierAccount
     }
 
+    func searchText(for game: CatalogGameObject) -> String {
+        let identity = ObjectIdentifier(game)
+        if let cached = catalogSearchTextCache[identity] { return cached }
+        let searchableText = game.advancedSearchText
+        catalogSearchTextCache[identity] = searchableText
+        return searchableText
+    }
+
+    private func clearCatalogSearchTextCache() {
+        catalogSearchTextCache.removeAll(keepingCapacity: true)
+    }
+
     private var hasLoaded = false
+    private var hasLoadedPanels = false
+    private var panelLoadGeneration = 0
+    private var panelRequestsRemaining = 0
+    private var panelLoadHadFailure = false
+    private var panelReloadRequested = false
+    private var hasLoadedLibrary = false
+    private var isLoadingLibrary = false
+    private var libraryReloadRequested = false
+    private var hasLoadedSettingsAccountData = false
+    private var isLoadingSettingsAccountData = false
+    private var settingsAccountDataReloadRequested = false
+    private var settingsAccountDataRequestsRemaining = 0
+    private var settingsAccountDataHadFailure = false
+    private var settingsAccountDataGeneration = 0
+    private var browseCancellation: CatalogBrowseCancellation?
+    private var currentCatalogResult = CatalogBrowseResult()
+    private var catalogSearchTextCache: [ObjectIdentifier: String] = [:]
     private var browseGeneration = 0
     private var authRefreshInFlight = false
     private var cancellables = Set<AnyCancellable>()
@@ -232,6 +268,7 @@ final class CatalogViewModel: ObservableObject {
     private var settingsPreferencesTask: Task<Void, Never>?
     private var patchingPollTask: Task<Void, Never>?
     private var patchingPollInFlight = false
+    private var patchingPollRefreshRequested = false
     private var queuedPatchingLaunchIdentity = ""
     private var queuedPatchingLaunchVariantIndex = -1
     init(account: LoginAccount, session: LoginSession, onRefreshAuth: @escaping () async -> Bool) {
@@ -288,37 +325,24 @@ final class CatalogViewModel: ObservableObject {
             games.append(game)
         }
 
-        for panel in marqueePanels {
-            for section in panel.sections {
-                for game in section.games {
-                    append(game)
-                }
-            }
-        }
-
+        for game in marqueeGames { append(game) }
         if games.isEmpty {
             for panel in mainPanels {
                 for section in panel.sections {
                     let title = section.title.lowercased()
                     if title.contains("featured") || title.contains("spotlight") || title.contains("popular") || title.contains("marquee") {
-                        for game in section.games {
-                            append(game)
-                        }
+                        for game in section.games { append(game) }
                     }
                 }
             }
         }
-
         if games.isEmpty {
             for panel in mainPanels {
                 for section in panel.sections {
-                    for game in section.games {
-                        append(game)
-                    }
+                    for game in section.games { append(game) }
                 }
             }
         }
-
         return games
     }
 
@@ -326,11 +350,15 @@ final class CatalogViewModel: ObservableObject {
         if isBrowseMode && !catalogGames.isEmpty {
             return [CatalogSectionModel(id: "catalog-results", title: "Search Results", games: catalogGames, kind: .catalog)]
         }
+        guard !isBrowseMode else { return [] }
+        if selectedCatalogDestination == .library {
+            return libraryGames.isEmpty ? [] : [CatalogSectionModel(id: "library-games", title: "My Library", games: libraryGames, kind: .library)]
+        }
 
         let homeGames = favoriteGames.isEmpty ? featuredGames : favoriteGames
-        let title = favoriteGames.isEmpty ? "Featured Games" : "My Favorites"
+        let homeTitle = favoriteGames.isEmpty ? "Featured Games" : "My Favorites"
         if !homeGames.isEmpty {
-            return [CatalogSectionModel(id: "home-games", title: title, games: homeGames, kind: .panel)]
+            return [CatalogSectionModel(id: "home-games", title: homeTitle, games: homeGames, kind: .panel)]
         }
 
         var sections: [CatalogSectionModel] = []
@@ -339,8 +367,7 @@ final class CatalogViewModel: ObservableObject {
             for section in panel.sections where !section.games.isEmpty {
                 let sectionTitle = section.title.isEmpty ? panel.title : section.title
                 let resolvedTitle = sectionTitle.isEmpty ? "Featured Games" : sectionTitle
-                guard !seenTitles.contains(resolvedTitle) else { continue }
-                seenTitles.insert(resolvedTitle)
+                guard seenTitles.insert(resolvedTitle).inserted else { continue }
                 let sectionId = section.sectionIdentity(fallbackPanelId: panel.id)
                 sections.append(CatalogSectionModel(
                     id: sectionId,
@@ -405,18 +432,26 @@ final class CatalogViewModel: ObservableObject {
     }
 
     func refresh() {
+        browseCancellation?.cancel()
         Task { await loadCatalogDataAfterProviderConfiguration(forceCatalogRefresh: true) }
     }
 
     private func loadCatalogDataAfterProviderConfiguration(forceCatalogRefresh: Bool = false) async {
         configureCatalogService()
         await configureCatalogProviderEndpoint()
-        loadPanels()
-        loadLibrary()
+        if selectedMainPage == .games, selectedCatalogDestination == .home, !isBrowseMode {
+            loadPanels(forceRefresh: forceCatalogRefresh)
+        }
+        if selectedMainPage == .games, selectedCatalogDestination == .library {
+            loadLibrary(forceRefresh: forceCatalogRefresh)
+        }
         loadFavorites()
-        loadAccountAndStores()
-        loadSettingsPreferences()
-        browseCatalog(forceRefresh: forceCatalogRefresh)
+        loadSubscriptionStatus()
+        if selectedMainPage == .settings {
+            loadSettingsPreferences()
+            loadAccountAndStores(forceRefresh: forceCatalogRefresh)
+        }
+        if isBrowseMode { browseCatalog(forceRefresh: forceCatalogRefresh) }
     }
 
     private func configureCatalogProviderEndpoint() async {
@@ -442,6 +477,7 @@ final class CatalogViewModel: ObservableObject {
     func showGames() {
         selectedMainPage = .games
         selectedCatalogDestination = .home
+        if !isBrowseMode { loadPanels() }
     }
 
     func showCatalogDestination(_ destination: CatalogDestination) {
@@ -451,6 +487,11 @@ final class CatalogViewModel: ObservableObject {
         selectedSectionId = ""
         isSearchPresented = false
         selectedGenreFilter = ""
+        if destination == .library {
+            loadLibrary()
+        } else if !isBrowseMode {
+            loadPanels()
+        }
     }
 
     func showSearch() {
@@ -476,6 +517,7 @@ final class CatalogViewModel: ObservableObject {
         selectedMainPage = .settings
         selectedSettingsGroup = page
         loadSettingsPreferences()
+        loadAccountAndStores()
     }
 
     func browseCatalog() {
@@ -485,8 +527,28 @@ final class CatalogViewModel: ObservableObject {
     private func browseCatalog(forceRefresh: Bool) {
         browseGeneration += 1
         let generation = browseGeneration
+        guard isBrowseMode else {
+            browseCancellation?.cancel()
+            browseCancellation = nil
+            catalogGames = []
+            currentCatalogResult = CatalogBrowseResult()
+            totalCatalogCount = 0
+            supportedCatalogCount = 0
+            hasMoreCatalogResults = false
+            isLoading = false
+            isLoadingMoreCatalogResults = false
+            errorMessage = ""
+            if selectedCatalogDestination == .home { loadPanels() }
+            return
+        }
+        browseCancellation?.cancel()
+        let cancellation = CatalogBrowseCancellation()
+        browseCancellation = cancellation
         isLoading = true
+        isLoadingMoreCatalogResults = false
         errorMessage = ""
+        catalogGames = []
+        currentCatalogResult = CatalogBrowseResult()
         configureCatalogService()
         let query = searchQuery.trimmed
         let selfBox = CatalogWeakObject(self)
@@ -494,8 +556,10 @@ final class CatalogViewModel: ObservableObject {
             searchQuery: query,
             sortId: selectedSortId.isEmpty ? "a_to_z" : selectedSortId,
             filterIds: selectedFilterIds,
-            fetchCount: 200,
-            forceRefresh: forceRefresh
+            fetchCount: 48,
+            forceRefresh: forceRefresh,
+            pageLimit: 1,
+            cancellation: cancellation
         ) { success, result, error in
             let resultBox = CatalogSendableValue(result)
             Task { @MainActor in
@@ -507,7 +571,9 @@ final class CatalogViewModel: ObservableObject {
                     return
                 }
                 let browseResult = resultBox.value
+                self.currentCatalogResult = browseResult.swiftValue
                 self.catalogGames = browseResult.games
+                self.clearCatalogSearchTextCache()
                 self.totalCatalogCount = browseResult.totalCount
                 self.supportedCatalogCount = browseResult.numberSupported
                 self.hasMoreCatalogResults = browseResult.hasNextPage
@@ -515,7 +581,34 @@ final class CatalogViewModel: ObservableObject {
                 self.sortOptions = browseResult.sortOptions
                 if !browseResult.selectedSortId.isEmpty { self.selectedSortId = browseResult.selectedSortId }
                 self.selectedFilterIds = browseResult.selectedFilterIds
-                self.schedulePatchingPollIfNeeded()
+            }
+        }
+    }
+
+    func loadMoreCatalogResults() {
+        guard isBrowseMode, hasMoreCatalogResults, !isLoading, !isLoadingMoreCatalogResults else { return }
+        let cancellation = CatalogBrowseCancellation()
+        browseCancellation?.cancel()
+        browseCancellation = cancellation
+        isLoadingMoreCatalogResults = true
+        let generation = browseGeneration
+        let selfBox = CatalogWeakObject(self)
+        GameServiceSwiftAdapter.loadMoreCatalogObject(from: CatalogBrowseResultObject(result: currentCatalogResult), fetchCount: 48, cancellation: cancellation) { success, result, error in
+            let resultBox = CatalogSendableValue(result)
+            Task { @MainActor in
+                guard let self = selfBox.value, generation == self.browseGeneration else { return }
+                self.isLoadingMoreCatalogResults = false
+                guard success else {
+                    if self.refreshAuthIfNeeded(error: error) { return }
+                    self.errorMessage = error.isEmpty ? "Unable to load more catalog results." : error
+                    return
+                }
+                self.currentCatalogResult = resultBox.value.swiftValue
+                self.catalogGames = resultBox.value.games
+                self.clearCatalogSearchTextCache()
+                self.totalCatalogCount = resultBox.value.totalCount
+                self.supportedCatalogCount = resultBox.value.numberSupported
+                self.hasMoreCatalogResults = resultBox.value.hasNextPage
             }
         }
     }
@@ -551,7 +644,7 @@ final class CatalogViewModel: ObservableObject {
                     return
                 }
                 self.fullSectionGames[sectionId] = resultBox.value.games
-                self.schedulePatchingPollIfNeeded()
+                self.clearCatalogSearchTextCache()
             }
         }
     }
@@ -657,12 +750,12 @@ final class CatalogViewModel: ObservableObject {
 
     func queuePatchingLaunch(game: CatalogGameObject, variantIndex: Int? = nil) {
         guard Self.isPatching(game) else { return }
+        if selectedGame.map({ Self.identity(for: $0) }) != Self.identity(for: game) { selectGame(game) }
         queuedPatchingLaunchIdentity = Self.identity(for: game)
         queuedPatchingLaunchVariantIndex = variantIndex ?? selectedVariantIndexIfMatching(game) ?? Self.preferredVariantIndex(for: game)
         queuedPatchingLaunchGameTitle = game.title.isEmpty ? "GeForce NOW" : game.title
         actionMessage = "Queued \(queuedPatchingLaunchGameTitle) to launch when patching finishes."
         errorMessage = ""
-        schedulePatchingPollIfNeeded(immediate: true)
     }
 
     func isQueuedForPatching(_ game: CatalogGameObject) -> Bool {
@@ -1411,9 +1504,9 @@ final class CatalogViewModel: ObservableObject {
         GameServiceSwiftAdapter.syncAccountProvider(store: store) { _, _ in
             Task { @MainActor in
                 guard let self = selfBox.value, self.ownershipFlowStage == .resyncing else { return }
-                self.loadAccountAndStores()
-                self.loadLibrary()
-                self.browseCatalog()
+                self.loadAccountAndStores(forceRefresh: true)
+                self.loadLibrary(forceRefresh: true)
+                self.browseCatalog(forceRefresh: true)
                 self.ownershipFlowStage = .storeSelection
                 self.ownershipFlowMessage = ""
             }
@@ -1505,9 +1598,9 @@ final class CatalogViewModel: ObservableObject {
                 guard let self = selfBox.value else { return }
                 if success {
                     self.actionMessage = "Store sync started."
-                    self.loadAccountAndStores()
-                    self.loadLibrary()
-                    self.browseCatalog()
+                    self.loadAccountAndStores(forceRefresh: true)
+                    self.loadLibrary(forceRefresh: true)
+                    self.browseCatalog(forceRefresh: true)
                 } else {
                     self.errorMessage = error.isEmpty ? "Unable to sync this store account." : error
                 }
@@ -1529,9 +1622,9 @@ final class CatalogViewModel: ObservableObject {
                 guard let self = selfBox.value else { return }
                 if success {
                     self.actionMessage = "Account linked."
-                    self.loadAccountAndStores()
-                    self.loadLibrary()
-                    self.browseCatalog()
+                    self.loadAccountAndStores(forceRefresh: true)
+                    self.loadLibrary(forceRefresh: true)
+                    self.browseCatalog(forceRefresh: true)
                 } else {
                     self.errorMessage = error.isEmpty ? "Unable to link this store account." : error
                 }
@@ -1964,7 +2057,16 @@ final class CatalogViewModel: ObservableObject {
         return "\(bytes) / \(statistics.entryCount) \(entryLabel)"
     }
 
-    private func loadPanels() {
+    private func loadPanels(forceRefresh: Bool = false) {
+        if isLoadingPanels {
+            if forceRefresh { panelReloadRequested = true }
+            return
+        }
+        guard forceRefresh || !hasLoadedPanels else { return }
+        panelLoadGeneration += 1
+        let generation = panelLoadGeneration
+        panelRequestsRemaining = 2
+        panelLoadHadFailure = false
         isLoadingPanels = true
         errorMessage = ""
         configureCatalogService()
@@ -1972,51 +2074,74 @@ final class CatalogViewModel: ObservableObject {
         GameServiceSwiftAdapter.fetchMarqueePanelObjects { success, panels, error in
             let panelBox = CatalogSendableValue(panels)
             Task { @MainActor in
-                guard let self = selfBox.value else { return }
+                guard let self = selfBox.value, generation == self.panelLoadGeneration else { return }
                 if success {
                     self.marqueePanels = panelBox.value
-                    self.schedulePatchingPollIfNeeded()
-                } else if self.refreshAuthIfNeeded(error: error) {
-                    self.isLoadingPanels = false
-                } else if self.errorMessage.isEmpty {
-                    self.errorMessage = error
+                    self.clearCatalogSearchTextCache()
+                } else {
+                    self.panelLoadHadFailure = true
+                    if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty { self.errorMessage = error }
                 }
+                self.finishPanelRequest(generation: generation)
             }
         }
         GameServiceSwiftAdapter.fetchMainPanelObjects { success, panels, error in
             let panelBox = CatalogSendableValue(panels)
             Task { @MainActor in
-                guard let self = selfBox.value else { return }
-                self.isLoadingPanels = false
+                guard let self = selfBox.value, generation == self.panelLoadGeneration else { return }
                 if success {
                     self.mainPanels = panelBox.value
-                    self.schedulePatchingPollIfNeeded()
-                } else if self.refreshAuthIfNeeded(error: error) {
-                    self.isLoadingPanels = false
-                } else if self.errorMessage.isEmpty {
-                    self.errorMessage = error.isEmpty ? "Unable to load GeForce NOW home panels." : error
+                    self.clearCatalogSearchTextCache()
+                } else {
+                    self.panelLoadHadFailure = true
+                    if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty {
+                        self.errorMessage = error.isEmpty ? "Unable to load GeForce NOW home panels." : error
+                    }
                 }
+                self.finishPanelRequest(generation: generation)
             }
         }
     }
 
-    private func loadLibrary() {
+    private func finishPanelRequest(generation: Int) {
+        guard generation == panelLoadGeneration else { return }
+        panelRequestsRemaining = max(0, panelRequestsRemaining - 1)
+        guard panelRequestsRemaining == 0 else { return }
+        isLoadingPanels = false
+        hasLoadedPanels = !panelLoadHadFailure
+        let reload = panelReloadRequested
+        panelReloadRequested = false
+        if reload { loadPanels(forceRefresh: true) }
+    }
+
+    private func loadLibrary(forceRefresh: Bool = false) {
+        guard !isLoadingLibrary else {
+            if forceRefresh { libraryReloadRequested = true }
+            return
+        }
+        guard forceRefresh || !hasLoadedLibrary else { return }
+        isLoadingLibrary = true
         configureCatalogService()
         let selfBox = CatalogWeakObject(self)
-        GameServiceSwiftAdapter.fetchLibraryGameObjects { success, games, error in
+        GameServiceSwiftAdapter.fetchLibraryGameObjects(forceRefresh: forceRefresh) { success, games, error in
             let gamesBox = CatalogSendableValue(games)
             Task { @MainActor in
                 guard let self = selfBox.value else { return }
+                self.isLoadingLibrary = false
                 if success {
+                    self.hasLoadedLibrary = true
                     let ownedGames = gamesBox.value.filter { $0.isInLibrary || Self.gameHasOwnedVariant($0) }
                     self.libraryGames = ownedGames.isEmpty && !gamesBox.value.isEmpty ? gamesBox.value : ownedGames
+                    self.clearCatalogSearchTextCache()
                     for game in self.libraryGames {
                         game.isInLibrary = true
                     }
-                    self.schedulePatchingPollIfNeeded()
-                } else if self.refreshAuthIfNeeded(error: error) {
-                    self.libraryGames = []
+                } else if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty {
+                    self.errorMessage = error.isEmpty ? "Unable to load your library." : error
                 }
+                let reload = self.libraryReloadRequested
+                self.libraryReloadRequested = false
+                if reload { self.loadLibrary(forceRefresh: true) }
             }
         }
     }
@@ -2030,7 +2155,6 @@ final class CatalogViewModel: ObservableObject {
                 guard let self = selfBox.value else { return }
                 if success {
                     self.updateFavoriteGames(gamesBox.value)
-                    self.schedulePatchingPollIfNeeded()
                 } else if self.refreshAuthIfNeeded(error: error) {
                     self.updateFavoriteGames([])
                 } else if self.errorMessage.isEmpty {
@@ -2057,36 +2181,67 @@ final class CatalogViewModel: ObservableObject {
         }
     }
 
-    private func loadAccountAndStores() {
+    private func loadAccountAndStores(forceRefresh: Bool = false) {
+        if isLoadingSettingsAccountData {
+            if forceRefresh { settingsAccountDataReloadRequested = true }
+            return
+        }
+        guard forceRefresh || !hasLoadedSettingsAccountData else { return }
+        settingsAccountDataGeneration += 1
+        let generation = settingsAccountDataGeneration
+        settingsAccountDataRequestsRemaining = 3
+        settingsAccountDataHadFailure = false
+        isLoadingSettingsAccountData = true
         configureCatalogService()
         let selfBox = CatalogWeakObject(self)
         GameServiceSwiftAdapter.fetchUserAccountDictionary { success, account, error in
             let accountBox = CatalogSendableValue(account)
             Task { @MainActor in
-                guard let self = selfBox.value else { return }
+                guard let self = selfBox.value, generation == self.settingsAccountDataGeneration else { return }
                 if success {
                     self.accountStores = Self.parseStoreAccounts(accountBox.value)
                     self.accountSubscriptions = Self.parseAccountSubscriptions(accountBox.value)
-                } else if self.refreshAuthIfNeeded(error: error) {
-                    self.accountStores = []
-                    self.accountSubscriptions = []
+                } else {
+                    self.settingsAccountDataHadFailure = true
+                    _ = self.refreshAuthIfNeeded(error: error)
                 }
+                self.finishSettingsAccountDataRequest(generation: generation)
             }
         }
-        GameServiceSwiftAdapter.fetchStoreDefinitionDictionaries { success, definitions, _ in
+        GameServiceSwiftAdapter.fetchStoreDefinitionDictionaries { success, definitions, error in
             let definitionsBox = CatalogSendableValue(definitions)
             Task { @MainActor in
-                guard let self = selfBox.value else { return }
+                guard let self = selfBox.value, generation == self.settingsAccountDataGeneration else { return }
                 if success { self.storeDefinitions = definitionsBox.value.map(Self.parseStoreDefinition) }
+                else { self.settingsAccountDataHadFailure = true; _ = self.refreshAuthIfNeeded(error: error) }
+                self.finishSettingsAccountDataRequest(generation: generation)
             }
         }
-        GameServiceSwiftAdapter.fetchSubscriptionDefinitionDictionaries { success, definitions, _ in
+        GameServiceSwiftAdapter.fetchSubscriptionDefinitionDictionaries { success, definitions, error in
             let definitionsBox = CatalogSendableValue(definitions)
             Task { @MainActor in
-                guard let self = selfBox.value else { return }
+                guard let self = selfBox.value, generation == self.settingsAccountDataGeneration else { return }
                 if success { self.subscriptionDefinitions = definitionsBox.value.map(Self.parseSubscriptionDefinition) }
+                else { self.settingsAccountDataHadFailure = true; _ = self.refreshAuthIfNeeded(error: error) }
+                self.finishSettingsAccountDataRequest(generation: generation)
             }
         }
+    }
+
+    private func finishSettingsAccountDataRequest(generation: Int) {
+        guard generation == settingsAccountDataGeneration else { return }
+        settingsAccountDataRequestsRemaining = max(0, settingsAccountDataRequestsRemaining - 1)
+        guard settingsAccountDataRequestsRemaining == 0 else { return }
+        isLoadingSettingsAccountData = false
+        hasLoadedSettingsAccountData = !settingsAccountDataHadFailure
+        let reload = settingsAccountDataReloadRequested
+        settingsAccountDataReloadRequested = false
+        if reload { loadAccountAndStores(forceRefresh: true) }
+    }
+
+    private func loadSubscriptionStatus() {
+        configureCatalogService()
+        let selfBox = CatalogWeakObject(self)
         let userId = session.userId.isEmpty ? account.userId : session.userId
         guard !userId.isEmpty else {
             subscriptionStatus = .unavailable
@@ -2096,16 +2251,15 @@ final class CatalogViewModel: ObservableObject {
             let subscriptionBox = CatalogSendableValue(subscription)
             Task { @MainActor in
                 guard let self = selfBox.value else { return }
-                if success {
-                    let subscription = subscriptionBox.value
-                    self.subscriptionStatus = CatalogSubscriptionStatus(subscription: subscription)
-                    let membershipTier = subscription.membershipTier.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !membershipTier.isEmpty {
-                        self.account.membershipTier = membershipTier
-                    }
-                } else if self.refreshAuthIfNeeded(error: error) {
+                guard success else {
+                    _ = self.refreshAuthIfNeeded(error: error)
                     self.subscriptionStatus = .unavailable
+                    return
                 }
+                let subscription = subscriptionBox.value
+                self.subscriptionStatus = CatalogSubscriptionStatus(subscription: subscription)
+                let membershipTier = subscription.membershipTier.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !membershipTier.isEmpty { self.account.membershipTier = membershipTier }
             }
         }
     }
@@ -2155,8 +2309,8 @@ final class CatalogViewModel: ObservableObject {
     }
 
     private func refreshCatalogAfterOwnershipChange() {
-        loadLibrary()
-        browseCatalog()
+        loadLibrary(forceRefresh: true)
+        browseCatalog(forceRefresh: true)
         if let selectedGame {
             let selectedIdentity = Self.identity(for: selectedGame)
             let refreshedGame = (libraryGames + catalogGames).first { Self.identity(for: $0) == selectedIdentity }
@@ -2165,57 +2319,54 @@ final class CatalogViewModel: ObservableObject {
     }
 
     private func schedulePatchingPollIfNeeded(immediate: Bool = true) {
-        let patchingAppIds = patchingPollAppIds()
-        guard !patchingAppIds.isEmpty else {
-            patchingPollTask?.cancel()
-            patchingPollTask = nil
-            return
-        }
-        guard patchingPollTask == nil else {
-            if immediate {
-                Task { @MainActor [weak self] in await self?.refreshPatchingStatuses() }
-            }
-            return
-        }
+        patchingPollTask?.cancel()
+        patchingPollTask = nil
+        guard let selectedGame,
+              Self.isPatching(selectedGame),
+              let appId = Self.patchStatusAppId(selectedGame) else { return }
+        let identity = Self.identity(for: selectedGame)
         patchingPollTask = Task { @MainActor [weak self] in
-            if immediate { await self?.refreshPatchingStatuses() }
+            if immediate { await self?.refreshPatchingStatus(appId: appId, identity: identity) }
             while let self, !Task.isCancelled {
                 let delaySeconds = UInt64(Int.random(in: 30...60))
                 try? await Task.sleep(for: .seconds(delaySeconds))
                 guard !Task.isCancelled else { return }
-                await self.refreshPatchingStatuses()
-                if self.patchingPollAppIds().isEmpty {
+                guard let selected = self.selectedGame,
+                      Self.identity(for: selected) == identity,
+                      Self.isPatching(selected),
+                      Self.patchStatusAppId(selected) == appId else {
                     self.patchingPollTask = nil
                     return
                 }
+                await self.refreshPatchingStatus(appId: appId, identity: identity)
             }
         }
     }
 
-    private func refreshPatchingStatuses() async {
-        guard !patchingPollInFlight else { return }
-        let appIds = patchingPollAppIds()
-        guard !appIds.isEmpty else { return }
+    private func refreshPatchingStatus(appId: String, identity: String) async {
+        guard !patchingPollInFlight else {
+            patchingPollRefreshRequested = true
+            return
+        }
+        guard let selected = selectedGame,
+              Self.identity(for: selected) == identity,
+              Self.isPatching(selected) else { return }
         patchingPollInFlight = true
-        defer { patchingPollInFlight = false }
-        let libraryResult = await fetchLibraryPatchStatuses()
-        let targetedResult = await fetchAppPatchStatuses(appIds: appIds)
-        var mergedStatuses = libraryResult.statuses
-        Self.mergePatchStatuses(targetedResult.statuses, into: &mergedStatuses)
-        if !mergedStatuses.isEmpty {
-            applyPatchingStatuses(mergedStatuses)
-        }
-        for error in [libraryResult.error, targetedResult.error] where !error.isEmpty {
-            if refreshAuthIfNeeded(error: error) { return }
-            Log.warning(.catalog, "App patch status poll failed: \(error)")
-        }
-    }
-
-    private func fetchLibraryPatchStatuses() async -> (statuses: [String: AppPatchStatus], error: String) {
-        await withCheckedContinuation { continuation in
-            GameServiceSwiftAdapter.fetchLibraryPatchStatuses { success, statuses, error in
-                continuation.resume(returning: (success ? statuses : [:], success ? "" : error))
+        defer {
+            patchingPollInFlight = false
+            if patchingPollRefreshRequested {
+                patchingPollRefreshRequested = false
+                schedulePatchingPollIfNeeded()
             }
+        }
+        let result = await fetchAppPatchStatuses(appIds: [appId])
+        guard let currentSelection = selectedGame,
+              Self.identity(for: currentSelection) == identity,
+              Self.isPatching(currentSelection) else { return }
+        if !result.statuses.isEmpty { applyPatchingStatuses(result.statuses) }
+        if !result.error.isEmpty {
+            if refreshAuthIfNeeded(error: result.error) { return }
+            Log.warning(.catalog, "App patch status poll failed: \(result.error)")
         }
     }
 
@@ -2225,11 +2376,6 @@ final class CatalogViewModel: ObservableObject {
                 continuation.resume(returning: (success ? statuses : [:], success ? "" : error))
             }
         }
-    }
-
-    private func patchingPollAppIds() -> [String] {
-        let ids = allKnownGames.filter(Self.isPatching).compactMap(Self.patchStatusAppId)
-        return Array(Set(ids)).sorted()
     }
 
     private func applyPatchingStatuses(_ statuses: [String: AppPatchStatus]) {
@@ -2242,6 +2388,7 @@ final class CatalogViewModel: ObservableObject {
         if let selectedGame, let status = Self.patchStatus(for: selectedGame, statuses: statuses) {
             applyPatchingStatus(status, to: selectedGame)
         }
+        schedulePatchingPollIfNeeded(immediate: false)
         launchQueuedPatchingGameIfReady()
     }
 
@@ -2316,6 +2463,7 @@ final class CatalogViewModel: ObservableObject {
             variant.librarySelected = inLibrary
         }
         selectedGame.isInLibrary = Self.gameHasOwnedVariant(selectedGame)
+        clearCatalogSearchTextCache()
     }
 
     private func updateGameFavoriteState(identity: String, isFavorited: Bool) {
