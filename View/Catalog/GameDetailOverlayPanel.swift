@@ -45,14 +45,14 @@ struct GameDetailOverlayPanel: View {
                 }
             }
             .font(.caption.weight(.medium))
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(.white.opacity(0.80))
             .lineLimit(1)
             .frame(height: 18)
 
             let description = game.map { $0.shortDescription.isEmpty ? $0.longDescription : $0.shortDescription } ?? ""
             Text(description)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.78))
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.white.opacity(0.88))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .frame(width: 652, height: 56, alignment: .top)
