@@ -1,0 +1,22 @@
+# Third-party frameworks and compiled libraries
+*.framework/
+*.xcframework/
+*.dylib
+*.a
+*.so
+*.dll
+
+# Vendored dependencies
+vendor/
+third_party/
+external/
+node_modules/
+Pods/
+Carthage/
+
+# Generated build trees and local tooling dependencies
+**/.build/
+**/DerivedData/
+**/build/
+**/Build/
+.opencode/
