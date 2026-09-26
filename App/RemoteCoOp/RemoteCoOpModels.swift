@@ -32,6 +32,10 @@ public struct RemoteCoOpICEServer: Codable, Equatable, Sendable {
 }
 
 public struct RemoteCoOpNetworkConfiguration: Codable, Equatable, Sendable {
+    public static let directICEServers = [
+        RemoteCoOpICEServer(urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"])
+    ]
+
     public var latencyMode: RemoteCoOpLatencyMode
     public var iceServers: [RemoteCoOpICEServer]
     public var dataChannelInputEnabled: Bool

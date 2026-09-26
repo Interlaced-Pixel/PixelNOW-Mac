@@ -48,13 +48,27 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
 
     private enum SignalingError: LocalizedError {
         case invalidServerURL(String)
+        case connectionFailed(String)
+        case hostRejected(String)
+        case registrationTimedOut
 
         var errorDescription: String? {
             switch self {
             case .invalidServerURL(let value):
                 return "Invalid Remote Co-Op signaling URL: \(value)"
+            case .connectionFailed(let message):
+                return "Could not connect to the Remote Co-Op signaling service: \(message)"
+            case .hostRejected(let message):
+                return "The Remote Co-Op signaling service rejected this invite: \(message)"
+            case .registrationTimedOut:
+                return "The Remote Co-Op signaling service did not confirm this invite in time."
             }
         }
+    }
+
+    private enum HostRegistrationWaitResult {
+        case waiting
+        case completed(SignalingError?)
     }
 
     private let serverURLString: String
@@ -67,11 +81,16 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
     private var roomID: String?
     private var invite: RemoteCoOpInvite?
     private var isClosed = false
+    private var hostRegistrationResolved = false
+    private var hostRegistrationError: SignalingError?
+    private var hostRegistrationWaiter: CheckedContinuation<Void, Error>?
 
     public init(port: UInt16 = 32189,
                 serverURL: String? = nil,
                 urlSession: URLSession = .shared) {
-        self.serverURLString = serverURL ?? "ws://127.0.0.1:\(port)/remote-coop-direct"
+        self.serverURLString = serverURL
+            ?? ProcessInfo.processInfo.environment["PIXELNOW_REMOTE_COOP_DIRECT_URL"]
+            ?? "ws://198.12.95.48:\(port)/remote-coop-direct"
         self.urlSession = urlSession
     }
 
@@ -122,6 +141,7 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
     }
 
     public func close() async {
+        resolveHostRegistration(error: .connectionFailed("The signaling connection closed before invite registration completed."))
         let state = lock.withLock {
             isClosed = true
             let continuations = Array(eventContinuations.values)
@@ -151,14 +171,68 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
         }
 
         let task = urlSession.webSocketTask(with: serverURL)
+        task.resume()
+        do {
+            try await Self.waitUntilConnected(task)
+        } catch {
+            task.cancel(with: .goingAway, reason: nil)
+            throw SignalingError.connectionFailed(error.localizedDescription)
+        }
         lock.withLock {
             isClosed = false
+            hostRegistrationResolved = false
+            hostRegistrationError = nil
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = task
         }
-        task.resume()
         startReceiveLoop(task)
         startHeartbeatLoop()
+    }
+
+    private static func waitUntilConnected(_ task: URLSessionWebSocketTask) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            task.sendPing { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    public func waitUntilHostRegistered() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let result = lock.withLock { () -> HostRegistrationWaitResult in
+                if hostRegistrationResolved { return .completed(hostRegistrationError) }
+                hostRegistrationWaiter = continuation
+                return .waiting
+            }
+            switch result {
+            case .completed(let error):
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            case .waiting:
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(8))
+                    self?.resolveHostRegistration(error: .registrationTimedOut)
+                }
+            }
+        }
+    }
+
+    private func resolveHostRegistration(error: SignalingError?) {
+        let result = lock.withLock { () -> (Bool, CheckedContinuation<Void, Error>?) in
+            guard !hostRegistrationResolved else { return (false, nil) }
+            hostRegistrationResolved = true
+            hostRegistrationError = error
+            let waiter = hostRegistrationWaiter
+            hostRegistrationWaiter = nil
+            return (true, waiter)
+        }
+        guard result.0, let waiter = result.1 else { return }
+        if let error { waiter.resume(throwing: error) }
+        else { waiter.resume() }
     }
 
     private func startReceiveLoop(_ task: URLSessionWebSocketTask) {
@@ -234,7 +308,13 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             yield(.peerSignal(participantID: participantID, signal: signal))
         case "networkConfiguration":
             if let configuration = message.networkConfiguration { yield(.networkConfiguration(configuration)) }
-        case "hostJoinRejected", "error":
+        case "hostJoinAccepted":
+            resolveHostRegistration(error: nil)
+        case "hostJoinRejected":
+            let error = SignalingError.hostRejected(message.reason ?? "Direct signaling rejected the host.")
+            resolveHostRegistration(error: error)
+            WebRTCMediaTelemetry.capture("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
+        case "error":
             WebRTCMediaTelemetry.capture("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
         default:
             break
