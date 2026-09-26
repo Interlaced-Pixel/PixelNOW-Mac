@@ -31,23 +31,31 @@ struct RecordingEditorView: View {
     @State private var exportTask: Task<Void, Never>?
     @State private var showsAdvanced = false
     @State private var advancedSection: RecordingAdvancedEditorSection = .arrange
+    @State private var previewHeight: CGFloat = 260
+    @State private var previewDragStartHeight: CGFloat?
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    previewCard(height: min(max(geometry.size.height * 0.38, 245), 390))
+                    previewCard(height: min(max(previewHeight, 180), max(180, min(geometry.size.height * 0.5, 420))))
                     timelineCard
                     quickActions
                     if showsAdvanced { advancedDrawer }
-                    exportBar
                 }
                 .frame(maxWidth: 1420, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .top)
-                .padding(.horizontal, 42)
-                .padding(.top, 98)
-                .padding(.bottom, 32)
+                .padding(.horizontal, 28)
+                .padding(.top, 88)
+                .padding(.bottom, 24)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                exportBar
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: 1476)
+                    .background(.ultraThinMaterial)
             }
         }
         .onChange(of: viewModel.previewSignature) { _, _ in onPreviewChanged() }
@@ -61,18 +69,23 @@ struct RecordingEditorView: View {
                         .font(.system(size: 11, weight: .bold))
                         .tracking(1.5)
                         .foregroundStyle(RecordingsLayout.accent)
-                    Text("Shape your next highlight")
+                    Text("Edit video")
                         .font(.system(size: 25, weight: .bold))
                         .foregroundStyle(.white)
+                    Text("Trim and arrange, then export a new copy.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.58))
                 }
                 Spacer(minLength: 12)
                 Button { viewModel.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!viewModel.canUndo || viewModel.isExporting)
                     .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                    .keyboardShortcut("z", modifiers: .command)
                 Button { viewModel.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!viewModel.canRedo || viewModel.isExporting)
                     .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                Button(showsAdvanced ? "Hide Advanced" : "Advanced") { showsAdvanced.toggle() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                Button(showsAdvanced ? "Hide Edit Tools" : "Edit Tools") { showsAdvanced.toggle() }
                     .disabled(viewModel.isExporting)
                     .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
                 Button("Close", action: onCancel)
@@ -82,11 +95,12 @@ struct RecordingEditorView: View {
             HStack(spacing: 12) {
                 Image(systemName: "pencil.line")
                     .foregroundStyle(RecordingsLayout.accent)
-                TextField("New clip title", text: $viewModel.outputTitle)
+                TextField("Name your exported video", text: $viewModel.outputTitle)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.95))
-                Text("Export will save a new video")
+                    .help("This name will appear in your Recordings library")
+                Text("Exports to Recordings; the source stays unchanged")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
             }
@@ -120,6 +134,25 @@ struct RecordingEditorView: View {
         }
         .padding(16)
         .modifier(LiquidGlassModifier(cornerRadius: 22))
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(Color.white.opacity(0.42))
+                .frame(width: 38, height: 4)
+                .padding(.bottom, 7)
+                .frame(width: 72, height: 24)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { value in
+                            let startingHeight = previewDragStartHeight ?? height
+                            previewDragStartHeight = startingHeight
+                            previewHeight = min(max(startingHeight + value.translation.height, 180), 420)
+                        }
+                        .onEnded { _ in previewDragStartHeight = nil }
+                )
+                .help("Drag to resize the preview")
+                .accessibilityLabel("Resize video preview")
+        }
     }
 
     private var timelineCard: some View {
@@ -151,9 +184,32 @@ struct RecordingEditorView: View {
                 onSegmentTrimStart: viewModel.updateSegmentStart,
                 onSegmentTrimEnd: viewModel.updateSegmentEnd
             )
+            trimTimeFields
         }
         .padding(14)
         .modifier(LiquidGlassModifier(cornerRadius: 20))
+    }
+
+    private var trimTimeFields: some View {
+        HStack(spacing: 10) {
+            Text("Selected clip")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.62))
+            if let selectedSegment = viewModel.selectedSegment {
+                RecordingTrimTimeField(title: "In", seconds: selectedSegment.startSeconds) { seconds in
+                    viewModel.beginInteractiveEdit()
+                    viewModel.updateSelectedStart(seconds)
+                }
+                RecordingTrimTimeField(title: "Out", seconds: selectedSegment.endSeconds) { seconds in
+                    viewModel.beginInteractiveEdit()
+                    viewModel.updateSelectedEnd(seconds)
+                }
+                Text("Enter seconds or m:ss.xx")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.42))
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private var quickActions: some View {
@@ -162,8 +218,8 @@ struct RecordingEditorView: View {
             quickButton("Trim End", systemImage: "arrow.right.to.line") { applyAtSourcePlayhead(viewModel.trimEndToPlayhead) }
             quickButton("Split", systemImage: "scissors") { applyAtSourcePlayhead(viewModel.splitAtPlayhead) }
             quickButton("Join", systemImage: "link", isDisabled: !viewModel.canJoinSelectedSection) { viewModel.joinSelectedSection() }
-            quickButton("Set In", systemImage: "bracket.left") { applyAtSourcePlayhead(viewModel.markIn) }
-            quickButton("Set Out", systemImage: "bracket.right") { applyAtSourcePlayhead(viewModel.markOut) }
+            quickButton("Set In", systemImage: "arrowtriangle.left.fill") { applyAtSourcePlayhead(viewModel.markIn) }
+            quickButton("Set Out", systemImage: "arrowtriangle.right.fill") { applyAtSourcePlayhead(viewModel.markOut) }
             quickButton("Remove Selection", systemImage: "trash", isDisabled: !viewModel.canCutMarkedRange) { viewModel.cutMarkedRange() }
             Button("Reset Edits") { viewModel.resetEdits() }
                 .disabled(viewModel.isExporting)
@@ -316,12 +372,12 @@ struct RecordingEditorView: View {
                     .foregroundStyle(.red.opacity(0.88))
                     .lineLimit(1)
             } else {
-                Text("Edits are non-destructive. Export creates a new recording.")
+                Text("MP4 · \(viewModel.exportQuality.title) · \(recordingEditorDurationText(viewModel.outputDurationSeconds)) · source stays unchanged")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.52))
             }
             Spacer(minLength: 0)
-            Button("Save as New Video") { startExport() }
+            Button("Export to Library") { startExport() }
                 .disabled(!viewModel.canExport)
                 .buttonStyle(RecordingActionButtonStyle(tone: .primary))
         }
@@ -444,5 +500,65 @@ struct RecordingEditorView: View {
         .frame(height: 30)
         .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1) }
+    }
+}
+
+private struct RecordingTrimTimeField: View {
+    let title: String
+    let seconds: Double
+    let onCommit: (Double) -> Void
+    @State private var text: String
+
+    init(title: String, seconds: Double, onCommit: @escaping (Double) -> Void) {
+        self.title = title
+        self.seconds = seconds
+        self.onCommit = onCommit
+        _text = State(initialValue: Self.formattedTime(seconds))
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white.opacity(0.5))
+            TextField("0:00.00", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.94))
+                .frame(width: 68)
+                .onSubmit(commit)
+                .onChange(of: seconds) { _, value in text = Self.formattedTime(value) }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
+        .help("Enter seconds or minutes:seconds.hundredths")
+    }
+
+    private func commit() {
+        guard let value = Self.parseTime(text), value.isFinite else {
+            text = Self.formattedTime(seconds)
+            return
+        }
+        onCommit(max(0, value))
+    }
+
+    private static func parseTime(_ value: String) -> Double? {
+        let parts = value.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ":", omittingEmptySubsequences: false)
+        if parts.count == 1 { return Double(parts[0]) }
+        guard parts.count == 2,
+              let minutes = Double(parts[0]),
+              let seconds = Double(parts[1]),
+              minutes >= 0,
+              seconds >= 0,
+              seconds < 60 else { return nil }
+        return minutes * 60 + seconds
+    }
+
+    private static func formattedTime(_ value: Double) -> String {
+        let boundedValue = max(0, value.isFinite ? value : 0)
+        let minutes = Int(boundedValue / 60)
+        return String(format: "%d:%05.2f", minutes, boundedValue - Double(minutes * 60))
     }
 }

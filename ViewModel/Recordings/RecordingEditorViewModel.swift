@@ -168,10 +168,25 @@ final class RecordingEditorViewModel: ObservableObject {
     init(recording: WebRTCStreamRecording, library: [WebRTCStreamRecording]) {
         primaryRecording = recording
         self.library = library
-        outputTitle = recording.title + " Edit"
+        outputTitle = Self.uniqueOutputTitle(for: recording.title, recordingID: recording.id, library: library)
         let segment = RecordingEditorSegment(recording: recording, startSeconds: 0, endSeconds: max(0, recording.durationSeconds))
         segments = [segment]
         selectedSegmentID = segment.id
+    }
+
+    private static func uniqueOutputTitle(for sourceTitle: String, recordingID: UUID, library: [WebRTCStreamRecording]) -> String {
+        var base = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        for suffix in [" - Edited", " Edited", " - Edit", " Edit"] where base.lowercased().hasSuffix(suffix.lowercased()) {
+            base = String(base.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            break
+        }
+        if base.isEmpty { base = "Video" }
+        let usedTitles = Set(library.filter { $0.id != recordingID }.map { $0.title.localizedLowercase })
+        let proposedTitle = "\(base) Edited"
+        guard usedTitles.contains(proposedTitle.localizedLowercase) else { return proposedTitle }
+        var version = 2
+        while usedTitles.contains("\(proposedTitle) \(version)".localizedLowercase) { version += 1 }
+        return "\(proposedTitle) \(version)"
     }
 
     var selectedSegment: RecordingEditorSegment? {

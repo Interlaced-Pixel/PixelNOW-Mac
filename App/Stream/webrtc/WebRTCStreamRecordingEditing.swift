@@ -260,7 +260,7 @@ public extension WebRTCStreamRecordingLibrary {
         }
         let cleanedTitle = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
         var normalized = request
-        normalized.title = cleanedTitle.isEmpty ? request.segments[0].recording.title + " Edit" : cleanedTitle
+        normalized.title = cleanedTitle.isEmpty ? request.segments[0].recording.title + " Edited" : cleanedTitle
         normalized.playbackRate = min(max(request.playbackRate, 0.25), 4)
         normalized.audio.volume = min(max(request.audio.volume.isFinite ? request.audio.volume : 1, 0), 2)
         normalized.audio.fadeInSeconds = max(0, request.audio.fadeInSeconds.isFinite ? request.audio.fadeInSeconds : 0)
