@@ -13,6 +13,7 @@ struct CatalogShell: View {
     @StateObject private var controllerInputRouter = ControllerInputRouter()
     @AppStorage(InterfacePreferences.controllerModeEnabledKey) private var controllerModeEnabled = false
     @State private var backgroundIndex = 0
+    @State private var isVideoEditorPresented = false
     @FocusState private var catalogHasFocus: Bool
 
     private var activeStore: CatalogSelectionStore {
@@ -26,7 +27,7 @@ struct CatalogShell: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
 
                 if viewModel.selectedMainPage == .recordings {
-                    RecordingsView()
+                    RecordingsView(isVideoEditorPresented: $isVideoEditorPresented)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                 } else if viewModel.selectedMainPage == .settings {
                     SettingsView(
@@ -53,14 +54,16 @@ struct CatalogShell: View {
                 }
             }
             .overlay(alignment: .top) {
-                CatalogChrome(
-                    viewModel: viewModel,
-                    accounts: accounts,
-                    onSwitch: onSwitch,
-                    onAddAccount: onAddAccount,
-                    onSignOut: onSignOut,
-                    onForget: onForget
-                )
+                if !isVideoEditorPresented {
+                    CatalogChrome(
+                        viewModel: viewModel,
+                        accounts: accounts,
+                        onSwitch: onSwitch,
+                        onAddAccount: onAddAccount,
+                        onSignOut: onSignOut,
+                        onForget: onForget
+                    )
+                }
             }
             .focusable(true)
             .focusEffectDisabled()

@@ -1,6 +1,7 @@
 import AppKit
 import AVKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum RecordingsLayout {
     static let sidebar = Color(red: 0.035, green: 0.043, blue: 0.078)
@@ -14,6 +15,7 @@ enum RecordingsLayout {
 }
 
 struct RecordingsView: View {
+    @Binding var isVideoEditorPresented: Bool
     @State private var recordings: [WebRTCStreamRecording] = []
     @State private var selectedRecording: WebRTCStreamRecording?
     @State private var player: AVPlayer?
@@ -25,9 +27,14 @@ struct RecordingsView: View {
     @State private var copiedPathRecordingID: UUID?
     @State private var editorViewModel: RecordingEditorViewModel?
     @State private var playerTimeSeconds = 0.0
+    @State private var playerIsPlaying = false
     @State private var playerTimeObserver: Any?
     @State private var editorPreviewTask: Task<Void, Never>?
     @State private var editorPreviewDurationSeconds = 0.0
+    @State private var isImportPickerPresented = false
+    @State private var isImportingVideos = false
+    @State private var importErrorMessage: String?
+    @State private var exportingRecordingID: UUID?
 
     private var visibleRecordings: [WebRTCStreamRecording] {
         let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -71,16 +78,33 @@ struct RecordingsView: View {
                 }
             }
         }
-        .onAppear { reload(showMessage: false) }
+        .task { await reload(showMessage: false) }
+        .onChange(of: editorViewModel != nil) { _, isPresented in
+            isVideoEditorPresented = isPresented
+        }
         .onChange(of: visibleRecordings.map(\.id)) { _, ids in
             guard let selectedRecording, !ids.contains(selectedRecording.id) else { return }
             select(visibleRecordings.first, autoplay: false)
         }
         .confirmationDialog(deleteDialogTitle, isPresented: deleteDialogPresented) {
-            Button("Delete Recording", role: .destructive) { deletePendingRecording() }
+            Button("Delete Recording", role: .destructive) { Task { await deletePendingRecording() } }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
             Text("This permanently removes the video file and metadata from PixelNOW recordings.")
+        }
+        .fileImporter(isPresented: $isImportPickerPresented, allowedContentTypes: [.movie], allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls): importVideos(urls)
+            case .failure(let error): importErrorMessage = error.localizedDescription
+            }
+        }
+        .alert("Couldn't Import Video", isPresented: Binding(
+            get: { importErrorMessage != nil },
+            set: { if !$0 { importErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { importErrorMessage = nil }
+        } message: {
+            Text(importErrorMessage ?? "")
         }
         .onDisappear {
             cancelEditorPreview()
@@ -105,30 +129,34 @@ struct RecordingsView: View {
             sortAndFilters
 
             if recordings.isEmpty {
-                RecordingEmptyState(kind: .library, action: { reload(showMessage: true) })
+                RecordingEmptyState(kind: .library, isImporting: isImportingVideos) {
+                    Task { await reload(showMessage: true) }
+                } importAction: {
+                    isImportPickerPresented = true
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .modifier(LiquidGlassModifier(cornerRadius: 24))
             } else if visibleRecordings.isEmpty {
-                RecordingEmptyState(kind: .search, action: clearSearchAndFilters)
+                RecordingEmptyState(kind: .search, isImporting: false, action: clearSearchAndFilters, importAction: nil)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .modifier(LiquidGlassModifier(cornerRadius: 24))
             } else if size.width >= 1100 {
                 HStack(alignment: .top, spacing: 18) {
                     ScrollView(.vertical, showsIndicators: false) {
-                        recordingsGrid(minimumCardWidth: 190)
+                        recordingsGrid(minimumCardWidth: 210)
                             .padding(.bottom, 24)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: Design.clamped(size.width * 0.34, minimum: 340, maximum: 520))
+                    .frame(maxHeight: .infinity)
 
                     playerPane
-                        .frame(width: Design.clamped(size.width * 0.34, minimum: 340, maximum: 470))
-                        .frame(maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxHeight: .infinity)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
-                        recordingsGrid(minimumCardWidth: 190)
+                        recordingsGrid(minimumCardWidth: 210)
                         playerPane
                             .frame(minHeight: 420)
                     }
@@ -182,7 +210,13 @@ struct RecordingsView: View {
                 RecordingMetric(title: "RUNTIME", value: durationText(stats.totalDurationSeconds))
                 RecordingMetric(title: "SIZE", value: compactFileSizeText(stats.totalBytes))
             }
-            Button { reload(showMessage: true) } label: {
+            Button { isImportPickerPresented = true } label: {
+                Label(isImportingVideos ? "Importing…" : "Import Video", systemImage: isImportingVideos ? "hourglass" : "square.and.arrow.down")
+            }
+            .buttonStyle(RecordingActionButtonStyle(tone: .primary))
+            .disabled(isImportingVideos)
+            .help("Add video files to your PixelNOW library")
+            Button { Task { await reload(showMessage: true) } } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.88))
@@ -244,28 +278,24 @@ struct RecordingsView: View {
             ZStack(alignment: .topLeading) {
                 RecordingPlayerView(player: player)
                     .background(Color.black)
-                    .overlay(alignment: .top) {
-                        LinearGradient(colors: [.black.opacity(0.62), .black.opacity(0.00)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 120)
-                    }
                     .overlay(alignment: .bottom) {
                         LinearGradient(colors: [.black.opacity(0.00), .black.opacity(0.58)], startPoint: .top, endPoint: .bottom)
                             .frame(height: 140)
                     }
-                    .onAppear { player.play() }
-
-                RecordingNowPlayingBadge(recording: recording)
-                    .padding(22)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay { Rectangle().stroke(Color.black.opacity(0.72), lineWidth: 1) }
 
             RecordingInspector(
                 recording: recording,
+                isPlaying: playerIsPlaying,
+                isExporting: exportingRecordingID == recording.id,
                 copiedPath: copiedPathRecordingID == recording.id,
                 message: message,
                 onRestart: { restart(recording) },
+                onTogglePlayback: { togglePlayback(recording) },
                 onEdit: { startEditing(recording) },
+                onExport: { exportOriginal(recording) },
                 onOpen: { open(recording) },
                 onReveal: { reveal(recording) },
                 onCopyPath: { copyPath(recording) },
@@ -285,8 +315,11 @@ struct RecordingsView: View {
         return "Delete \"\(pendingDelete.title)\"?"
     }
 
-    private func reload(showMessage: Bool) {
-        recordings = WebRTCStreamRecordingLibrary.loadRecordings()
+    @MainActor
+    private func reload(showMessage: Bool) async {
+        let availableRecordings = await WebRTCStreamRecordingLibrary.loadAvailableRecordings()
+        guard !Task.isCancelled else { return }
+        recordings = availableRecordings
         if let selectedRecording, let refreshed = recordings.first(where: { $0.id == selectedRecording.id }) {
             self.selectedRecording = refreshed
             if player == nil { select(refreshed, autoplay: false) }
@@ -294,8 +327,86 @@ struct RecordingsView: View {
             select(visibleRecordings.first, autoplay: false)
         }
         if showMessage {
-            message = recordings.isEmpty ? "No recordings found in your GeForce NOW movies folder." : "Loaded \(recordings.count) recording\(recordings.count == 1 ? "" : "s")."
+            message = recordings.isEmpty ? "No available videos found. Import a video or record a stream to begin." : "Loaded \(recordings.count) available video\(recordings.count == 1 ? "" : "s")."
         }
+    }
+
+    private func importVideos(_ urls: [URL]) {
+        guard !urls.isEmpty, !isImportingVideos else { return }
+        isImportingVideos = true
+        Task { @MainActor in
+            var importedCount = 0
+            var failures: [String] = []
+            for url in urls {
+                do {
+                    _ = try await importVideo(at: url)
+                    importedCount += 1
+                } catch {
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+            isImportingVideos = false
+            await reload(showMessage: false)
+            if failures.isEmpty {
+                message = "Imported \(importedCount) video\(importedCount == 1 ? "" : "s")."
+            } else {
+                importErrorMessage = failures.joined(separator: "\n")
+                message = "Imported \(importedCount); \(failures.count) couldn't be imported."
+            }
+        }
+    }
+
+    private func importVideo(at url: URL) async throws -> WebRTCStreamRecording {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessed { url.stopAccessingSecurityScopedResource() }
+        }
+        return try await WebRTCStreamRecordingLibrary.importVideo(from: url)
+    }
+
+    private func exportOriginal(_ recording: WebRTCStreamRecording) {
+        guard FileManager.default.fileExists(atPath: recording.videoURL.path) else {
+            message = "This video is no longer available. Refresh the library to remove it."
+            Task { await reload(showMessage: false) }
+            return
+        }
+        let panel = NSSavePanel()
+        panel.title = "Export Video"
+        panel.nameFieldStringValue = "\(recording.title).\(recording.videoURL.pathExtension)"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [UTType(filenameExtension: recording.videoURL.pathExtension) ?? .movie]
+        panel.begin { response in
+            guard response == .OK, let destinationURL = panel.url else { return }
+            exportingRecordingID = recording.id
+            Task { @MainActor in
+                do {
+                    try await copyVideo(recording.videoURL, to: destinationURL)
+                    message = "Exported video to \(destinationURL.lastPathComponent)."
+                } catch {
+                    message = "Export failed: \(error.localizedDescription)"
+                }
+                exportingRecordingID = nil
+            }
+        }
+    }
+
+    private func copyVideo(_ sourceURL: URL, to destinationURL: URL) async throws {
+        try await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            let temporaryURL = destinationURL.deletingLastPathComponent()
+                .appendingPathComponent(".\(UUID().uuidString).exporting")
+            do {
+                try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    _ = try fileManager.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+                } else {
+                    try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+                }
+            } catch {
+                try? fileManager.removeItem(at: temporaryURL)
+                throw error
+            }
+        }.value
     }
 
     private func select(_ recording: WebRTCStreamRecording?, autoplay: Bool) {
@@ -310,16 +421,19 @@ struct RecordingsView: View {
             player?.pause()
             player = nil
             playerTimeSeconds = 0
+            playerIsPlaying = false
             return
         }
         player?.pause()
         let nextPlayer = AVPlayer(url: recording.videoURL)
         player = nextPlayer
         playerTimeSeconds = 0
-        playerTimeObserver = nextPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main) { time in
+        playerIsPlaying = autoplay
+        playerTimeObserver = nextPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main) { [weak nextPlayer] time in
             let seconds = max(0, time.seconds.isFinite ? time.seconds : 0)
             MainActor.assumeIsolated {
                 playerTimeSeconds = seconds
+                playerIsPlaying = nextPlayer?.timeControlStatus == .playing
                 syncEditorSelectionForPreviewTime(seconds)
             }
         }
@@ -330,6 +444,7 @@ struct RecordingsView: View {
         if editorViewModel?.primaryRecording.id == recording.id {
             seekEditorPreview(seconds: 0)
             player?.play()
+            playerIsPlaying = true
             return
         }
         guard selectedRecording?.id == recording.id else {
@@ -338,6 +453,21 @@ struct RecordingsView: View {
         }
         player?.seek(to: .zero)
         player?.play()
+        playerIsPlaying = true
+    }
+
+    private func togglePlayback(_ recording: WebRTCStreamRecording) {
+        guard selectedRecording?.id == recording.id, let player else {
+            select(recording, autoplay: true)
+            return
+        }
+        if playerIsPlaying {
+            player.pause()
+            playerIsPlaying = false
+        } else {
+            player.play()
+            playerIsPlaying = true
+        }
     }
 
     private func seek(_ recording: WebRTCStreamRecording, seconds: Double) {
@@ -363,6 +493,7 @@ struct RecordingsView: View {
     private func startEditing(_ recording: WebRTCStreamRecording) {
         if selectedRecording?.id != recording.id { select(recording, autoplay: false) }
         player?.pause()
+        playerIsPlaying = false
         editorViewModel = RecordingEditorViewModel(recording: recording, library: recordings)
         refreshEditedPreview(debounce: false, preservePlaybackTime: false)
         message = "Editing \(recording.title). Export saves a new video."
@@ -378,11 +509,13 @@ struct RecordingsView: View {
     private func editedRecordingSaved(_ recording: WebRTCStreamRecording) {
         cancelEditorPreview()
         editorViewModel = nil
-        reload(showMessage: false)
-        if let refreshed = recordings.first(where: { $0.id == recording.id }) {
-            select(refreshed, autoplay: true)
+        Task { @MainActor in
+            await reload(showMessage: false)
+            if let refreshed = recordings.first(where: { $0.id == recording.id }) {
+                select(refreshed, autoplay: true)
+            }
+            message = "Exported \(recording.title)."
         }
-        message = "Saved \(recording.title) as a new video."
     }
 
     private func refreshEditedPreview(debounce: Bool, preservePlaybackTime: Bool = true) {
@@ -427,8 +560,10 @@ struct RecordingsView: View {
         syncEditorSelectionForPreviewTime(boundedSeconds)
         if shouldResumePlayback {
             player.play()
+            playerIsPlaying = true
         } else {
             player.pause()
+            playerIsPlaying = false
         }
     }
 
@@ -481,13 +616,13 @@ struct RecordingsView: View {
         }
     }
 
-    private func deletePendingRecording() {
+    private func deletePendingRecording() async {
         guard let recording = pendingDelete else { return }
         do {
             try WebRTCStreamRecordingLibrary.delete(recording)
             pendingDelete = nil
             message = "Deleted \(recording.title)."
-            reload(showMessage: false)
+            await reload(showMessage: false)
         } catch {
             message = error.localizedDescription
             pendingDelete = nil
@@ -575,6 +710,7 @@ private struct RecordingRow: View {
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovering = false
+    @State private var pausesHoverPreview = false
 
     var body: some View {
         content
@@ -584,36 +720,43 @@ private struct RecordingRow: View {
     }
 
     private var content: some View {
-        Button(action: action) {
+        Button {
+            pausesHoverPreview = true
+            action()
+        } label: {
             VStack(alignment: .leading, spacing: 12) {
-                RecordingThumbnail(recording: recording, isSelected: isSelected, isHovering: isHovering)
-                    .frame(height: 118)
-                VStack(alignment: .leading, spacing: 5) {
+                RecordingThumbnail(recording: recording, isSelected: isSelected, isHovering: isHovering && !pausesHoverPreview)
+                    .frame(height: 88)
+                VStack(alignment: .leading, spacing: 4) {
                     Text(recording.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.96))
                         .lineLimit(1)
                     Text(relativeDateText(recording.createdAt))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                         .lineLimit(1)
                 }
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     RecordingPill(text: durationText(recording.durationSeconds), active: isSelected)
-                    RecordingPill(text: qualityText(recording), active: false)
+                    RecordingPill(text: resolutionLabel(recording), active: false)
                     if recording.enhancedVideo {
-                        RecordingPill(text: "RTX", active: true)
+                        RecordingPill(text: "Enhanced", active: true)
+                            .help("Captured with enhanced video")
                     }
                 }
                 .lineLimit(1)
             }
-            .padding(13)
+            .padding(9)
             .background(background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(isSelected ? RecordingsLayout.accent.opacity(0.7) : Color.white.opacity(isHovering ? 0.18 : 0.08), lineWidth: isSelected ? 1.4 : 1) }
             .shadow(color: isSelected ? RecordingsLayout.accent.opacity(0.10) : .clear, radius: 18)
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            isHovering = hovering
+            if !hovering { pausesHoverPreview = false }
+        }
     }
 
     private var background: some ShapeStyle {
@@ -627,10 +770,25 @@ private struct RecordingThumbnail: View {
     let isSelected: Bool
     let isHovering: Bool
     @State private var thumbnail: NSImage?
+    @State private var previewPlayer: AVQueuePlayer?
+    @State private var previewLooper: AVPlayerLooper?
 
     var body: some View {
         ZStack {
-            if let thumbnail {
+            if let previewPlayer {
+                RecordingPlayerView(player: previewPlayer)
+                    .background(Color.black)
+                    .overlay(alignment: .topLeading) {
+                        Label("PREVIEW", systemImage: "waveform")
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(0.8)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.64), in: Capsule())
+                            .padding(7)
+                    }
+            } else if let thumbnail {
                 Image(nsImage: thumbnail)
                     .resizable()
                     .scaledToFill()
@@ -648,15 +806,17 @@ private struct RecordingThumbnail: View {
                 DiagonalGrid()
                     .stroke(Color.black.opacity(0.35), lineWidth: 1)
             }
-            Image(systemName: isHovering || isSelected ? "play.fill" : "play.rectangle.fill")
-                .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(isSelected ? RecordingsLayout.accent : .white.opacity(thumbnail == nil ? 0.76 : 0.92))
-                .shadow(color: .black.opacity(thumbnail == nil ? 0 : 0.60), radius: 7, x: 0, y: 2)
+            if previewPlayer == nil {
+                Image(systemName: isSelected ? "play.fill" : "play.rectangle.fill")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(isSelected ? RecordingsLayout.accent : .white.opacity(thumbnail == nil ? 0.76 : 0.92))
+                    .shadow(color: .black.opacity(thumbnail == nil ? 0 : 0.60), radius: 7, x: 0, y: 2)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .aspectRatio(16 / 9, contentMode: .fit)
         .overlay(alignment: .bottomTrailing) {
-            Text(resolutionBadge(recording))
+            Text(resolutionLabel(recording))
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5)
@@ -669,6 +829,33 @@ private struct RecordingThumbnail: View {
         .task(id: recording.id) {
             thumbnail = await RecordingThumbnailLoader.thumbnail(for: recording)
         }
+        .onChange(of: isHovering && !isSelected) { _, shouldPreview in
+            setPreviewActive(shouldPreview)
+        }
+        .onChange(of: isSelected) { _, selected in
+            setPreviewActive(isHovering && !selected)
+        }
+        .onDisappear { setPreviewActive(false) }
+    }
+
+    private func setPreviewActive(_ active: Bool) {
+        guard active else {
+            previewPlayer?.pause()
+            previewPlayer?.seek(to: .zero)
+            previewPlayer?.removeAllItems()
+            previewLooper = nil
+            previewPlayer = nil
+            return
+        }
+        guard previewPlayer == nil,
+              FileManager.default.fileExists(atPath: recording.videoURL.path) else { return }
+        let player = AVQueuePlayer()
+        player.isMuted = true
+        player.actionAtItemEnd = .advance
+        let looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: recording.videoURL))
+        previewLooper = looper
+        previewPlayer = player
+        player.playImmediately(atRate: 1)
     }
 }
 
@@ -694,7 +881,7 @@ struct RecordingPlayerView: NSViewRepresentable {
     }
 
     private func configure(_ view: AVPlayerView) {
-        view.controlsStyle = .floating
+        view.controlsStyle = .none
         view.videoGravity = .resizeAspect
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor
@@ -750,94 +937,90 @@ private struct RecordingPill: View {
     }
 }
 
-private struct RecordingNowPlayingBadge: View {
-    let recording: WebRTCStreamRecording
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(RecordingsLayout.accent)
-                    .frame(width: 8, height: 8)
-                Text("NOW PLAYING")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.3)
-                    .foregroundStyle(RecordingsLayout.accent)
-            }
-            Text(recording.title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            Text("\(qualityText(recording)) · \(durationText(recording.durationSeconds)) · \(compactFileSizeText(recording.fileSizeBytes))")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.70))
-                .lineLimit(1)
-        }
-        .padding(15)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 1) }
-    }
-}
-
 private struct RecordingInspector: View {
     let recording: WebRTCStreamRecording
+    let isPlaying: Bool
+    let isExporting: Bool
     let copiedPath: Bool
     let message: String
     let onRestart: () -> Void
+    let onTogglePlayback: () -> Void
     let onEdit: () -> Void
+    let onExport: () -> Void
     let onOpen: () -> Void
     let onReveal: () -> Void
     let onCopyPath: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(recording.title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.96))
-                        .lineLimit(2)
-                    Text("\(dateText(recording.createdAt)) · \(recording.videoURL.deletingLastPathComponent().lastPathComponent)")
-                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                    Text(dateText(recording.createdAt))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.58))
                         .lineLimit(1)
                 }
+                .frame(maxWidth: 190, alignment: .leading)
+
                 Spacer(minLength: 4)
-                Button(action: onRestart) {
-                    Image(systemName: "backward.end.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 36, height: 36)
+
+                HStack(spacing: 6) {
+                    Button(action: onRestart) {
+                        Image(systemName: "backward.end.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                    .help("Restart playback")
+                    Button(action: onTogglePlayback) {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                    .help(isPlaying ? "Pause playback" : "Play recording")
+                    Button("Edit", action: onEdit)
+                        .buttonStyle(RecordingActionButtonStyle(tone: .primary))
+                        .help("Edit this video")
+                    Button(isExporting ? "Exporting…" : "Export", action: onExport)
+                        .disabled(isExporting)
+                        .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                        .help("Export a copy of this video")
+                    Menu {
+                        Button("Open in Default Player", action: onOpen)
+                        Button("Reveal in Finder", action: onReveal)
+                        Button(copiedPath ? "Path Copied" : "Copy File Path", action: onCopyPath)
+                        Divider()
+                        Button("Delete Recording", role: .destructive, action: onDelete)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .bold))
+                            .frame(width: 32, height: 32)
+                            .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("More recording actions")
                 }
-                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                .help("Restart playback")
+                .fixedSize(horizontal: true, vertical: false)
             }
-            HStack(spacing: 8) {
-                Button("Edit Recording", action: onEdit)
-                    .buttonStyle(RecordingActionButtonStyle(tone: .primary))
-                    .frame(maxWidth: .infinity)
-                Menu {
-                    Button("Open in Default Player", action: onOpen)
-                    Button("Reveal in Finder", action: onReveal)
-                    Button(copiedPath ? "Path Copied" : "Copy File Path", action: onCopyPath)
-                    Divider()
-                    Button("Delete Recording", role: .destructive, action: onDelete)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 15, weight: .bold))
-                        .frame(width: 38, height: 36)
-                        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
+            HStack(spacing: 7) {
+                compactDetail(resolutionLabel(recording))
+                detailSeparator
+                compactDetail(durationText(recording.durationSeconds))
+                detailSeparator
+                compactDetail(compactFileSizeText(recording.fileSizeBytes))
+                if recording.enhancedVideo {
+                    detailSeparator
+                    compactDetail("Enhanced", highlighted: true)
                 }
-                .menuStyle(.borderlessButton)
-                .help("More recording actions")
             }
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                RecordingDetailTile(title: "QUALITY", value: qualityText(recording), detail: "\(recording.width)x\(recording.height)")
-                RecordingDetailTile(title: "BITRATE", value: bitrateText(recording), detail: "Audio \(recording.audioBitrateKbps) Kbps")
-                RecordingDetailTile(title: "DURATION", value: durationText(recording.durationSeconds), detail: compactFileSizeText(recording.fileSizeBytes))
-                RecordingDetailTile(title: "ENHANCEMENT", value: recording.enhancedVideo ? "Enabled" : "Standard", detail: recording.enhancedVideo ? "Enhanced video" : "Original stream")
-            }
+            .lineLimit(1)
             if !message.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle.fill")
@@ -845,39 +1028,26 @@ private struct RecordingInspector: View {
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.white.opacity(0.58))
             }
         }
-        .padding(16)
-        .modifier(LiquidGlassModifier(cornerRadius: 22))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .modifier(LiquidGlassModifier(cornerRadius: 16))
     }
-}
 
-private struct RecordingDetailTile: View {
-    let title: String
-    let value: String
-    let detail: String
+    private var detailSeparator: some View {
+        Circle()
+            .fill(Color.white.opacity(0.28))
+            .frame(width: 3, height: 3)
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1.1)
-                .foregroundStyle(RecordingsLayout.accent.opacity(0.86))
-            Text(value)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white.opacity(0.94))
-                .lineLimit(1)
-            Text(detail)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.50))
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(RecordingsLayout.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
+    private func compactDetail(_ value: String, highlighted: Bool = false) -> some View {
+        Text(value)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(highlighted ? RecordingsLayout.accent : .white.opacity(0.72))
+            .fixedSize()
     }
 }
 
@@ -888,7 +1058,9 @@ private struct RecordingEmptyState: View {
     }
 
     let kind: Kind
+    let isImporting: Bool
     let action: () -> Void
+    let importAction: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -903,13 +1075,20 @@ private struct RecordingEmptyState: View {
             Text(kind == .library ? "No recordings yet" : "No matches")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(.white.opacity(0.94))
-            Text(kind == .library ? "Start a stream, open the sidebar, and press Record to save gameplay videos here." : "Clear search or filters to show the rest of your recording library.")
+            Text(kind == .library ? "Import a video or record a stream to add playable videos to your library." : "Clear search or filters to show the rest of your video library.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.58))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
-            Button(kind == .library ? "Refresh" : "Clear Filters", action: action)
-                .buttonStyle(RecordingActionButtonStyle(tone: .primary))
+            HStack(spacing: 10) {
+                Button(kind == .library ? "Refresh" : "Clear Filters", action: action)
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                if let importAction {
+                    Button(isImporting ? "Importing…" : "Import Video", action: importAction)
+                        .buttonStyle(RecordingActionButtonStyle(tone: .primary))
+                        .disabled(isImporting)
+                }
+            }
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1057,7 +1236,7 @@ private enum RecordingSortOrder: String, CaseIterable, Identifiable {
         case .newest: return "Newest first"
         case .oldest: return "Oldest first"
         case .longest: return "Longest"
-        case .largest: return "Largest"
+        case .largest: return "Largest file"
         case .title: return "Title A-Z"
         }
     }
@@ -1090,7 +1269,7 @@ private enum RecordingFilter: String, CaseIterable, Identifiable {
         case .qhd: return "1440p+"
         case .fullHD: return "1080p+"
         case .enhanced: return "Enhanced"
-        case .large: return "Large"
+        case .large: return "Large files"
         }
     }
 
@@ -1151,8 +1330,8 @@ private func qualityText(_ recording: WebRTCStreamRecording) -> String {
     return "Auto"
 }
 
-private func resolutionBadge(_ recording: WebRTCStreamRecording) -> String {
-    recording.width > 0 && recording.height > 0 ? "\(recording.width)x\(recording.height)" : "AUTO"
+private func resolutionLabel(_ recording: WebRTCStreamRecording) -> String {
+    recording.width > 0 && recording.height > 0 ? "\(recording.width)×\(recording.height)" : "Unknown"
 }
 
 private func bitrateText(_ recording: WebRTCStreamRecording) -> String {
