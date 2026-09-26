@@ -1,6 +1,6 @@
 import Foundation
 
-@objc public enum OPNCursorPolicy: Int, CaseIterable, Sendable {
+@objc public enum PixelNOWCursorPolicy: Int, CaseIterable, Sendable {
     case auto = 0
     case local = 1
     case stream = 2
@@ -13,7 +13,7 @@ import Foundation
         }
     }
 
-    public static func from(_ rawValue: Int) -> OPNCursorPolicy {
-        OPNCursorPolicy(rawValue: rawValue) ?? .auto
+    public static func from(_ rawValue: Int) -> PixelNOWCursorPolicy {
+        PixelNOWCursorPolicy(rawValue: rawValue) ?? .auto
     }
 }

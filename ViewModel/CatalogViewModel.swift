@@ -1837,14 +1837,6 @@ final class CatalogViewModel: ObservableObject {
         loadSettingsPreferences()
     }
 
-    func setRemoteCoOpTransportModeIndex(_ index: Int) {
-        let modes = RemoteCoOpTransportMode.allCases
-        guard modes.indices.contains(index) else { return }
-        RemoteCoOpPreferencesStore.setTransportMode(modes[index])
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        loadSettingsPreferences()
-    }
-
     func setRemoteCoOpQualityPresetIndex(_ index: Int) {
         let presets = RemoteCoOpQualityPreset.allCases
         guard presets.indices.contains(index) else { return }
@@ -1857,24 +1849,6 @@ final class CatalogViewModel: ObservableObject {
         let modes = RemoteCoOpLatencyMode.allCases
         guard modes.indices.contains(index) else { return }
         RemoteCoOpPreferencesStore.setLatencyMode(modes[index])
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpRequireHostApproval(_ required: Bool) {
-        RemoteCoOpPreferencesStore.setRequireHostApproval(required)
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpSignalingServerURL(_ url: String) {
-        RemoteCoOpPreferencesStore.setSignalingServerURL(url)
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpGuestJoinBaseURL(_ url: String) {
-        RemoteCoOpPreferencesStore.setGuestJoinBaseURL(url)
         remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
         loadSettingsPreferences()
     }

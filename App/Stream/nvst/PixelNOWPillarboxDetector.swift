@@ -10,13 +10,13 @@ import QuartzCore
 /// stream carries a 3840x2160 image centred in 5120x2160) and encodes the side
 /// bars as black pixels. Nothing in the WebRTC metadata describes where those
 /// bars start, so the boundary has to be measured from the luma plane.
-struct OPNPillarboxContentRect: Equatable {
+struct PixelNOWPillarboxContentRect: Equatable {
     /// Left edge of picture content, as a fraction of frame width.
     var left: Double
     /// Right edge of picture content, as a fraction of frame width.
     var right: Double
 
-    static let full = OPNPillarboxContentRect(left: 0, right: 1)
+    static let full = PixelNOWPillarboxContentRect(left: 0, right: 1)
 
     var isFull: Bool { left <= 0.001 && right >= 0.999 }
     var width: Double { max(0, right - left) }
@@ -29,7 +29,7 @@ struct OPNPillarboxContentRect: Equatable {
 /// are indistinguishable from bar columns by luma alone. Instead the boundary is
 /// measured, snapped to a standard aspect ratio, and held until a slow re-confirm
 /// disagrees several times in a row.
-final class OPNPillarboxDetector {
+final class PixelNOWPillarboxDetector {
     /// Aspect ratios worth snapping to. A measurement within `aspectSnapTolerance`
     /// of one of these is almost certainly that ratio plus rounding.
     /// 64:27 is the 21:9 ultrawide standard, needed for a 21:9 title pillarboxed
@@ -63,11 +63,11 @@ final class OPNPillarboxDetector {
     /// latching a wrong rect.
     private static let confirmsBeforeLatch = 3
 
-    private(set) var contentRect = OPNPillarboxContentRect.full
+    private(set) var contentRect = PixelNOWPillarboxContentRect.full
 
     private var latchedSize = CGSize.zero
     private var lastMeasurement: CFTimeInterval = 0
-    private var pendingRect: OPNPillarboxContentRect?
+    private var pendingRect: PixelNOWPillarboxContentRect?
     private var pendingCount = 0
     private var hasLatched = false
 
@@ -121,13 +121,13 @@ final class OPNPillarboxDetector {
         return applyIfChanged(candidate)
     }
 
-    private func applyIfChanged(_ rect: OPNPillarboxContentRect) -> Bool {
+    private func applyIfChanged(_ rect: PixelNOWPillarboxContentRect) -> Bool {
         guard !Self.rectsMatch(rect, contentRect) else { return false }
         contentRect = rect
         return true
     }
 
-    private static func rectsMatch(_ a: OPNPillarboxContentRect, _ b: OPNPillarboxContentRect) -> Bool {
+    private static func rectsMatch(_ a: PixelNOWPillarboxContentRect, _ b: PixelNOWPillarboxContentRect) -> Bool {
         abs(a.left - b.left) < 0.002 && abs(a.right - b.right) < 0.002
     }
 
@@ -167,7 +167,7 @@ final class OPNPillarboxDetector {
     }
 
     /// Scans the luma plane and returns the content extent, or nil if unreadable.
-    static func measure(_ pixelBuffer: CVPixelBuffer) -> OPNPillarboxContentRect? {
+    static func measure(_ pixelBuffer: CVPixelBuffer) -> PixelNOWPillarboxContentRect? {
         let isBiPlanar = CVPixelBufferGetPlaneCount(pixelBuffer) >= 2
         let isTenBit = lumaBytesPerSample(pixelBuffer) == 2
         guard isBiPlanar else { return nil }
@@ -212,7 +212,7 @@ final class OPNPillarboxDetector {
             return .full
         }
 
-        return OPNPillarboxContentRect(
+        return PixelNOWPillarboxContentRect(
             left: Double(firstContent) / Double(width),
             right: Double(lastContent + 1) / Double(width)
         )
@@ -260,7 +260,7 @@ final class OPNPillarboxDetector {
     /// so an odd width means the scan found dark *picture* — a vignette, a dark UI
     /// panel, a night scene — not a bar. Returning the raw rect there is what makes
     /// the fill mirror content that should have been left alone.
-    static func snapToStandardAspect(_ rect: OPNPillarboxContentRect, frameSize: CGSize) -> OPNPillarboxContentRect {
+    static func snapToStandardAspect(_ rect: PixelNOWPillarboxContentRect, frameSize: CGSize) -> PixelNOWPillarboxContentRect {
         guard frameSize.width > 0, frameSize.height > 0, rect.width > 0 else { return .full }
         let contentWidth = rect.width * Double(frameSize.width)
         let measuredAspect = contentWidth / Double(frameSize.height)
@@ -271,6 +271,6 @@ final class OPNPillarboxDetector {
         let snappedWidth = (match * Double(frameSize.height)) / Double(frameSize.width)
         guard snappedWidth <= 1.0 else { return .full }
         let inset = (1.0 - snappedWidth) / 2.0
-        return OPNPillarboxContentRect(left: inset, right: 1.0 - inset)
+        return PixelNOWPillarboxContentRect(left: inset, right: 1.0 - inset)
     }
 }

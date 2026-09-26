@@ -110,8 +110,8 @@ public actor RemoteCoOpHostCoordinator {
         await hostSession.snapshot()
     }
 
-    public func startInvite(applicationID: String = "", title: String = "", joinBaseURL: URL? = nil, signalingServerURL: String = "", lifetimeSeconds: TimeInterval = 3_600) async throws -> RemoteCoOpInvite {
-        let invite = try await hostSession.startInvite(applicationID: applicationID, title: title, joinBaseURL: joinBaseURL, signalingServerURL: signalingServerURL, lifetimeSeconds: lifetimeSeconds)
+    public func startInvite(applicationID: String = "", title: String = "", lifetimeSeconds: TimeInterval = 3_600) async throws -> RemoteCoOpInvite {
+        let invite = try await hostSession.startInvite(applicationID: applicationID, title: title, lifetimeSeconds: lifetimeSeconds)
         await signaling.send(.inviteCreated(invite))
         return invite
     }
@@ -120,12 +120,6 @@ public actor RemoteCoOpHostCoordinator {
         let events = await hostSession.stopInvite()
         await signaling.send(.inviteEnded)
         return events
-    }
-
-    public func approveParticipant(_ id: UUID) async throws -> RemoteCoOpParticipant {
-        let participant = try await hostSession.approveParticipant(id)
-        await signaling.send(.participantUpdated(participant))
-        return participant
     }
 
     public func setInputEnabled(_ enabled: Bool, for id: UUID) async throws -> RemoteCoOpParticipant {

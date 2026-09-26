@@ -4,12 +4,12 @@ import Foundation
 
 private let coreAudioDeviceDefaultChangedCallback: AudioObjectPropertyListenerProc = { _, _, _, clientData in
     guard let clientData else { return noErr }
-    let device = Unmanaged<OPNCoreAudioRTCDevice>.fromOpaque(clientData).takeUnretainedValue()
+    let device = Unmanaged<PixelNOWCoreAudioRTCDevice>.fromOpaque(clientData).takeUnretainedValue()
     device.scheduleSelfDeviceChange()
     return noErr
 }
 
-extension OPNCoreAudioRTCDevice {
+extension PixelNOWCoreAudioRTCDevice {
     func startSelfDeviceMonitoring() {
         var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         let context = Unmanaged.passUnretained(self).toOpaque()

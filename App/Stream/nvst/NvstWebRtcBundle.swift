@@ -101,7 +101,7 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
 
     /// `config.maxRetransmitTime = 300` for the partially-reliable channels, per the same log.
     ///
-    /// Eight channels, matching OpenNOW's native streamer profile. This list read "exactly six, and
+    /// Eight channels, matching PixelNOW's native streamer profile. This list read "exactly six, and
     /// no feedback channel — that channel is the seat's to open" until a session showed the seat
     /// never opens it: `feedbackOpen=false reportsSent=0`, so our receiver reports had nowhere to
     /// go and the seat's congestion control had no evidence to act on.
@@ -112,7 +112,7 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
         ChannelDefinition("control_channel_partially_reliable", lifetime: 300),
         ChannelDefinition("control_channel_unreliable", unreliable: true),
         ChannelDefinition("input_channel_partially_reliable", lifetime: 300),
-        // The last two come from OpenNOW's native streamer, whose profile is eight channels with
+        // The last two come from PixelNOW's native streamer, whose profile is eight channels with
         // fixed stream ids: cursor on 12, RTCP on 14. Ours stopped at six, and the earlier attempt
         // to open the feedback channel appended it as the SEVENTH — landing it on id 12, the
         // cursor channel's id, with the wrong label. That mismatch is what made the seat reset
@@ -129,13 +129,13 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
     /// Official feedback channel label. `rtcp1` is refused by the seat.
     public static let feedbackChannelLabel = NvstFeedbackSender.channelLabel
 
-    /// `OPN_NVST_FEEDBACK=0` opens the channels but never writes to them, isolating "the seat
+    /// `PIXELNOW_NVST_FEEDBACK=0` opens the channels but never writes to them, isolating "the seat
     /// dislikes our reports" from "the seat dislikes the channel".
     public static var sendsFeedback: Bool {
-        ProcessInfo.processInfo.environment["OPN_NVST_FEEDBACK"] != "0"
+        ProcessInfo.processInfo.environment["PIXELNOW_NVST_FEEDBACK"] != "0"
     }
 
-    /// `OPN_NVST_WEBRTC_LOG=1` forwards libwebrtc's own ICE/DTLS/SCTP logging into our log, which is
+    /// `PIXELNOW_NVST_WEBRTC_LOG=1` forwards libwebrtc's own ICE/DTLS/SCTP logging into our log, which is
     /// the only way to see *why* an association drops rather than just that it did.
     static var forwardsWebRtcLogging: Bool {
         true
@@ -271,9 +271,9 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
     /// capture game audio. Called on the CoreAudio render thread: it must copy and return, never
     /// block, and never hop to an actor.
     public var onGameAudioFrame: (@Sendable (UnsafeRawPointer?, UInt32, Double, UInt32) -> Void)?
-    /// Held for the lifetime of the bundle because `OPNCoreAudioRTCDevice.owner` is weak and the
+    /// Held for the lifetime of the bundle because `PixelNOWCoreAudioRTCDevice.owner` is weak and the
     /// factory holds only the device.
-    var audioDevice: OPNCoreAudioRTCDevice?
+    var audioDevice: PixelNOWCoreAudioRTCDevice?
     /// Output device latency plus its IO buffer, in seconds; nil before the device exists.
     public var audioOutputLatencySeconds: Double? {
         lock.withLock { audioDevice?.outputPathLatencySeconds }
@@ -352,7 +352,7 @@ public final class NvstWebRtcBundle: NSObject, RTCPeerConnectionDelegate, RTCDat
 /// what a recording needs. The capture side is the microphone send path: while
 /// `microphoneCaptureEnabled` is false the device hands libwebrtc silence, and flipping it lets
 /// real PCM flow to the negotiated mic sender.
-extension NvstWebRtcBundle: OPNCoreAudioRTCDeviceOwner {
+extension NvstWebRtcBundle: PixelNOWCoreAudioRTCDeviceOwner {
     func handleGameAudioFrame(_ audioBufferList: UnsafeRawPointer?, frameCount: UInt32, sampleRate: Double, channels: UInt32) {
         onGameAudioFrame?(audioBufferList, frameCount, sampleRate, channels)
     }

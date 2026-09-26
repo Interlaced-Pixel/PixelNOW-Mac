@@ -4,7 +4,7 @@ import CoreMedia
 import CoreVideo
 import Foundation
 
-public enum OPNVideoPresentationMode: Int, Sendable {
+public enum PixelNOWVideoPresentationMode: Int, Sendable {
     case balanced = 0
     case smooth = 1
     case lowestLatency = 2
@@ -18,7 +18,7 @@ public enum OPNVideoPresentationMode: Int, Sendable {
     }
 }
 
-public struct OPNVideoRenderDiagnosticsSnapshot: Equatable, Sendable {
+public struct PixelNOWVideoRenderDiagnosticsSnapshot: Equatable, Sendable {
     public var pixelFormat = ""
     public var outputFormat = ""
     public var renderPath = ""
@@ -44,19 +44,19 @@ public final class NVSTCoreVideoRenderer {
     private let videoView: NVSTMetalVideoView
     private let sink: NVSTCoreVideoSink
     private var isMetalFXConfiguredByUser: Bool = false
-    private var currentPresentationMode: OPNVideoPresentationMode = .balanced
+    private var currentPresentationMode: PixelNOWVideoPresentationMode = .balanced
 
     public final class NVSTCoreVideoSink: @unchecked Sendable {
         private weak var videoView: NVSTMetalVideoView?
         let lock = NSLock()
         private var lastSize = CGSize.zero
         private var renderedFrames: UInt64 = 0
-        private var latestRenderDiagnostics = OPNVideoRenderDiagnosticsSnapshot()
+        private var latestRenderDiagnostics = PixelNOWVideoRenderDiagnosticsSnapshot()
 
-        private let contentDetector = OPNPillarboxDetector()
+        private let contentDetector = PixelNOWPillarboxDetector()
 
         private var latestPixelBuffer: CVPixelBuffer?
-        private let snapshotTransfer = OPNPixelBufferTransfer()
+        private let snapshotTransfer = PixelNOWPixelBufferTransfer()
 
         init(videoView: NVSTMetalVideoView) {
             self.videoView = videoView
@@ -64,7 +64,7 @@ public final class NVSTCoreVideoRenderer {
 
         public var renderedFrameCount: UInt64 { lock.lock(); defer { lock.unlock() }; return renderedFrames }
 
-        var renderDiagnostics: OPNVideoRenderDiagnosticsSnapshot {
+        var renderDiagnostics: PixelNOWVideoRenderDiagnosticsSnapshot {
             lock.lock()
             defer { lock.unlock() }
             var snapshot = latestRenderDiagnostics
@@ -90,13 +90,13 @@ public final class NVSTCoreVideoRenderer {
             return image.extent.size
         }
 
-        func noteRenderDiagnostics(_ snapshot: OPNVideoRenderDiagnosticsSnapshot) {
+        func noteRenderDiagnostics(_ snapshot: PixelNOWVideoRenderDiagnosticsSnapshot) {
             lock.lock()
             latestRenderDiagnostics = snapshot
             lock.unlock()
         }
 
-        func setPresentationMode(_ mode: OPNVideoPresentationMode) {
+        func setPresentationMode(_ mode: PixelNOWVideoPresentationMode) {
             lock.lock()
             latestRenderDiagnostics.presentationMode = mode.label
             lock.unlock()
@@ -169,7 +169,7 @@ public final class NVSTCoreVideoRenderer {
         }
     }
 
-    var renderDiagnostics: OPNVideoRenderDiagnosticsSnapshot { sink.renderDiagnostics }
+    var renderDiagnostics: PixelNOWVideoRenderDiagnosticsSnapshot { sink.renderDiagnostics }
 
     func writeLatestFrameJPEG(to url: URL) -> CGSize? { sink.writeLatestFrameJPEG(to: url) }
 
@@ -236,7 +236,7 @@ public final class NVSTCoreVideoRenderer {
         _ = writeOffscreenRenderSnapshot(to: url)
     }
 
-    func setPresentationMode(_ mode: OPNVideoPresentationMode) {
+    func setPresentationMode(_ mode: PixelNOWVideoPresentationMode) {
         currentPresentationMode = mode
         sink.setPresentationMode(mode)
         applyMetalFXState()

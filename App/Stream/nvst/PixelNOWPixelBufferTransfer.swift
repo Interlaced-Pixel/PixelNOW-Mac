@@ -10,7 +10,7 @@ import VideoToolbox
 /// guests) reads only NV12 and BGRA, and the recorder's asset-writer adaptor is declared once from
 /// the first frame. Each keeps one of these and converts only frames it cannot take as they are, so
 /// the common 8-bit 4:2:0 session pays nothing.
-final class OPNPixelBufferTransfer: @unchecked Sendable {
+final class PixelNOWPixelBufferTransfer: @unchecked Sendable {
     private let lock = NSLock()
     private var session: VTPixelTransferSession?
     private var pool: CVPixelBufferPool?

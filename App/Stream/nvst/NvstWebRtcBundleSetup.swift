@@ -230,7 +230,7 @@ extension NvstWebRtcBundle {
         }
         let source = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
         source.volume = setup.volume
-        let track = factory.audioTrack(with: source, trackId: "opennow-nvst-microphone")
+        let track = factory.audioTrack(with: source, trackId: "pixelnow-nvst-microphone")
         track.isEnabled = setup.initiallyEnabled
         transceiver.sender.track = track
         transceiver.sender.streamIds = ["mic"]
@@ -452,7 +452,7 @@ extension NvstWebRtcBundle {
     /// With no default output device there is nothing to bind to and playout would never start, so
     /// libwebrtc's own device takes over: audio still plays, recordings are silent.
     private func makePeerConnectionFactory(preferredInputDeviceId: String) -> RTCPeerConnectionFactory {
-        let audioDevice = OPNCoreAudioRTCDevice(
+        let audioDevice = PixelNOWCoreAudioRTCDevice(
             owner: self,
             preferredInputDeviceId: preferredInputDeviceId,
             monitorsDefaultDeviceChanges: true

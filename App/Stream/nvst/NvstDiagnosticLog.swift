@@ -5,11 +5,11 @@ import Foundation
 /// The transport's counter lines go to the unified log at info level, and macOS purges those
 /// within minutes — the 120 FPS investigation lost a whole evening's counter timeline that way,
 /// with a single tail sample surviving. This appends the same lines to a per-session file under
-/// `~/Library/Logs/OpenNOW/` so the timeline can be read after the fact.
+/// `~/Library/Logs/PixelNOW/` so the timeline can be read after the fact.
 ///
 /// Writes happen on a utility queue; the caller's logging path never blocks on the filesystem.
 public final class NvstDiagnosticLog: @unchecked Sendable {
-    let queue = DispatchQueue(label: "com.opennow.nvst.diagnostic-log", qos: .utility)
+    let queue = DispatchQueue(label: "com.interlacedpixel.pixelnow.nvst.diagnostic-log", qos: .utility)
     private let handle: FileHandle?
     /// Where this session's log lives, for surfacing in the stream log itself.
     public let url: URL?
@@ -19,7 +19,7 @@ public final class NvstDiagnosticLog: @unchecked Sendable {
     public init(directory: URL? = nil, now: Date = Date()) {
         let base = directory ?? FileManager.default
             .urls(for: .libraryDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Logs/OpenNOW", isDirectory: true)
+            .appendingPathComponent("Logs/PixelNOW", isDirectory: true)
         guard let base else {
             handle = nil
             url = nil

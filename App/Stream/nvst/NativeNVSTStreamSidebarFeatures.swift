@@ -22,6 +22,7 @@ struct NativeNVSTStreamSidebarCapabilities: Equatable, Sendable {
             .floatingStats,
             .networkHealth,
             .sessionLimit,
+            .remoteCoOp,
         ]
         if NVSTMetalFXUpscaler.isSupportedOnCurrentDevice {
             features.insert(.videoEnhancement)

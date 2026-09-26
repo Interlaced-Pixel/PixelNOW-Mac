@@ -1,17 +1,12 @@
 {
   "remoteCoOpConfig": {
-    "version": "1.0",
-    "mode": "direct",
-    "connectionMode": "direct",
-    "transportSettings": {
-      "transportMode": "directOnly",
-      "latencyMode": "lowLatency",
-      "qualityPreset": "p720f60",
-      "maxBitrateBps": 12000000
-    },
+    "version": "2.0",
+    "topology": "relayless-peer-to-peer",
+    "latencyMode": "lowLatency",
+    "qualityPreset": "p720f60",
+    "maxBitrateBps": 12000000,
     "networkConfiguration": {
-      "transportMode": "directOnly",
-      "latencyMode": "lowLatency",
+      "iceTransportPolicy": "all",
       "iceServers": [
         {
           "urls": [
@@ -23,43 +18,25 @@
       "dataChannelInputEnabled": true,
       "websocketInputFallbackEnabled": false
     },
-    "discoverySettings": {
-      "enableBonjour": true,
-      "enableUPnP": true,
-      "signalingPort": 32189,
-      "pinAttempts": 3,
-      "pinExpiration": 300
+    "discovery": {
+      "bonjour": true,
+      "upnp": true,
+      "signalingPort": 32189
     },
-    "securitySettings": {
-      "requireHostApproval": true,
-      "hideGuestInviteDetails": false,
-      "maxGuestSlots": 3,
-      "timeoutSeconds": 3600
+    "admission": {
+      "roomCodeLength": 6,
+      "hostAuthoritative": true,
+      "inviteLifetimeSeconds": 3600,
+      "maxGuestSlots": 3
     },
     "signaling": {
-      "type": "direct",
-      "port": 32189,
-      "protocol": "ws",
-      "hostIP": "auto",
-      "pinAuthentication": true
+      "path": "/remote-coop-direct",
+      "protocol": "ws-or-wss",
+      "role": "rendezvous-only"
     },
-    "inputSettings": {
-      "dataChannelEnabled": true,
-      "coalesceLowLatency": true,
-      "coalesceDelayMs": 4
-    },
-    "recommendedNetwork": {
-      "localLan": true,
-      "natType": "fullCone",
-      "requiredPorts": [32189],
-      "tcpPorts": [32189],
-      "udpPorts": [32189]
-    },
-    "troubleshooting": {
-      "checkFirewall": true,
-      "checkUPnP": true,
-      "checkBonjour": true,
-      "enableDebugLogs": false
+    "failurePolicy": {
+      "directConnectionRequired": true,
+      "silentAlternatePath": false
     }
   }
 }

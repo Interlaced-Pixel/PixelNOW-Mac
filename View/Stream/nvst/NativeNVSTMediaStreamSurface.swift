@@ -393,6 +393,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var sessionStartedAt: Date?
     @State private var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
     @State private var remoteCoOpDirectHostSessionManager: RemoteCoOpDirectHostSessionManager?
+    @State private var remoteCoOpInviteCode: String?
     @State private var networkGovernor: NativeNVSTNetworkGovernor?
     @State private var networkPathTask: Task<Void, Never>?
     @State private var networkPathAvailable = true
@@ -1952,7 +1953,7 @@ struct NativeNVSTMediaStreamSurface: View {
                 }
                 NativeNVSTStreamHUDActionRow(
                     title: "Create Invite",
-                    subtitle: remoteCoOpDirectHostSessionManager != nil ? "Ready" : "Starting...",
+                    subtitle: remoteCoOpInviteCode.map { "PIN \($0)" } ?? (remoteCoOpDirectHostSessionManager != nil ? "Ready" : "Starting..."),
                     systemName: "person.badge.plus",
                     isActive: remoteCoOpDirectHostSessionManager != nil,
                     isDisabled: !sidebarCapabilities.supports(.remoteCoOp),
@@ -1970,10 +1971,11 @@ struct NativeNVSTMediaStreamSurface: View {
             let manager = RemoteCoOpDirectHostSessionManager()
             try await manager.start()
             self.remoteCoOpDirectHostSessionManager = manager
-            try await manager.startInvite(applicationID: configuration.applicationID, title: configuration.title)
-            print("Invite created successfully")
+            let invite = try await manager.startInvite(applicationID: configuration.applicationID, title: configuration.title)
+            remoteCoOpInviteCode = invite.code
+            Log.info(.stream, "Remote Co-Op invite created")
         } catch {
-            print("Failed to create invite: \(error)")
+            Log.error(.stream, "Failed to create Remote Co-Op invite: \(error.localizedDescription)")
             WebRTCMediaTelemetry.capture("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
         }
     }

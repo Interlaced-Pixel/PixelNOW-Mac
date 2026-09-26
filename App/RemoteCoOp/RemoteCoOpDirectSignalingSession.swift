@@ -1,22 +1,78 @@
 import Foundation
 
 public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession, @unchecked Sendable {
-    private let port: UInt16
+    private struct SignalingMessage: Codable, Sendable {
+        var protocolVersion: Int?
+        var kind: String
+        var roomID: String?
+        var participantID: UUID?
+        var fromParticipantID: UUID?
+        var toParticipantID: UUID?
+        var displayName: String?
+        var participant: RemoteCoOpParticipant?
+        var input: RemoteCoOpInputPacket?
+        var inputs: [RemoteCoOpInputPacket]?
+        var inputRejection: RemoteCoOpWireInputRoutingRejection?
+        var peerSignal: RemoteCoOpWirePeerSignal?
+        var networkConfiguration: RemoteCoOpNetworkConfiguration?
+        var reason: String?
+
+        init(kind: String,
+             roomID: String? = nil,
+             participantID: UUID? = nil,
+             toParticipantID: UUID? = nil,
+             displayName: String? = nil,
+             participant: RemoteCoOpParticipant? = nil,
+             input: RemoteCoOpInputPacket? = nil,
+             inputs: [RemoteCoOpInputPacket]? = nil,
+             inputRejection: RemoteCoOpWireInputRoutingRejection? = nil,
+             peerSignal: RemoteCoOpWirePeerSignal? = nil,
+             networkConfiguration: RemoteCoOpNetworkConfiguration? = nil,
+             reason: String? = nil) {
+            self.protocolVersion = 1
+            self.kind = kind
+            self.roomID = roomID
+            self.participantID = participantID
+            self.fromParticipantID = nil
+            self.toParticipantID = toParticipantID
+            self.displayName = displayName
+            self.participant = participant
+            self.input = input
+            self.inputs = inputs
+            self.inputRejection = inputRejection
+            self.peerSignal = peerSignal
+            self.networkConfiguration = networkConfiguration
+            self.reason = reason
+        }
+    }
+
+    private enum SignalingError: LocalizedError {
+        case invalidServerURL(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidServerURL(let value):
+                return "Invalid Remote Co-Op signaling URL: \(value)"
+            }
+        }
+    }
+
+    private let serverURLString: String
     private let urlSession: URLSession
-    private let hostSession: RemoteCoOpHostSession
     private let lock = NSLock()
     private var eventContinuations: [UUID: AsyncStream<RemoteCoOpSignalingEvent>.Continuation] = [:]
-    private var serverTask: Task<Void, Never>?
-    private var connectedGuests: [UUID: GuestConnection] = [:]
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var receiveTask: Task<Void, Never>?
+    private var heartbeatTask: Task<Void, Never>?
+    private var roomID: String?
     private var invite: RemoteCoOpInvite?
     private var isClosed = false
-    private var pinAuthenticator = RemoteCoOpPINAuthenticator()
-    private var roomID: UUID? { lock.withLock { invite?.id } }
 
-    public init(port: UInt16 = 32189, urlSession: URLSession = .shared, hostSession: RemoteCoOpHostSession) {
-        self.port = port
+    public init(port: UInt16 = 32189,
+                serverURL: String? = nil,
+                urlSession: URLSession = .shared) {
+        self.serverURLString = serverURL ?? "ws://127.0.0.1:\(port)/remote-coop-direct"
         self.urlSession = urlSession
-        self.hostSession = hostSession
     }
 
     public func events() -> AsyncStream<RemoteCoOpSignalingEvent> {
@@ -36,9 +92,33 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
     }
 
     public func send(_ command: RemoteCoOpSignalingCommand) async {
-        let currentRoomID = lock.withLock { roomID }
-        guard let message = RemoteCoOpWireMessage.message(for: command, roomID: currentRoomID) else { return }
-        await sendToAllGuests(message)
+        switch command {
+        case .inviteCreated(let invite):
+            lock.withLock {
+                self.invite = invite
+                roomID = invite.code
+            }
+            await send(SignalingMessage(kind: "hostJoinRequested", roomID: invite.code))
+        case .inviteEnded:
+            let currentRoomID = lock.withLock { roomID }
+            await send(SignalingMessage(kind: "hostLeaveRequested", roomID: currentRoomID))
+        case .participantUpdated(let participant):
+            let currentRoomID = lock.withLock { roomID }
+            await send(SignalingMessage(kind: "participantUpdated", roomID: currentRoomID, participantID: participant.id, participant: participant))
+        case .participantRemoved(let participantID):
+            let currentRoomID = lock.withLock { roomID }
+            await send(SignalingMessage(kind: "participantRemoved", roomID: currentRoomID, participantID: participantID))
+        case .guestRejected(let participantID, let reason):
+            let currentRoomID = lock.withLock { roomID }
+            await send(SignalingMessage(kind: "guestRejected", roomID: currentRoomID, participantID: participantID, reason: reason))
+        case .inputRejected(let participantID, let result):
+            let currentRoomID = lock.withLock { roomID }
+            guard let rejection = RemoteCoOpWireInputRoutingRejection(result) else { return }
+            await send(SignalingMessage(kind: "inputRejected", roomID: currentRoomID, participantID: participantID, inputRejection: rejection))
+        case .peerSignal(let participantID, let signal):
+            let currentRoomID = lock.withLock { roomID }
+            await send(SignalingMessage(kind: "peerSignal", roomID: currentRoomID, toParticipantID: participantID, peerSignal: signal))
+        }
     }
 
     public func close() async {
@@ -46,271 +126,133 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             isClosed = true
             let continuations = Array(eventContinuations.values)
             eventContinuations.removeAll()
-            let serverTask = serverTask
-            serverTask?.cancel()
-            self.serverTask = nil
-            let guests = connectedGuests
-            connectedGuests.removeAll()
-            return (continuations, guests)
+            let socket = webSocketTask
+            webSocketTask = nil
+            let receiveTask = receiveTask
+            self.receiveTask = nil
+            let heartbeatTask = heartbeatTask
+            self.heartbeatTask = nil
+            roomID = nil
+            invite = nil
+            return (continuations, socket, receiveTask, heartbeatTask)
         }
-        for guest in state.1 { await guest.value.close() }
+        state.2?.cancel()
+        state.3?.cancel()
+        state.1?.cancel(with: .normalClosure, reason: nil)
         for continuation in state.0 { continuation.finish() }
     }
 
     public func start() async throws {
-        let serverURL = URL(string: "ws://0.0.0.0:\(port)")!
-        let request = URLRequest(url: serverURL)
-        let task = urlSession.webSocketTask(with: request)
-        task.resume()
+        guard let serverURL = URL(string: serverURLString),
+              let scheme = serverURL.scheme?.lowercased(),
+              scheme == "ws" || scheme == "wss",
+              serverURL.host != nil else {
+            throw SignalingError.invalidServerURL(serverURLString)
+        }
+
+        let task = urlSession.webSocketTask(with: serverURL)
         lock.withLock {
-            serverTask?.cancel()
-            serverTask = Task { [weak self] in
-                await self?.handleIncomingConnection(task: task)
+            isClosed = false
+            webSocketTask?.cancel(with: .goingAway, reason: nil)
+            webSocketTask = task
+        }
+        task.resume()
+        startReceiveLoop(task)
+        startHeartbeatLoop()
+    }
+
+    private func startReceiveLoop(_ task: URLSessionWebSocketTask) {
+        let loop = Task { [weak self, weak task] in
+            while !Task.isCancelled {
+                guard let self, let task else { return }
+                do {
+                    let message = try await task.receive()
+                    await self.handle(message)
+                } catch {
+                    await self.handleDisconnect(task: task)
+                    return
+                }
             }
+        }
+        lock.withLock {
+            receiveTask?.cancel()
+            receiveTask = loop
         }
     }
 
-    private func handleIncomingConnection(task: URLSessionWebSocketTask) async {
-        do {
-            let message = try await task.receive()
-            switch message {
-            case .string(let text):
-                guard let signalMessage = try? DirectSignalingCodec.decodeJSON(text) else { return }
-                await handleDirectMessage(signalMessage, task: task)
-            default:
-                break
+    private func startHeartbeatLoop() {
+        let task = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    guard let self else { return }
+                    let currentRoomID = self.lock.withLock { self.roomID }
+                    await self.send(SignalingMessage(kind: "heartbeat", roomID: currentRoomID))
+                } catch {
+                    return
+                }
             }
-        } catch {
-            await close()
+        }
+        lock.withLock {
+            heartbeatTask?.cancel()
+            heartbeatTask = task
         }
     }
 
-    private func handleDirectMessage(_ message: DirectSignalingMessage, task: URLSessionWebSocketTask) async {
+    private func handleDisconnect(task: URLSessionWebSocketTask) async {
+        let shouldClose = lock.withLock { webSocketTask === task && !isClosed }
+        if shouldClose { await close() }
+    }
+
+    private func handle(_ message: URLSessionWebSocketTask.Message) async {
+        let data: Data?
+        switch message {
+        case .string(let text): data = Data(text.utf8)
+        case .data(let value): data = value
+        @unknown default: data = nil
+        }
+        guard let data, let signalingMessage = try? JSONDecoder().decode(SignalingMessage.self, from: data) else { return }
+        await handle(signalingMessage)
+    }
+
+    private func handle(_ message: SignalingMessage) async {
         switch message.kind {
-        case .guestJoinRequest:
-            await handleGuestJoinRequest(message, task: task)
-        case .sdpOffer, .sdpAnswer, .iceCandidate:
-            await handlePeerSignal(message, task: task)
-        case .ping:
-            await sendPong(to: task)
+        case "heartbeat":
+            await send(SignalingMessage(kind: "heartbeat", roomID: message.roomID ?? lock.withLock { roomID }))
+        case "guestConnected":
+            guard let participantID = message.participantID else { return }
+            let token = lock.withLock { invite?.code ?? roomID ?? "" }
+            yield(.guestJoinRequested(participantID: participantID, inviteToken: token, displayName: message.displayName ?? "Guest"))
+        case "guestDisconnected":
+            if let participantID = message.participantID { yield(.guestDisconnected(participantID)) }
+        case "guestInput":
+            let packets = message.inputs ?? (message.input.map { [$0] } ?? [])
+            for packet in packets { yield(.guestInput(packet)) }
+        case "peerSignal":
+            guard let signal = message.peerSignal,
+                  let participantID = message.fromParticipantID ?? message.participantID else { return }
+            yield(.peerSignal(participantID: participantID, signal: signal))
+        case "networkConfiguration":
+            if let configuration = message.networkConfiguration { yield(.networkConfiguration(configuration)) }
+        case "hostJoinRejected", "error":
+            WebRTCMediaTelemetry.capture("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
         default:
             break
         }
     }
 
-    private func handleGuestJoinRequest(_ message: DirectSignalingMessage, task: URLSessionWebSocketTask) async {
-        guard let pin = message.pin else {
-            await sendGuestJoinRejected(to: task, reason: "Missing PIN")
-            return
-        }
-        guard let participantID = message.participantID else {
-            await sendGuestJoinRejected(to: task, reason: "Missing participant ID")
-            return
-        }
+    private func send(_ message: SignalingMessage) async {
+        guard let task = lock.withLock({ webSocketTask }) else { return }
         do {
-            try await validatePIN(pin, from: task)
-            await acceptGuestJoin(participantID: participantID, task: task, displayName: message.hostIP ?? "Guest")
+            let data = try JSONEncoder().encode(message)
+            try await task.send(.data(data))
         } catch {
-            await sendGuestJoinRejected(to: task, reason: error.localizedDescription)
+            await handleDisconnect(task: task)
         }
     }
 
-    private func validatePIN(_ pin: String, from task: URLSessionWebSocketTask) async throws {
-        let ip = await getClientIP(for: task)
-        let _ = try await pinAuthenticator.validate(pin, from: ip)
-    }
-
-    private func getClientIP(for task: URLSessionWebSocketTask) async -> String {
-        "127.0.0.1"
-    }
-
-    private func acceptGuestJoin(participantID: UUID, task: URLSessionWebSocketTask, displayName: String) async {
-        await sendGuestJoinAccepted(to: task)
-        await createGuestConnection(participantID: participantID, task: task, displayName: displayName)
-    }
-
-    private func createGuestConnection(participantID: UUID, task: URLSessionWebSocketTask, displayName: String) async {
-        let connection = GuestConnection(task: task, onDisconnect: { [weak self] id in
-            self?.handleGuestDisconnected(id)
-        })
-        lock.withLock {
-            connectedGuests[participantID] = connection
-        }
-        do {
-            let _ = try await hostSession.registerGuest(displayName: displayName, inviteToken: "", participantID: participantID)
-            lock.withLock {
-                eventContinuations.values.forEach { $0.yield(.guestJoinRequested(participantID: participantID, inviteToken: "", displayName: displayName)) }
-            }
-        } catch {
-            await sendGuestJoinRejected(to: task, reason: error.localizedDescription)
-            await removeGuestConnection(participantID: participantID)
-        }
-    }
-
-    private func handlePeerSignal(_ message: DirectSignalingMessage, task: URLSessionWebSocketTask) async {
-        guard let signal = message.signal else { return }
-        guard let participantID = message.participantID else { return }
-        let wireSignal = await convertToWireSignal(signal, from: participantID)
-        let wireMessage = RemoteCoOpWireMessage(
-            kind: .peerSignal,
-            participantID: participantID,
-            peerSignal: wireSignal
-        )
-        await sendToGuest(participantID: participantID, message: wireMessage)
-        lock.withLock {
-            eventContinuations.values.forEach { $0.yield(.peerSignal(participantID: participantID, signal: wireSignal)) }
-        }
-    }
-
-    private func convertToWireSignal(_ signal: DirectSignalingSignal, from participantID: UUID) async -> RemoteCoOpWirePeerSignal {
-        switch signal {
-        case .offer(let sdp):
-            return RemoteCoOpWirePeerSignal(kind: .offer, sdp: sdp)
-        case .answer(let sdp):
-            return RemoteCoOpWirePeerSignal(kind: .answer, sdp: sdp)
-        case .iceCandidate(let candidate, let sdpMid, let sdpMLineIndex):
-            return RemoteCoOpWirePeerSignal(kind: .iceCandidate, candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex)
-        }
-    }
-
-    private func handleGuestDisconnected(_ participantID: UUID) {
-        lock.withLock {
-            connectedGuests.removeValue(forKey: participantID)
-            eventContinuations.values.forEach { $0.yield(.guestDisconnected(participantID)) }
-        }
-        Task {
-            do {
-                let _ = try await hostSession.removeParticipant(participantID)
-            } catch {
-            }
-        }
-    }
-
-    private func removeGuestConnection(participantID: UUID) async {
-        lock.withLock {
-            connectedGuests.removeValue(forKey: participantID)
-        }
-    }
-
-    private func sendToGuest(participantID: UUID, message: RemoteCoOpWireMessage) async {
-        guard let connection = lock.withLock({ connectedGuests[participantID] }) else { return }
-        let text = try? RemoteCoOpWireCodec.encode(message)
-        await connection.send(string: text ?? "")
-    }
-
-    private func sendToAllGuests(_ message: RemoteCoOpWireMessage) async {
-        let text = try? RemoteCoOpWireCodec.encode(message)
-        guard let text else { return }
-        let connections = lock.withLock { Array(connectedGuests.values) }
-        for connection in connections { await connection.send(string: text) }
-    }
-
-    private func sendGuestJoinAccepted(to task: URLSessionWebSocketTask) async {
-        let message = DirectSignalingMessage(kind: .guestJoinAccepted)
-        await sendDirectMessage(message, to: task)
-    }
-
-    private func sendGuestJoinRejected(to task: URLSessionWebSocketTask, reason: String) async {
-        let message = DirectSignalingMessage(kind: .guestJoinRejected, reason: reason)
-        await sendDirectMessage(message, to: task)
-    }
-
-    private func sendPong(to task: URLSessionWebSocketTask) async {
-        let message = DirectSignalingMessage(kind: .pong)
-        await sendDirectMessage(message, to: task)
-    }
-
-    private func sendDirectMessage(_ message: DirectSignalingMessage, to task: URLSessionWebSocketTask) async {
-        do {
-            let text = try DirectSignalingCodec.encodeJSON(message)
-            _ = try await task.send(.string(text))
-        } catch {
-        }
-    }
-
-    private class GuestConnection: @unchecked Sendable {
-        private let task: URLSessionWebSocketTask
-        private let onDisconnect: (@Sendable (UUID) -> Void)
-        private var receiveTask: Task<Void, Never>?
-        private let lock = NSLock()
-        private var participantID: UUID?
-        private var isClosed = false
-
-        init(task: URLSessionWebSocketTask, onDisconnect: @escaping @Sendable (UUID) -> Void) {
-            self.task = task
-            self.onDisconnect = onDisconnect
-            startReceiveLoop()
-        }
-
-        deinit {
-            close()
-        }
-
-        func send(string: String) async {
-            do {
-                _ = try await task.send(.string(string))
-            } catch {
-            }
-        }
-
-        func close() {
-            let state = lock.withLock {
-                isClosed = true
-                let receiveTask = receiveTask
-                receiveTask?.cancel()
-                self.receiveTask = nil
-                let id = participantID
-                return id
-            }
-            task.cancel(with: .normalClosure, reason: nil)
-            if let id = state {
-                onDisconnect(id)
-            }
-        }
-
-        private func startReceiveLoop() {
-            receiveTask = Task { [weak self] in
-                guard let self else { return }
-                for await message in task.receiveStream() {
-                    switch message {
-                    case .string(let text):
-                        await self.handleTextMessage(text)
-                    default:
-                        break
-                    }
-                }
-                self.close()
-            }
-        }
-
-        private func handleTextMessage(_ text: String) async {
-            guard let message = try? DirectSignalingCodec.decodeJSON(text) else { return }
-            switch message.kind {
-            case .guestJoinRequest:
-                lock.withLock { participantID = message.participantID }
-            default:
-                break
-            }
-        }
-    }
-}
-
-private extension URLSessionWebSocketTask {
-    func receiveStream() -> AsyncStream<Message> {
-        AsyncStream { continuation in
-            Task { [weak self] in
-                guard let self else { return }
-                while !Task.isCancelled {
-                    do {
-                        let message = try await self.receive()
-                        continuation.yield(message)
-                    } catch {
-                        continuation.finish()
-                        return
-                    }
-                }
-                continuation.finish()
-            }
-        }
+    private func yield(_ event: RemoteCoOpSignalingEvent) {
+        let continuations = lock.withLock { isClosed ? [] : Array(eventContinuations.values) }
+        for continuation in continuations { continuation.yield(event) }
     }
 }

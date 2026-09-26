@@ -4,12 +4,12 @@ import Foundation
 @preconcurrency import WebRTC
 
 private let coreAudioPlayoutCallback: AURenderCallback = { refCon, actionFlags, timestamp, busNumber, frameCount, outputData in
-    let device = Unmanaged<OPNCoreAudioRTCDevice>.fromOpaque(refCon).takeUnretainedValue()
+    let device = Unmanaged<PixelNOWCoreAudioRTCDevice>.fromOpaque(refCon).takeUnretainedValue()
     return device.renderPlayout(actionFlags: actionFlags, timestamp: timestamp, busNumber: Int(busNumber), frameCount: frameCount, outputData: outputData)
 }
 
 private let coreAudioRecordingCallback: AURenderCallback = { refCon, actionFlags, timestamp, busNumber, frameCount, _ in
-    let device = Unmanaged<OPNCoreAudioRTCDevice>.fromOpaque(refCon).takeUnretainedValue()
+    let device = Unmanaged<PixelNOWCoreAudioRTCDevice>.fromOpaque(refCon).takeUnretainedValue()
     return device.captureRecording(actionFlags: actionFlags, timestamp: timestamp, busNumber: Int(busNumber), frameCount: frameCount)
 }
 enum LibWebRTCAudio {
@@ -71,17 +71,17 @@ enum LibWebRTCAudio {
     }
 }
 
-protocol OPNCoreAudioRTCDeviceOwner: AnyObject {
+protocol PixelNOWCoreAudioRTCDeviceOwner: AnyObject {
     func handleGameAudioFrame(_ audioBufferList: UnsafeRawPointer?, frameCount: UInt32, sampleRate: Double, channels: UInt32)
     func handleMicrophoneAudioFrame(_ audioBufferList: UnsafeRawPointer?, frameCount: UInt32, sampleRate: Double, channels: UInt32)
     func handleCapturedMicrophoneLevel(_ level: Double)
     func isMicrophoneCaptureEnabled() -> Bool
 }
 
-final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable {
-    weak var owner: (any OPNCoreAudioRTCDeviceOwner)?
+final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable {
+    weak var owner: (any PixelNOWCoreAudioRTCDeviceOwner)?
 
-    let audioQueue = DispatchQueue(label: "io.opencg.opennow.webrtc.coreaudio")
+    let audioQueue = DispatchQueue(label: "com.interlacedpixel.pixelnow.webrtc.coreaudio")
     private var playoutUnit: AudioUnit?
     private var recordingUnit: AudioUnit?
     var outputDevice = AudioDeviceID(kAudioObjectUnknown)
@@ -115,7 +115,7 @@ final class OPNCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable
         audioQueue.sync { outputDevice != AudioDeviceID(kAudioObjectUnknown) }
     }
 
-    init(owner: (any OPNCoreAudioRTCDeviceOwner)?, preferredInputDeviceId: String = "", monitorsDefaultDeviceChanges: Bool = false) {
+    init(owner: (any PixelNOWCoreAudioRTCDeviceOwner)?, preferredInputDeviceId: String = "", monitorsDefaultDeviceChanges: Bool = false) {
         self.owner = owner
         self.preferredInputDeviceId = preferredInputDeviceId
         self.monitorsDefaultDeviceChanges = monitorsDefaultDeviceChanges

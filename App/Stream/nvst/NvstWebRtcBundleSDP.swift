@@ -135,12 +135,12 @@ extension NvstWebRtcBundle {
     static let opusPayloadType = 111
 
     /// Lets the audio format be flipped by ear on a real session, since a silent capture cannot
-    /// tell RED from plain Opus. Defaults to RED, the grounded hypothesis; `OPN_NVST_AUDIO_RED=0`
-    /// or the `OPNNVSTAudioRED` default forces plain Opus for an A/B comparison.
+    /// tell RED from plain Opus. Defaults to RED, the grounded hypothesis; `PIXELNOW_NVST_AUDIO_RED=0`
+    /// or the `PIXELNOW_NVST_AUDIO_RED` default forces plain Opus for an A/B comparison.
     static var usesRedAudio: Bool {
-        if ProcessInfo.processInfo.environment["OPN_NVST_AUDIO_RED"] == "0" { return false }
-        if UserDefaults.standard.object(forKey: "OPNNVSTAudioRED") != nil {
-            return UserDefaults.standard.bool(forKey: "OPNNVSTAudioRED")
+        if ProcessInfo.processInfo.environment["PIXELNOW_NVST_AUDIO_RED"] == "0" { return false }
+        if UserDefaults.standard.object(forKey: "PIXELNOW_NVST_AUDIO_RED") != nil {
+            return UserDefaults.standard.bool(forKey: "PIXELNOW_NVST_AUDIO_RED")
         }
         return true
     }

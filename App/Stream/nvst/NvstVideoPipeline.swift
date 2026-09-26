@@ -150,7 +150,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
 
     /// Below the receive loop's `.userInteractive` deliberately: decode falling a frame behind
     /// costs latency, while the receive loop falling behind costs packets.
-    let queue = DispatchQueue(label: "com.opennow.nvst.decode", qos: .userInitiated)
+    let queue = DispatchQueue(label: "com.interlacedpixel.pixelnow.nvst.decode", qos: .userInitiated)
     let lock = NSLock()
     /// The video receiver is armed at SETUP, before the ICE/DTLS bundle exists — the bundle needs
     /// SETUP's own ping payload — so the ack channel arrives later than this object does.

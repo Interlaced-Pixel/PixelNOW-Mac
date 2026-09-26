@@ -1,7 +1,7 @@
 import Foundation
 
 public struct AppPreferenceStorage: @unchecked Sendable {
-    public static let standard = AppPreferenceStorage(defaults: .standard, defaultsDomain: "io.github.opencloudgaming.pixelnow")
+    public static let standard = AppPreferenceStorage(defaults: .standard, defaultsDomain: "com.interlacedpixel.pixelnow")
 
     private let defaults: UserDefaults
     private let defaultsDomain: String

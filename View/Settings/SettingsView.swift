@@ -1260,13 +1260,9 @@ private struct GameplaySettingsPage: View {
                     SettingsDivider()
                     SettingsOptionRow(title: "Reserved Controllers", subtitle: "Pre-allocate gamepad slots for guest players.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
                     SettingsDivider()
-                    SettingsOptionRow(title: "Transport", subtitle: viewModel.remoteCoOpPreferences.transportMode.description, options: RemoteCoOpTransportMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpTransportModeIndex, action: viewModel.setRemoteCoOpTransportModeIndex)
-                    SettingsDivider()
                     SettingsOptionRow(title: "Guest Quality", subtitle: "Max outbound streaming bitrate sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedRemoteCoOpQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
                     SettingsDivider()
                     SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
-                    SettingsDivider()
-                    SettingsToggleRow(title: "Require Host Approval", subtitle: "Require host approval before accepting guest input.", isOn: viewModel.remoteCoOpPreferences.requireHostApproval, action: viewModel.setRemoteCoOpRequireHostApproval)
                     SettingsDivider()
                     SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Omit game title and app ID from invite links.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
                 }
@@ -1302,10 +1298,6 @@ private struct GameplaySettingsPage: View {
 
     private var selectedMicrophoneDeviceIndex: Int {
         viewModel.microphoneDeviceOptions.firstIndex { $0.uniqueId == viewModel.streamProfile.microphoneDeviceId } ?? 0
-    }
-
-    private var selectedRemoteCoOpTransportModeIndex: Int {
-        RemoteCoOpTransportMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.transportMode) ?? 0
     }
 
     private var selectedRemoteCoOpQualityPresetIndex: Int {
@@ -2695,10 +2687,6 @@ private struct NetworkSettingsPage: View {
 private struct RemoteCoOpSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
 
-    private var selectedTransportModeIndex: Int {
-        RemoteCoOpTransportMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.transportMode) ?? 0
-    }
-
     private var selectedQualityPresetIndex: Int {
         RemoteCoOpQualityPreset.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.qualityPreset) ?? 0
     }
@@ -2715,13 +2703,9 @@ private struct RemoteCoOpSettingsPage: View {
                     SettingsDivider()
                     SettingsOptionRow(title: "Reserved Controllers", subtitle: "Pre-allocate gamepad slots for guest players.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
                     SettingsDivider()
-                    SettingsOptionRow(title: "Transport", subtitle: viewModel.remoteCoOpPreferences.transportMode.description, options: RemoteCoOpTransportMode.allCases.map(\.label), selectedIndex: selectedTransportModeIndex, action: viewModel.setRemoteCoOpTransportModeIndex)
-                    SettingsDivider()
                     SettingsOptionRow(title: "Guest Quality", subtitle: "Max outbound streaming bitrate sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
                     SettingsDivider()
                     SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
-                    SettingsDivider()
-                    SettingsToggleRow(title: "Require Host Approval", subtitle: "Require host approval before accepting guest input.", isOn: viewModel.remoteCoOpPreferences.requireHostApproval, action: viewModel.setRemoteCoOpRequireHostApproval)
                     SettingsDivider()
                     SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Omit game title and app ID from invite links.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
                 }

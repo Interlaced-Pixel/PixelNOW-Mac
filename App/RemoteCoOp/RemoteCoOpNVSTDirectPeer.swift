@@ -56,7 +56,7 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
         self.qualityPreset = qualityPreset
         self.latencyMode = latencyMode
         self.callbacks = callbacks
-        self.videoQueue = DispatchQueue(label: "io.github.opencloudgaming.pixelnow.remote-coop.nvst-video.\(participantID.uuidString)")
+        self.videoQueue = DispatchQueue(label: "com.interlacedpixel.pixelnow.remote-coop.nvst-video.\(participantID.uuidString)")
         super.init()
     }
     
@@ -178,7 +178,7 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
         let factory = RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory, audioDevice: nil)
         let configuration = RTCConfiguration()
         configuration.iceServers = iceServers()
-        configuration.iceTransportPolicy = networkConfiguration.iceTransportPolicy == .relay ? .relay : .all
+        configuration.iceTransportPolicy = .all
         configuration.sdpSemantics = .unifiedPlan
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
@@ -189,7 +189,7 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
         guard let peerConnection = factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
             throw RemoteCoOpHostPeerError.negotiationFailed("Unable to create NVST direct P2P WebRTC peer connection.")
         }
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.connection", level: .info, message: "NVST direct P2P peer connection created.", attributes: ["participantID": participantID.uuidString, "iceServers": String(configuration.iceServers.count), "policy": networkConfiguration.iceTransportPolicy.rawValue])
+        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.connection", level: .info, message: "NVST direct peer connection created.", attributes: ["participantID": participantID.uuidString, "iceServers": String(configuration.iceServers.count), "policy": "all"])
         attachVideoTrack(peerConnection: peerConnection, factory: factory)
         attachAudioTrack(peerConnection: peerConnection, factory: factory)
         stateLock.withLock {

@@ -101,11 +101,11 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     nonisolated let inputState = NvstInputState()
 
     public static var forcesLegacyPath: Bool {
-        ProcessInfo.processInfo.environment["OPN_NVST_LEGACY_ANNOUNCE"] == "1"
+        ProcessInfo.processInfo.environment["PIXELNOW_NVST_LEGACY_ANNOUNCE"] == "1"
     }
 
     public static var usesWebRtcBundle: Bool {
-        ProcessInfo.processInfo.environment["OPN_NVST_WEBRTC_BUNDLE"] != "0"
+        ProcessInfo.processInfo.environment["PIXELNOW_NVST_WEBRTC_BUNDLE"] != "0"
     }
 
     public typealias PixelBufferSink = @Sendable (CVPixelBuffer, CMTime, Bool) -> Void
@@ -648,7 +648,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
             profile.bitrateKbps = min(configuredMaxBitrateKbps, Self.maximumInitialBitrateKbps)
         }
 
-        if let override = ProcessInfo.processInfo.environment["OPN_NVST_INITIAL_KBPS"].flatMap(Int.init),
+        if let override = ProcessInfo.processInfo.environment["PIXELNOW_NVST_INITIAL_KBPS"].flatMap(Int.init),
            override > 0 {
             profile.bitrateKbps = override
         }
@@ -686,7 +686,7 @@ extension NVSTCoreTransport {
     }
 
     static func announceOverridesFromEnvironment(logger: (@Sendable (String) -> Void)?) -> [(String, String)] {
-        guard let raw = ProcessInfo.processInfo.environment["OPN_NVST_ANNOUNCE_OVERRIDES"], !raw.isEmpty else { return [] }
+        guard let raw = ProcessInfo.processInfo.environment["PIXELNOW_NVST_ANNOUNCE_OVERRIDES"], !raw.isEmpty else { return [] }
         let pairs = raw.split(separator: ";").compactMap { entry -> (String, String)? in
             let parts = entry.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard parts.count == 2, !parts[0].isEmpty else { return nil }

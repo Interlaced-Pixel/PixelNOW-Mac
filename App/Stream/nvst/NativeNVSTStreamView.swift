@@ -103,7 +103,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
             applyLocalCursorPolicy()
         }
     }
-    public var cursorPolicy: OPNCursorPolicy = .auto {
+    public var cursorPolicy: PixelNOWCursorPolicy = .auto {
         didSet {
             guard oldValue != cursorPolicy else { return }
             applyLocalCursorPolicy()
@@ -444,7 +444,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         setPointerLocked(true)
     }
 
-    static func hidesLocalCursorOverVideo(policy: OPNCursorPolicy,
+    static func hidesLocalCursorOverVideo(policy: PixelNOWCursorPolicy,
                                           mode: NativeNVSTStreamMouseInputMode,
                                           isPointerLocked: Bool,
                                           remoteInputEnabled: Bool,

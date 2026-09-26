@@ -325,12 +325,12 @@ extension NVSTCoreTransport {
         }
     }
 
-    static var announcesExtendedSettings: Bool { ProcessInfo.processInfo.environment["OPN_NVST_ANNOUNCE_EXTENDED"] == "1" }
+    static var announcesExtendedSettings: Bool { ProcessInfo.processInfo.environment["PIXELNOW_NVST_ANNOUNCE_EXTENDED"] == "1" }
 
-    static var usesOwdCongestionControl: Bool { ProcessInfo.processInfo.environment["OPN_NVST_OWD_CC"] != "0" }
-    static var echoesOfferedAttributes: Bool { ProcessInfo.processInfo.environment["OPN_NVST_ANNOUNCE_ECHO_OFFER"] == "1" }
+    static var usesOwdCongestionControl: Bool { ProcessInfo.processInfo.environment["PIXELNOW_NVST_OWD_CC"] != "0" }
+    static var echoesOfferedAttributes: Bool { ProcessInfo.processInfo.environment["PIXELNOW_NVST_ANNOUNCE_ECHO_OFFER"] == "1" }
 
-    static var punchesVideoSocket: Bool { ProcessInfo.processInfo.environment["OPN_NVST_VIDEO_PUNCH"] != "0" }
+    static var punchesVideoSocket: Bool { ProcessInfo.processInfo.environment["PIXELNOW_NVST_VIDEO_PUNCH"] != "0" }
 
     func startControlKeepAlive() {
         guard !isTornDown, controlKeepAliveTask == nil else { return }
@@ -786,7 +786,7 @@ extension NVSTCoreTransport {
             return
         }
         didActivateInput = true
-        guard ProcessInfo.processInfo.environment["OPN_NVST_RI_NO_ACTIVATION"] != "1" else {
+        guard ProcessInfo.processInfo.environment["PIXELNOW_NVST_RI_NO_ACTIVATION"] != "1" else {
             logger?("NVST input activation skipped by request")
             return
         }
@@ -824,7 +824,7 @@ extension NVSTCoreTransport {
 
     func beginVideoHolePunch() {
         guard Self.punchesVideoSocket else {
-            logger?("NVST video socket hole punch suppressed (OPN_NVST_VIDEO_PUNCH=0)")
+            logger?("NVST video socket hole punch suppressed (PIXELNOW_NVST_VIDEO_PUNCH=0)")
             return
         }
         receiver?.beginHolePunch()

@@ -1,50 +1,4 @@
 import Foundation
-import CryptoKit
-
-public enum RemoteCoOpTransportMode: String, CaseIterable, Codable, Equatable, Sendable {
-    case automatic
-    case directOnly
-    case relayOnly
-
-    public var label: String {
-        switch self {
-        case .automatic: return "Auto"
-        case .directOnly: return "Direct Only"
-        case .relayOnly: return "Relay Only"
-        }
-    }
-
-    public var description: String {
-        switch self {
-        case .automatic: return "Default. Try direct WebRTC first and fall back to relay through TURN when routers or firewalls block direct paths."
-        case .directOnly: return "Only connect when guests can reach the host directly. This may expose peer network information."
-        case .relayOnly: return "Force TURN relay connectivity to avoid exposing direct peer IP candidates."
-        }
-    }
-
-    public var iceTransportPolicy: RemoteCoOpICETransportPolicy {
-        switch self {
-        case .automatic, .directOnly: .all
-        case .relayOnly: .relay
-        }
-    }
-
-    public var allowsRelayFallback: Bool {
-        switch self {
-        case .automatic, .relayOnly: true
-        case .directOnly: false
-        }
-    }
-
-    public var hidesDirectPeerCandidates: Bool {
-        self == .relayOnly
-    }
-}
-
-public enum RemoteCoOpICETransportPolicy: String, Codable, Equatable, Sendable {
-    case all
-    case relay
-}
 
 public enum RemoteCoOpLatencyMode: String, CaseIterable, Codable, Equatable, Sendable {
     case quality
@@ -60,7 +14,7 @@ public enum RemoteCoOpLatencyMode: String, CaseIterable, Codable, Equatable, Sen
     public var description: String {
         switch self {
         case .quality: return "Prioritizes image quality with higher bitrate targets. Best for watching or stable LAN sessions."
-        case .lowLatency: return "Prioritizes responsiveness by reducing buffering and letting WebRTC lower quality before queueing frames."
+        case .lowLatency: return "Prioritizes responsiveness by reducing buffering and lowering quality before queueing frames."
         }
     }
 }
@@ -78,51 +32,35 @@ public struct RemoteCoOpICEServer: Codable, Equatable, Sendable {
 }
 
 public struct RemoteCoOpNetworkConfiguration: Codable, Equatable, Sendable {
-    public var transportMode: RemoteCoOpTransportMode
-    public var iceTransportPolicy: RemoteCoOpICETransportPolicy
     public var latencyMode: RemoteCoOpLatencyMode
     public var iceServers: [RemoteCoOpICEServer]
     public var dataChannelInputEnabled: Bool
     public var websocketInputFallbackEnabled: Bool
     public var directPeerCandidateWarning: String
 
-    public init(transportMode: RemoteCoOpTransportMode,
-                latencyMode: RemoteCoOpLatencyMode = .quality,
+    public init(latencyMode: RemoteCoOpLatencyMode = .quality,
                 iceServers: [RemoteCoOpICEServer] = [],
                 dataChannelInputEnabled: Bool = true,
-                websocketInputFallbackEnabled: Bool = true,
+                websocketInputFallbackEnabled: Bool = false,
                 directPeerCandidateWarning: String = "") {
-        self.transportMode = transportMode
-        self.iceTransportPolicy = transportMode.iceTransportPolicy
         self.latencyMode = latencyMode
         self.iceServers = iceServers
         self.dataChannelInputEnabled = dataChannelInputEnabled
-        self.websocketInputFallbackEnabled = websocketInputFallbackEnabled
-        self.directPeerCandidateWarning = directPeerCandidateWarning.isEmpty ? Self.warning(for: transportMode) : directPeerCandidateWarning
+        self.websocketInputFallbackEnabled = false
+        self.directPeerCandidateWarning = directPeerCandidateWarning.isEmpty ? Self.directConnectionWarning : directPeerCandidateWarning
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        transportMode = try container.decodeIfPresent(RemoteCoOpTransportMode.self, forKey: .transportMode) ?? .automatic
-        iceTransportPolicy = try container.decodeIfPresent(RemoteCoOpICETransportPolicy.self, forKey: .iceTransportPolicy) ?? transportMode.iceTransportPolicy
         latencyMode = try container.decodeIfPresent(RemoteCoOpLatencyMode.self, forKey: .latencyMode) ?? .quality
         iceServers = try container.decodeIfPresent([RemoteCoOpICEServer].self, forKey: .iceServers) ?? []
         dataChannelInputEnabled = try container.decodeIfPresent(Bool.self, forKey: .dataChannelInputEnabled) ?? true
-        websocketInputFallbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .websocketInputFallbackEnabled) ?? true
+        websocketInputFallbackEnabled = false
         let warning = try container.decodeIfPresent(String.self, forKey: .directPeerCandidateWarning) ?? ""
-        directPeerCandidateWarning = warning.isEmpty ? Self.warning(for: transportMode) : warning
+        directPeerCandidateWarning = warning.isEmpty ? Self.directConnectionWarning : warning
     }
 
-    public static func warning(for mode: RemoteCoOpTransportMode) -> String {
-        switch mode {
-        case .automatic:
-            return "Automatic mode may use direct peer candidates before falling back to TURN relay. Use Relay Only to hide direct IP candidates."
-        case .directOnly:
-            return "Direct Only mode can expose direct peer IP candidates and may fail behind strict routers or firewalls."
-        case .relayOnly:
-            return "Relay Only mode uses TURN relay candidates to avoid exposing direct peer IP candidates."
-        }
-    }
+    public static let directConnectionWarning = "Direct peer connections expose candidate network addresses and require compatible NAT or firewall rules."
 }
 
 public enum RemoteCoOpQualityPreset: String, CaseIterable, Codable, Equatable, Sendable {
@@ -177,8 +115,7 @@ public enum RemoteCoOpQualityPreset: String, CaseIterable, Codable, Equatable, S
 
     public func videoMaxBitrateBps(for latencyMode: RemoteCoOpLatencyMode) -> Int {
         switch latencyMode {
-        case .quality:
-            return videoMaxBitrateBps
+        case .quality: return videoMaxBitrateBps
         case .lowLatency:
             switch self {
             case .p720f30: return 4_000_000
@@ -189,12 +126,7 @@ public enum RemoteCoOpQualityPreset: String, CaseIterable, Codable, Equatable, S
     }
 
     public func videoMinBitrateBps(for latencyMode: RemoteCoOpLatencyMode) -> Int? {
-        switch latencyMode {
-        case .quality:
-            return videoMinBitrateBps
-        case .lowLatency:
-            return nil
-        }
+        latencyMode == .quality ? videoMinBitrateBps : nil
     }
 }
 
@@ -202,53 +134,32 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
     public static let launchMetadataAlphaOptedInKey = "remoteCoOpAlphaOptedIn"
     public static let launchMetadataEnabledKey = "remoteCoOpEnabled"
     public static let launchMetadataReservedGuestSlotsKey = "remoteCoOpReservedGuestSlots"
-    public static let launchMetadataTransportModeKey = "remoteCoOpTransportMode"
     public static let launchMetadataQualityPresetKey = "remoteCoOpQualityPreset"
     public static let launchMetadataLatencyModeKey = "remoteCoOpLatencyMode"
-    public static let launchMetadataRequireHostApprovalKey = "remoteCoOpRequireHostApproval"
-    public static let launchMetadataSignalingServerURLKey = "remoteCoOpSignalingServerURL"
-    public static let launchMetadataGuestJoinBaseURLKey = "remoteCoOpGuestJoinBaseURL"
     public static let launchMetadataHideGuestInviteDetailsKey = "remoteCoOpHideGuestInviteDetails"
-
-    public static let defaultSignalingServerURL = "ws://198.12.95.48:32188/remote-coop"
-    public static let defaultGuestJoinBaseURL = "http://198.12.95.48:32188/"
 
     public var isAlphaOptedIn: Bool
     public var isEnabled: Bool
     public var reservedGuestSlots: Int
-    public var transportMode: RemoteCoOpTransportMode
     public var qualityPreset: RemoteCoOpQualityPreset
     public var latencyMode: RemoteCoOpLatencyMode
-    public var requireHostApproval: Bool
-    public var signalingServerURL: String
-    public var guestJoinBaseURL: String
     public var hideGuestInviteDetails: Bool
 
     public init(isAlphaOptedIn: Bool = true,
                 isEnabled: Bool = false,
                 reservedGuestSlots: Int = 1,
-                transportMode: RemoteCoOpTransportMode = .automatic,
                 qualityPreset: RemoteCoOpQualityPreset = .p720f60,
                 latencyMode: RemoteCoOpLatencyMode = .lowLatency,
-                requireHostApproval: Bool = true,
-                signalingServerURL: String = Self.defaultSignalingServerURL,
-                guestJoinBaseURL: String = Self.defaultGuestJoinBaseURL,
                 hideGuestInviteDetails: Bool = false) {
         self.isAlphaOptedIn = isAlphaOptedIn
         self.isEnabled = isEnabled
         self.reservedGuestSlots = Self.clampedGuestSlots(reservedGuestSlots)
-        self.transportMode = transportMode
         self.qualityPreset = qualityPreset
         self.latencyMode = latencyMode
-        self.requireHostApproval = requireHostApproval
-        self.signalingServerURL = Self.normalizedURLString(signalingServerURL, fallback: Self.defaultSignalingServerURL)
-        self.guestJoinBaseURL = Self.normalizedURLString(guestJoinBaseURL, fallback: Self.defaultGuestJoinBaseURL)
         self.hideGuestInviteDetails = hideGuestInviteDetails
     }
 
-    public var isAvailable: Bool {
-        isAlphaOptedIn && isEnabled
-    }
+    public var isAvailable: Bool { isAlphaOptedIn && isEnabled }
 
     public var effectiveReservedGuestSlots: Int {
         isAvailable ? Self.clampedGuestSlots(reservedGuestSlots) : 0
@@ -263,21 +174,16 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
             return [
                 Self.launchMetadataAlphaOptedInKey: String(false),
                 Self.launchMetadataEnabledKey: String(false),
-                Self.launchMetadataReservedGuestSlotsKey: String(0),
+                Self.launchMetadataReservedGuestSlotsKey: String(0)
             ]
         }
-
         return [
             Self.launchMetadataAlphaOptedInKey: String(isAlphaOptedIn),
             Self.launchMetadataEnabledKey: String(isEnabled),
             Self.launchMetadataReservedGuestSlotsKey: String(Self.clampedGuestSlots(reservedGuestSlots)),
-            Self.launchMetadataTransportModeKey: transportMode.rawValue,
             Self.launchMetadataQualityPresetKey: qualityPreset.rawValue,
             Self.launchMetadataLatencyModeKey: latencyMode.rawValue,
-            Self.launchMetadataRequireHostApprovalKey: String(requireHostApproval),
-            Self.launchMetadataSignalingServerURLKey: signalingServerURL,
-            Self.launchMetadataGuestJoinBaseURLKey: guestJoinBaseURL,
-            Self.launchMetadataHideGuestInviteDetailsKey: String(hideGuestInviteDetails),
+            Self.launchMetadataHideGuestInviteDetailsKey: String(hideGuestInviteDetails)
         ]
     }
 
@@ -286,51 +192,10 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
             isAlphaOptedIn: bool(metadata[launchMetadataAlphaOptedInKey], defaultValue: fallback.isAlphaOptedIn),
             isEnabled: bool(metadata[launchMetadataEnabledKey], defaultValue: fallback.isEnabled),
             reservedGuestSlots: int(metadata[launchMetadataReservedGuestSlotsKey], defaultValue: fallback.reservedGuestSlots),
-            transportMode: RemoteCoOpTransportMode(rawValue: metadata[launchMetadataTransportModeKey] ?? "") ?? fallback.transportMode,
             qualityPreset: RemoteCoOpQualityPreset(rawValue: metadata[launchMetadataQualityPresetKey] ?? "") ?? fallback.qualityPreset,
             latencyMode: RemoteCoOpLatencyMode(rawValue: metadata[launchMetadataLatencyModeKey] ?? "") ?? fallback.latencyMode,
-            requireHostApproval: bool(metadata[launchMetadataRequireHostApprovalKey], defaultValue: fallback.requireHostApproval),
-            signalingServerURL: migratedSignalingServerURL(string(metadata[launchMetadataSignalingServerURLKey], defaultValue: fallback.signalingServerURL)),
-            guestJoinBaseURL: migratedGuestJoinBaseURL(string(metadata[launchMetadataGuestJoinBaseURLKey], defaultValue: fallback.guestJoinBaseURL)),
             hideGuestInviteDetails: bool(metadata[launchMetadataHideGuestInviteDetailsKey], defaultValue: fallback.hideGuestInviteDetails)
         )
-    }
-
-    public static func normalizedURLString(_ value: String, fallback: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? fallback : trimmed
-    }
-
-    public static func migratedSignalingServerURL(_ value: String) -> String {
-        legacySignalingServerURLs.contains(normalizedURLKey(value)) ? defaultSignalingServerURL : normalizedURLString(value, fallback: defaultSignalingServerURL)
-    }
-
-    public static func migratedGuestJoinBaseURL(_ value: String) -> String {
-        legacyGuestJoinBaseURLs.contains(normalizedURLKey(value)) ? defaultGuestJoinBaseURL : normalizedURLString(value, fallback: defaultGuestJoinBaseURL)
-    }
-
-    private static let legacySignalingServerURLs: Set<String> = [
-        "ws://127.0.0.1:8787/remote-coop",
-        "ws://localhost:8787/remote-coop",
-        "ws://jayian.dev:8788/remote-coop",
-        "ws://relay.jayian.dev:8788/remote-coop",
-        "wss://relay.jayian.dev:8788/remote-coop",
-        "ws://198.12.95.48:8788/remote-coop"
-    ]
-
-    private static let legacyGuestJoinBaseURLs: Set<String> = [
-        "http://127.0.0.1:8787",
-        "http://localhost:8787",
-        "http://jayian.dev:8788",
-        "http://relay.jayian.dev:8788",
-        "https://relay.jayian.dev:8788",
-        "http://198.12.95.48:8788"
-    ]
-
-    private static func normalizedURLKey(_ value: String) -> String {
-        var key = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        while key.count > 1 && key.hasSuffix("/") { key.removeLast() }
-        return key
     }
 
     private static func int(_ value: String?, defaultValue: Int) -> Int {
@@ -342,140 +207,6 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
         guard let value else { return defaultValue }
         return value == "1" || value.caseInsensitiveCompare("true") == .orderedSame || value.caseInsensitiveCompare("yes") == .orderedSame
     }
-
-    private static func string(_ value: String?, defaultValue: String) -> String {
-        normalizedURLString(value ?? "", fallback: defaultValue)
-    }
-}
-
-public enum RemoteCoOpInviteTokenError: LocalizedError, Equatable, Sendable {
-    case malformed
-    case invalidSignature
-    case expired
-
-    public var errorDescription: String? {
-        switch self {
-        case .malformed: return "Remote Co-Op invite token is malformed."
-        case .invalidSignature: return "Remote Co-Op invite token signature is invalid."
-        case .expired: return "Remote Co-Op invite token has expired."
-        }
-    }
-}
-
-public struct RemoteCoOpInviteTokenPayload: Codable, Equatable, Sendable {
-    public let version: Int
-    public let inviteID: UUID
-    public let code: String
-    public let applicationID: String
-    public let title: String
-    public let createdAtEpochSeconds: TimeInterval
-    public let expiresAtEpochSeconds: TimeInterval
-    public let reservedGuestSlots: Int
-    public let transportMode: RemoteCoOpTransportMode
-    public let qualityPreset: RemoteCoOpQualityPreset
-    public let latencyMode: RemoteCoOpLatencyMode
-    public let requireHostApproval: Bool
-    public let hideGuestInviteDetails: Bool
-
-    public init(version: Int = 1,
-                inviteID: UUID,
-                code: String,
-                applicationID: String,
-                title: String,
-                createdAt: Date,
-                expiresAt: Date,
-                preferences: RemoteCoOpPreferences) {
-        self.version = version
-        self.inviteID = inviteID
-        self.code = code
-        self.applicationID = preferences.hideGuestInviteDetails ? "" : applicationID
-        self.title = preferences.hideGuestInviteDetails ? "" : title
-        self.createdAtEpochSeconds = createdAt.timeIntervalSince1970
-        self.expiresAtEpochSeconds = expiresAt.timeIntervalSince1970
-        self.reservedGuestSlots = preferences.effectiveReservedGuestSlots
-        self.transportMode = preferences.transportMode
-        self.qualityPreset = preferences.qualityPreset
-        self.latencyMode = preferences.latencyMode
-        self.requireHostApproval = preferences.requireHostApproval
-        self.hideGuestInviteDetails = preferences.hideGuestInviteDetails
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        inviteID = try container.decode(UUID.self, forKey: .inviteID)
-        code = try container.decode(String.self, forKey: .code)
-        applicationID = try container.decodeIfPresent(String.self, forKey: .applicationID) ?? ""
-        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
-        createdAtEpochSeconds = try container.decode(TimeInterval.self, forKey: .createdAtEpochSeconds)
-        expiresAtEpochSeconds = try container.decode(TimeInterval.self, forKey: .expiresAtEpochSeconds)
-        reservedGuestSlots = try container.decodeIfPresent(Int.self, forKey: .reservedGuestSlots) ?? 0
-        transportMode = try container.decodeIfPresent(RemoteCoOpTransportMode.self, forKey: .transportMode) ?? .automatic
-        qualityPreset = try container.decodeIfPresent(RemoteCoOpQualityPreset.self, forKey: .qualityPreset) ?? .p720f60
-        latencyMode = try container.decodeIfPresent(RemoteCoOpLatencyMode.self, forKey: .latencyMode) ?? .quality
-        requireHostApproval = try container.decodeIfPresent(Bool.self, forKey: .requireHostApproval) ?? true
-        hideGuestInviteDetails = try container.decodeIfPresent(Bool.self, forKey: .hideGuestInviteDetails) ?? false
-    }
-
-    public var createdAt: Date { Date(timeIntervalSince1970: createdAtEpochSeconds) }
-    public var expiresAt: Date { Date(timeIntervalSince1970: expiresAtEpochSeconds) }
-}
-
-public struct RemoteCoOpInviteTokenSigner: Equatable, Sendable {
-    private let secret: Data
-
-    public init() {
-        self.secret = Self.randomSecret()
-    }
-
-    public init(secret: Data) {
-        self.secret = secret.isEmpty ? Self.randomSecret() : secret
-    }
-
-    public func token(for payload: RemoteCoOpInviteTokenPayload) throws -> String {
-        let payloadData = try Self.encoder().encode(payload)
-        let signature = HMAC<SHA256>.authenticationCode(for: payloadData, using: SymmetricKey(data: secret))
-        return "\(Self.base64URLEncoded(payloadData)).\(Self.base64URLEncoded(Data(signature)))"
-    }
-
-    public func verify(_ token: String, now: Date = Date()) throws -> RemoteCoOpInviteTokenPayload {
-        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let payloadData = Self.base64URLDecoded(String(parts[0])),
-              let signatureData = Self.base64URLDecoded(String(parts[1])) else { throw RemoteCoOpInviteTokenError.malformed }
-        let expected = Data(HMAC<SHA256>.authenticationCode(for: payloadData, using: SymmetricKey(data: secret)))
-        guard expected == signatureData else { throw RemoteCoOpInviteTokenError.invalidSignature }
-        let payload = try JSONDecoder().decode(RemoteCoOpInviteTokenPayload.self, from: payloadData)
-        guard payload.expiresAt > now else { throw RemoteCoOpInviteTokenError.expired }
-        return payload
-    }
-
-    private static func encoder() -> JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
-    }
-
-    private static func randomSecret() -> Data {
-        var generator = SystemRandomNumberGenerator()
-        return Data((0..<32).map { _ in UInt8.random(in: 0...255, using: &generator) })
-    }
-
-    private static func base64URLEncoded(_ data: Data) -> String {
-        data.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
-    private static func base64URLDecoded(_ value: String) -> Data? {
-        var base64 = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let padding = base64.count % 4
-        if padding > 0 { base64.append(String(repeating: "=", count: 4 - padding)) }
-        return Data(base64Encoded: base64)
-    }
 }
 
 public enum RemoteCoOpParticipantRole: String, Codable, Equatable, Sendable {
@@ -485,7 +216,6 @@ public enum RemoteCoOpParticipantRole: String, Codable, Equatable, Sendable {
 }
 
 public enum RemoteCoOpParticipantConnectionState: String, Codable, Equatable, Sendable {
-    case waitingForApproval
     case connecting
     case connected
     case disconnected
@@ -545,16 +275,14 @@ public struct RemoteCoOpInvite: Identifiable, Codable, Equatable, Sendable {
         self.code = code
         self.createdAt = createdAt
         self.expiresAt = expiresAt
-        self.token = token
+        self.token = token.isEmpty ? code : token
         self.joinURL = joinURL
         self.applicationID = applicationID
         self.title = title
         self.hideGuestInviteDetails = hideGuestInviteDetails
     }
 
-    public var isExpired: Bool {
-        expiresAt <= Date()
-    }
+    public var isExpired: Bool { expiresAt <= Date() }
 }
 
 public struct RemoteCoOpInputPacket: Codable, Equatable, Sendable {
@@ -597,98 +325,5 @@ public struct RemoteCoOpInputPacket: Codable, Equatable, Sendable {
 
     private static func clampSignedUnit(_ value: Float) -> Float {
         min(1, max(-1, value.isFinite ? value : 0))
-    }
-}
-
-public struct RemoteCoOpPINAuthenticator {
-    private static let maxAttempts = 3
-    private static let pinExpiration: TimeInterval = 300
-    
-    private var pendingPINs: [String: PINState] = [:]
-    private let lock = NSLock()
-    
-    public init() {}
-    
-    public mutating func generatePIN(for hostID: UUID, clientIP: String) -> (pin: String, expiresAt: Date) {
-        var generator = SystemRandomNumberGenerator()
-        let pin = String((0..<6).map { _ in Character(String(UInt8.random(in: 0...9, using: &generator))) })
-        let expiresAt = Date().addingTimeInterval(Self.pinExpiration)
-        
-        lock.withLock {
-            pendingPINs[pin] = PINState(
-                hostID: hostID,
-                clientIP: clientIP,
-                createdAt: Date(),
-                expiresAt: expiresAt,
-                attempts: 0
-            )
-        }
-        
-        return (pin, expiresAt)
-    }
-    
-    public mutating func validate(_ pin: String, from clientIP: String) throws -> Bool {
-        let state = lock.withLock { pendingPINs[pin] }
-        guard let state else { throw PINError.invalid }
-        guard state.createdAt.addingTimeInterval(Self.pinExpiration) > Date() else {
-            lock.withLock { pendingPINs[pin] = nil }
-            throw PINError.expired
-        }
-        guard state.attempts < Self.maxAttempts else {
-            lock.withLock { pendingPINs[pin] = nil }
-            throw PINError.tooManyAttempts
-        }
-        let newState = PINState(
-            hostID: state.hostID,
-            clientIP: state.clientIP,
-            createdAt: state.createdAt,
-            expiresAt: state.expiresAt,
-            attempts: state.attempts + 1
-        )
-        lock.withLock { pendingPINs[pin] = newState }
-        
-        if state.clientIP != clientIP {
-            throw PINError.ipMismatch
-        }
-        
-        return true
-    }
-    
-    private mutating func remove(_ pin: String) {
-        lock.withLock {
-            pendingPINs[pin] = nil
-        }
-    }
-}
-
-public struct PINState: Hashable, Codable, Sendable {
-    public let hostID: UUID
-    public let clientIP: String
-    public let createdAt: Date
-    public let expiresAt: Date
-    public var attempts: Int
-    
-    public init(hostID: UUID, clientIP: String, createdAt: Date, expiresAt: Date, attempts: Int) {
-        self.hostID = hostID
-        self.clientIP = clientIP
-        self.createdAt = createdAt
-        self.expiresAt = expiresAt
-        self.attempts = attempts
-    }
-}
-
-public enum PINError: LocalizedError, Equatable, Sendable {
-    case invalid
-    case expired
-    case tooManyAttempts
-    case ipMismatch
-    
-    public var errorDescription: String? {
-        switch self {
-        case .invalid: return "Invalid PIN."
-        case .expired: return "PIN has expired."
-        case .tooManyAttempts: return "Too many failed attempts."
-        case .ipMismatch: return "IP address mismatch."
-        }
     }
 }
