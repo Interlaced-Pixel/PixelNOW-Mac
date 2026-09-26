@@ -27,6 +27,8 @@ actor CatalogImageCache {
     private var prefetchTask: Task<Void, Never>?
     private var prefetchQueue: [URL] = []
     private var queuedPrefetchURLs: Set<URL> = []
+    private var metadataIndex: [String: StoredImageMetadata]?
+    private var storedByteCount = 0
 
     private let maximumCacheAge: TimeInterval = 14 * 24 * 60 * 60
     private let maximumStoredBytes = 512 * 1024 * 1024
@@ -67,8 +69,8 @@ actor CatalogImageCache {
     }
 
     func statistics() -> CatalogImageCacheStatistics {
-        let metadata = storedMetadata()
-        return CatalogImageCacheStatistics(entryCount: metadata.count, totalBytes: metadata.reduce(0) { $0 + $1.byteCount })
+        ensureMetadataIndex()
+        return CatalogImageCacheStatistics(entryCount: metadataIndex?.count ?? 0, totalBytes: storedByteCount)
     }
 
     func clear() -> Bool {
@@ -80,6 +82,8 @@ actor CatalogImageCache {
             queuedPrefetchURLs.removeAll()
             prefetchTask?.cancel()
             prefetchTask = nil
+            metadataIndex = [:]
+            storedByteCount = 0
             return true
         } catch {
             return false
@@ -148,6 +152,7 @@ actor CatalogImageCache {
         metadata.hitCount += 1
         metadata.byteCount = data.count
         writeMetadata(metadata, to: metadataURL)
+        updateIndexedMetadata(metadata, for: key)
         let imageData = CatalogCachedImageData(data: data, image: image)
         memoryCache.setObject(CatalogCachedImageBox(value: imageData), forKey: url as NSURL, cost: data.count)
         return StoredImage(imageData: imageData, isFresh: Date().timeIntervalSince(metadata.updatedAt) < maximumCacheAge, eTag: metadata.eTag, lastModified: metadata.lastModified)
@@ -210,6 +215,7 @@ actor CatalogImageCache {
         metadata.updatedAt = now
         metadata.lastAccessedAt = now
         writeMetadata(metadata, to: metadataURL)
+        updateIndexedMetadata(metadata, for: key)
     }
 
     private func store(imageData: CatalogCachedImageData, response: HTTPURLResponse, for url: URL) {
@@ -218,7 +224,8 @@ actor CatalogImageCache {
         let dataURL = imageFileURL(for: key)
         let metadataURL = metadataFileURL(for: key)
         let now = Date()
-        let previous = readMetadata(at: metadataURL)
+        ensureMetadataIndex()
+        let previous = metadataIndex?[key] ?? readMetadata(at: metadataURL)
         let metadata = StoredImageMetadata(
             url: url.absoluteString,
             mimeType: response.mimeType ?? "",
@@ -237,29 +244,39 @@ actor CatalogImageCache {
             removeStoredImage(for: key)
             return
         }
+        updateIndexedMetadata(metadata, for: key)
         memoryCache.setObject(CatalogCachedImageBox(value: imageData), forKey: url as NSURL, cost: imageData.data.count)
-        pruneIfNeeded()
+        if (metadataIndex?.count ?? 0) > maximumStoredEntries || storedByteCount > maximumStoredBytes { pruneIfNeeded() }
     }
 
     private func pruneIfNeeded() {
-        let entries = storedMetadata().sorted { $0.lastAccessedAt > $1.lastAccessedAt }
-        var totalBytes = 0
-        var entriesToDelete: [StoredImageMetadata] = []
-        for (index, entry) in entries.enumerated() {
-            totalBytes += entry.byteCount
-            if index >= maximumStoredEntries || totalBytes > maximumStoredBytes {
-                entriesToDelete.append(entry)
-            }
-        }
-        guard !entriesToDelete.isEmpty else { return }
-        for entry in entriesToDelete {
-            removeStoredImage(for: cacheKey(for: entry.url))
+        ensureMetadataIndex()
+        let oldestFirst = (metadataIndex ?? [:]).sorted { $0.value.lastAccessedAt < $1.value.lastAccessedAt }
+        for (key, _) in oldestFirst {
+            guard (metadataIndex?.count ?? 0) > maximumStoredEntries || storedByteCount > maximumStoredBytes else { break }
+            removeStoredImage(for: key)
         }
     }
 
-    private func storedMetadata() -> [StoredImageMetadata] {
-        guard let urls = try? FileManager.default.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) else { return [] }
-        return urls.filter { $0.pathExtension == "json" }.compactMap { readMetadata(at: $0) }
+    private func ensureMetadataIndex() {
+        guard metadataIndex == nil else { return }
+        guard let urls = try? FileManager.default.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) else {
+            metadataIndex = [:]
+            storedByteCount = 0
+            return
+        }
+        let entries = urls.filter { $0.pathExtension == "json" }.compactMap { url -> (String, StoredImageMetadata)? in
+            guard let metadata = readMetadata(at: url) else { return nil }
+            return (url.deletingPathExtension().lastPathComponent, metadata)
+        }
+        metadataIndex = Dictionary(entries, uniquingKeysWith: { _, newest in newest })
+        storedByteCount = entries.reduce(0) { $0 + max(0, $1.1.byteCount) }
+    }
+
+    private func updateIndexedMetadata(_ metadata: StoredImageMetadata, for key: String) {
+        guard metadataIndex != nil else { return }
+        let previous = metadataIndex?.updateValue(metadata, forKey: key)
+        storedByteCount += metadata.byteCount - (previous?.byteCount ?? 0)
     }
 
     private func readMetadata(at url: URL) -> StoredImageMetadata? {
@@ -273,6 +290,10 @@ actor CatalogImageCache {
     }
 
     private func removeStoredImage(for key: String) {
+        ensureMetadataIndex()
+        if let removed = metadataIndex?.removeValue(forKey: key) {
+            storedByteCount = max(0, storedByteCount - removed.byteCount)
+        }
         try? FileManager.default.removeItem(at: imageFileURL(for: key))
         try? FileManager.default.removeItem(at: metadataFileURL(for: key))
     }
