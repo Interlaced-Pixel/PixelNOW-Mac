@@ -3,20 +3,28 @@ import CryptoKit
 import SwiftData
 import SwiftUI
 
-private enum SettingsVendorLayout {
-    static let surface = Color(red: 18 / 255, green: 19 / 255, blue: 18 / 255)
-    static let sidebar = Color(red: 31 / 255, green: 32 / 255, blue: 31 / 255)
-    static let card = Color(red: 26 / 255, green: 27 / 255, blue: 26 / 255)
-    static let cardRaised = Color(red: 34 / 255, green: 35 / 255, blue: 34 / 255)
+private enum SettingsTheme {
+    static let surface = Color(red: 0.035, green: 0.043, blue: 0.078)
+    static let sidebar = Color.white.opacity(0.065)
+    static let card = Color.white.opacity(0.055)
+    static let cardRaised = Color.white.opacity(0.09)
     static let row = Color.white.opacity(0.045)
+    static let accent = Color.pixelNowBlue
+    static let border = Color.white.opacity(0.11)
     static let textPrimary = Color.white
     static let textSecondary = Color.white.opacity(0.68)
     static let textTertiary = Color.white.opacity(0.38)
 }
 
 private extension Font {
-    static func settingsNvidia(size: CGFloat, weight: NVIDIAFont.Weight = .regular) -> Font {
-        NVIDIAFont.font(size: size, weight: weight)
+    static func settingsText(size: CGFloat, weight: NVIDIAFont.Weight = .regular) -> Font {
+        let systemWeight: Font.Weight
+        switch weight {
+        case .regular: systemWeight = .regular
+        case .medium: systemWeight = .medium
+        case .bold: systemWeight = .bold
+        }
+        return .system(size: size, weight: systemWeight)
     }
 }
 
@@ -131,7 +139,7 @@ struct SettingsView: View {
     let onForget: (LoginAccount) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 18) {
             SettingsSidebar(viewModel: viewModel)
             SettingsContent(
                 viewModel: viewModel,
@@ -143,6 +151,10 @@ struct SettingsView: View {
                 onForget: onForget
             )
         }
+        .padding(.horizontal, 32)
+        .padding(.top, 104)
+        .padding(.bottom, 24)
+        .padding(.trailing, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SettingsSurfaceBackground())
     }
@@ -151,9 +163,10 @@ struct SettingsView: View {
 private struct SettingsSurfaceBackground: View {
     var body: some View {
         ZStack {
-            SettingsVendorLayout.surface
-            LinearGradient(colors: [Color.pixelNowGreen.opacity(0.035), .clear], startPoint: .topLeading, endPoint: .center)
-            LinearGradient(colors: [.black.opacity(0.22), .clear, .black.opacity(0.18)], startPoint: .leading, endPoint: .trailing)
+            PixelPatternBackground()
+            SettingsTheme.surface.opacity(0.35)
+            LinearGradient(colors: [SettingsTheme.accent.opacity(0.13), .clear], startPoint: .topLeading, endPoint: .center)
+            LinearGradient(colors: [.black.opacity(0.22), .clear, .black.opacity(0.16)], startPoint: .leading, endPoint: .trailing)
         }
     }
 }
@@ -166,48 +179,51 @@ private struct SettingsSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("SETTINGS")
-                    .font(.settingsNvidia(size: 11, weight: .bold))
-                    .foregroundStyle(Color.pixelNowGreen)
-                    .tracking(1.5)
-                Text("PixelNOW")
-                    .font(.settingsNvidia(size: 22, weight: .bold))
+                Label("Settings", systemImage: "slider.horizontal.3")
+                    .font(.settingsText(size: 17, weight: .bold))
                     .foregroundStyle(.white)
+                Text("Tune your PixelNOW experience")
+                    .font(.settingsText(size: 11, weight: .medium))
+                    .foregroundStyle(SettingsTheme.textSecondary)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 24)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 14)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(CatalogSettingsGroup.visibleCases()) { group in
+                        let isSelected = viewModel.selectedSettingsGroup == group
+                        let isHovered = hoveredGroup == group
+                        if group == .account {
+                            SettingsSidebarSectionHeader(title: "Preferences")
+                        } else if group == .theme {
+                            SettingsSidebarSectionHeader(title: "PixelNOW")
+                                .padding(.top, 10)
+                        }
                         Button { viewModel.selectedSettingsGroup = group } label: {
                             HStack(spacing: 10) {
-                                let isSelected = (viewModel.selectedSettingsGroup == group)
-                                let isHovered = (hoveredGroup == group)
-                                
                                 Image(systemName: group.icon)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .foregroundStyle(isSelected ? Color.pixelNowGreen : (isHovered ? SettingsVendorLayout.textSecondary : SettingsVendorLayout.textTertiary))
-                                    .frame(width: 16, height: 16)
+                                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                                    .foregroundStyle(isSelected ? SettingsTheme.accent : (isHovered ? SettingsTheme.textSecondary : SettingsTheme.textTertiary))
+                                    .frame(width: 19, height: 19)
                                 Text(group.title)
-                                    .font(.settingsNvidia(size: 13, weight: isSelected ? .bold : .medium))
-                                    .foregroundStyle(isSelected ? SettingsVendorLayout.textPrimary : (isHovered ? SettingsVendorLayout.textPrimary : SettingsVendorLayout.textTertiary))
+                                    .font(.settingsText(size: 13, weight: isSelected ? .bold : .medium))
+                                    .foregroundStyle(isSelected ? SettingsTheme.textPrimary : (isHovered ? SettingsTheme.textPrimary : SettingsTheme.textTertiary))
                                     .lineLimit(1)
                                 Spacer(minLength: 4)
                             }
-                            .padding(.horizontal, 14)
-                            .frame(height: 36)
+                            .padding(.horizontal, 11)
+                            .frame(height: 39)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
-                                group == viewModel.selectedSettingsGroup ? Color.pixelNowGreen.opacity(0.12) :
-                                (hoveredGroup == group ? Color.white.opacity(0.05) : Color.clear)
+                                isSelected ? SettingsTheme.accent.opacity(0.16) :
+                                (isHovered ? Color.white.opacity(0.055) : Color.clear),
+                                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
                             )
-                            .overlay(alignment: .leading) {
-                                Rectangle()
-                                    .fill(viewModel.selectedSettingsGroup == group ? Color.pixelNowGreen : Color.clear)
-                                    .frame(width: 3)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .stroke(isSelected ? SettingsTheme.accent.opacity(0.22) : .clear, lineWidth: 1)
                             }
                             .contentShape(Rectangle())
                         }
@@ -223,29 +239,49 @@ private struct SettingsSidebar: View {
                         }
                     }
                 }
-                .padding(.vertical, 14)
+                .padding(.horizontal, 10)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 8)
+            Rectangle()
+                .fill(SettingsTheme.border)
+                .frame(height: 1)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
             Button { viewModel.showGames() } label: {
-                Text("BACK TO GAMES")
-                    .font(.settingsNvidia(size: 12, weight: .bold))
+                Label("Back to Home", systemImage: "arrow.left")
+                    .font(.settingsText(size: 12, weight: .bold))
                     .foregroundStyle(.white.opacity(0.86))
-                    .tracking(0.9)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 38)
-                    .background(Color.white.opacity(0.055))
-                    .overlay { Rectangle().stroke(Color.white.opacity(0.13), lineWidth: 1) }
+                    .padding(.horizontal, 11)
+                    .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .stroke(SettingsTheme.border, lineWidth: 1)
+                    }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
         }
-        .frame(width: 208)
-        .background(SettingsVendorLayout.sidebar)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1)
-        }
+        .frame(width: 232)
+        .background(SettingsTheme.sidebar)
+        .modifier(LiquidGlassModifier(cornerRadius: 20))
+    }
+}
+
+private struct SettingsSidebarSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.settingsText(size: 9, weight: .bold))
+            .tracking(1.2)
+            .foregroundStyle(SettingsTheme.textTertiary)
+            .padding(.horizontal, 11)
+            .padding(.top, 9)
+            .padding(.bottom, 5)
     }
 }
 
@@ -270,9 +306,9 @@ private struct SettingsContent: View {
                 }
                 page
             }
-            .padding(.horizontal, 52)
-            .padding(.top, 38)
-            .padding(.bottom, 54)
+            .padding(.horizontal, 22)
+            .padding(.top, 12)
+            .padding(.bottom, 36)
             .frame(maxWidth: 1220, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -300,7 +336,7 @@ private struct SettingsContent: View {
         case .input:
             InputSettingsPage(viewModel: viewModel, inputRouter: controllerInputRouter)
         case .keybindings:
-            SettingsPlaceholderPage(title: "Keybindings")
+            KeybindingsSettingsPage()
         case .recording:
             RecordingSettingsPage(viewModel: viewModel)
         case .network:
@@ -325,7 +361,7 @@ private struct SettingsContent: View {
         case .video: return "Stream resolution, frame rate, codec, HDR, and MetalFX upscaling."
         case .audio: return "Volume levels, microphone routing, and voice transmission mode."
         case .input: return "Mouse capture, anti-AFK, and controller navigation mode."
-        case .keybindings: return "Keyboard shortcuts and custom binding overrides."
+        case .keybindings: return "Shortcuts available while a stream is active."
         case .recording: return "Video and audio bitrate for session captures and highlights."
         case .network: return "Server region selection and linked game store connections."
         case .remoteCoOp: return "Host a friend in local multiplayer via streaming."
@@ -342,27 +378,20 @@ private struct SettingsHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .bottom, spacing: 18) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(title.uppercased())
-                        .font(.settingsNvidia(size: 12, weight: .bold))
-                        .foregroundStyle(Color.pixelNowGreen)
-                        .tracking(1.5)
-                    Text(title)
-                        .font(.settingsNvidia(size: 34, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text(subtitle)
-                        .font(.settingsNvidia(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.62))
-                }
-                Spacer(minLength: 24)
-                Rectangle()
-                    .fill(Color.pixelNowGreen.opacity(0.42))
-                    .frame(width: 120, height: 2)
-                    .padding(.bottom, 9)
-            }
+        VStack(alignment: .leading, spacing: 7) {
+            Text("YOUR SETUP")
+                .font(.settingsText(size: 10, weight: .bold))
+                .foregroundStyle(SettingsTheme.accent)
+                .tracking(1.5)
+            Text(title)
+                .font(.settingsText(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+            Text(subtitle)
+                .font(.settingsText(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.66))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.bottom, 4)
     }
 }
 
@@ -381,8 +410,8 @@ private struct AccountSettingsPage: View {
             SettingsCard(title: "Membership") {
                 HStack(alignment: .top, spacing: 20) {
                     ZStack {
-                        SettingsVendorLayout.cardRaised
-                            .overlay { Rectangle().stroke(Color.pixelNowGreen.opacity(0.42), lineWidth: 1) }
+                        SettingsTheme.cardRaised
+                            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SettingsTheme.accent.opacity(0.42), lineWidth: 1) }
                         SettingsAccountAvatar(email: viewModel.account.email, size: 58)
                     }
                     .frame(width: 92, height: 92)
@@ -390,19 +419,19 @@ private struct AccountSettingsPage: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text(account.displayName)
-                                .font(.settingsNvidia(size: 25, weight: .bold))
+                                .font(.settingsText(size: 25, weight: .bold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             Text(account.membershipTier.uppercased())
-                                .font(.settingsNvidia(size: 10, weight: .bold))
+                                .font(.settingsText(size: 10, weight: .bold))
                                 .foregroundStyle(.black)
                                 .tracking(0.8)
                                 .padding(.horizontal, 8)
                                 .frame(height: 20)
-                                .background(Color.pixelNowGreen)
+                                .background(SettingsTheme.accent)
                         }
                         Text(accountSummaryText)
-                            .font(.settingsNvidia(size: 13, weight: .medium))
+                            .font(.settingsText(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.66))
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 8) {
@@ -472,10 +501,10 @@ private struct AccountSettingsPage: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Personal account details are masked by default.")
-                        .font(.settingsNvidia(size: 14, weight: .bold))
+                        .font(.settingsText(size: 14, weight: .bold))
                         .foregroundStyle(.white)
                     Text("Reveal only when validating account state on your own machine.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.56))
                 }
                 Spacer()
@@ -531,28 +560,28 @@ private struct AccountSettingsPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(savedAccount.displayName)
-                            .font(.settingsNvidia(size: 15, weight: .bold))
+                            .font(.settingsText(size: 15, weight: .bold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                         if isCurrent {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color.pixelNowGreen)
+                                .foregroundStyle(SettingsTheme.accent)
                         }
                     }
                     Text(savedAccount.providerName.isEmpty ? "NVIDIA" : savedAccount.providerName)
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.56))
                 }
                 Spacer()
                 if isCurrent {
                     Text("CURRENT")
-                        .font(.settingsNvidia(size: 10, weight: .bold))
+                        .font(.settingsText(size: 10, weight: .bold))
                         .foregroundStyle(.black)
                         .tracking(0.8)
                         .padding(.horizontal, 8)
                         .frame(height: 20)
-                        .background(Color.pixelNowGreen)
+                        .background(SettingsTheme.accent)
                 } else {
                     HStack(spacing: 8) {
                         SettingsActionButton(title: "SWITCH", tone: .secondary, minimumWidth: 86) {
@@ -624,23 +653,24 @@ private struct AccountHealthBadge: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
                 Circle()
-                    .fill(positive ? Color.pixelNowGreen : Color.orange)
+                    .fill(positive ? SettingsTheme.accent : Color.orange)
                     .frame(width: 7, height: 7)
                 Text(title)
-                    .font(.settingsNvidia(size: 12, weight: .bold))
-                    .foregroundStyle(positive ? Color.pixelNowGreen : .white.opacity(0.88))
+                    .font(.settingsText(size: 12, weight: .bold))
+                    .foregroundStyle(positive ? SettingsTheme.accent : .white.opacity(0.88))
                     .tracking(1.1)
             }
             Text(subtitle)
-                .font(.settingsNvidia(size: 11, weight: .bold))
+                .font(.settingsText(size: 11, weight: .bold))
                 .foregroundStyle(.white.opacity(0.58))
                 .lineLimit(2)
         }
         .padding(.horizontal, 14)
         .frame(width: 172, height: 64, alignment: .leading)
-        .background(SettingsVendorLayout.cardRaised)
-        .overlay(alignment: .leading) { Rectangle().fill(positive ? Color.pixelNowGreen : Color.orange).frame(width: 3) }
-        .overlay { Rectangle().stroke(positive ? Color.pixelNowGreen.opacity(0.35) : Color.orange.opacity(0.30), lineWidth: 1) }
+        .background(SettingsTheme.cardRaised, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(alignment: .leading) { Rectangle().fill(positive ? SettingsTheme.accent : Color.orange).frame(width: 3) }
+        .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(positive ? SettingsTheme.accent.opacity(0.35) : Color.orange.opacity(0.30), lineWidth: 1) }
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 }
 
@@ -652,13 +682,13 @@ private struct SettingsRevealButton: View {
     var body: some View {
         Button(action: action) {
             Text(revealed ? "HIDE DETAILS" : "REVEAL DETAILS")
-                .font(.settingsNvidia(size: 11, weight: .bold))
+                .font(.settingsText(size: 11, weight: .bold))
                 .foregroundStyle(revealed ? .black : .white.opacity(isHovering ? 0.94 : 0.82))
                 .tracking(0.8)
                 .padding(.horizontal, 13)
                 .frame(height: 32)
-                .background(revealed ? Color.pixelNowGreen.opacity(isHovering ? 0.90 : 1) : Color.white.opacity(isHovering ? 0.10 : 0.065))
-                .overlay { Rectangle().stroke(revealed ? Color.pixelNowGreen : Color.white.opacity(isHovering ? 0.20 : 0.13), lineWidth: 1) }
+                .background(revealed ? SettingsTheme.accent.opacity(isHovering ? 0.90 : 1) : Color.white.opacity(isHovering ? 0.10 : 0.065), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(revealed ? SettingsTheme.accent : Color.white.opacity(isHovering ? 0.20 : 0.13), lineWidth: 1) }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -713,20 +743,20 @@ private struct AccountStatusTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label.uppercased())
-                .font(.settingsNvidia(size: 10, weight: .bold))
+                .font(.settingsText(size: 10, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(.white.opacity(0.44))
             Text(value.isEmpty ? "Unknown" : value)
-                .font(.settingsNvidia(size: 16, weight: .bold))
-                .foregroundStyle(positive ? Color.pixelNowGreen : .white.opacity(0.78))
+                .font(.settingsText(size: 16, weight: .bold))
+                .foregroundStyle(positive ? SettingsTheme.accent : .white.opacity(0.78))
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(width: 188, height: 74, alignment: .leading)
-        .background(Color.white.opacity(positive ? 0.065 : 0.045))
-        .overlay { Rectangle().stroke(positive ? Color.pixelNowGreen.opacity(0.32) : Color.white.opacity(0.08), lineWidth: 1) }
+        .background(Color.white.opacity(positive ? 0.065 : 0.045), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(positive ? SettingsTheme.accent.opacity(0.32) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -741,17 +771,17 @@ private struct AccountEmptyState: View {
                 .frame(width: 4, height: 44)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white.opacity(0.88))
                 Text(subtitle)
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
             }
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color.white.opacity(0.045))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -763,20 +793,20 @@ private struct SettingsStatisticTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label.uppercased())
-                .font(.settingsNvidia(size: 10, weight: .bold))
+                .font(.settingsText(size: 10, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(.white.opacity(0.44))
             Text(value.isEmpty ? "-" : value)
-                .font(.settingsNvidia(size: emphasized ? 24 : 19, weight: .bold))
-                .foregroundStyle(emphasized ? Color.pixelNowGreen : .white.opacity(0.90))
+                .font(.settingsText(size: emphasized ? 24 : 19, weight: .bold))
+                .foregroundStyle(emphasized ? SettingsTheme.accent : .white.opacity(0.90))
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(width: emphasized ? 206 : 164, height: 78, alignment: .leading)
-        .background(Color.white.opacity(emphasized ? 0.075 : 0.052))
-        .overlay { Rectangle().stroke(emphasized ? Color.pixelNowGreen.opacity(0.36) : Color.white.opacity(0.08), lineWidth: 1) }
+        .background(Color.white.opacity(emphasized ? 0.075 : 0.052), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(emphasized ? SettingsTheme.accent.opacity(0.36) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -799,17 +829,17 @@ private struct InterfaceSettingsPage: View {
                 SettingsDivider()
                 HStack(alignment: .center, spacing: 12) {
                     Image(systemName: inputRouter.isControllerConnected ? "gamecontroller.fill" : "keyboard")
-                        .font(.settingsNvidia(size: 18, weight: .bold))
-                        .foregroundStyle(Color.pixelNowGreen)
+                        .font(.settingsText(size: 18, weight: .bold))
+                        .foregroundStyle(SettingsTheme.accent)
                         .frame(width: 34, height: 34)
-                        .background(Color.pixelNowGreen.opacity(0.12))
-                        .overlay { Rectangle().stroke(Color.pixelNowGreen.opacity(0.30), lineWidth: 1) }
+                        .background(SettingsTheme.accent.opacity(0.12))
+                        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SettingsTheme.accent.opacity(0.30), lineWidth: 1) }
                     VStack(alignment: .leading, spacing: 4) {
                         Text(inputRouter.isControllerConnected ? "Adaptive Controller Layout" : "Keyboard Navigation Active")
-                            .font(.settingsNvidia(size: 14, weight: .bold))
+                            .font(.settingsText(size: 14, weight: .bold))
                             .foregroundStyle(.white.opacity(0.92))
                         Text(inputRouter.isControllerConnected ? "Input hints adapt to your connected controller." : "Connect a controller to show gamepad button hints automatically.")
-                            .font(.settingsNvidia(size: 12, weight: .medium))
+                            .font(.settingsText(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.58))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -834,7 +864,7 @@ private struct InterfaceInputLegend: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title.uppercased())
-                .font(.settingsNvidia(size: 10, weight: .bold))
+                .font(.settingsText(size: 10, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(.white.opacity(0.44))
             HStack(spacing: 6) {
@@ -846,8 +876,8 @@ private struct InterfaceInputLegend: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
         .frame(minWidth: 132, minHeight: 70, alignment: .leading)
-        .background(Color.white.opacity(0.045))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -858,17 +888,17 @@ private struct InterfaceGlyphPill: View {
         HStack(spacing: 6) {
             if !glyph.symbolName.isEmpty {
                 Image(systemName: glyph.symbolName)
-                    .font(.settingsNvidia(size: 13, weight: .bold))
+                    .font(.settingsText(size: 13, weight: .bold))
             }
             Text(glyph.fallbackText)
-                .font(.settingsNvidia(size: 10, weight: .bold))
+                .font(.settingsText(size: 10, weight: .bold))
                 .lineLimit(1)
         }
-        .foregroundStyle(Color.pixelNowGreen)
+        .foregroundStyle(SettingsTheme.accent)
         .padding(.horizontal, 8)
         .frame(height: 28)
-        .background(Color.pixelNowGreen.opacity(0.12))
-        .overlay { Rectangle().stroke(Color.pixelNowGreen.opacity(0.28), lineWidth: 1) }
+        .background(SettingsTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(SettingsTheme.accent.opacity(0.28), lineWidth: 1) }
         .accessibilityLabel(glyph.accessibilityLabel)
     }
 }
@@ -946,10 +976,10 @@ private struct StoreConnectionsOverview: View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Library ownership sync")
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 Text("Connected stores can sync library ownership before launch.")
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
             }
             Spacer(minLength: 0)
@@ -972,15 +1002,15 @@ private struct StoreConnectionRow: View {
         let supportsLinking = definition?.isAccountLinkingSupported == true || account?.hasAccountLinkingData == true
         HStack(alignment: .center, spacing: 16) {
             Rectangle()
-                .fill(isConnected ? Color.pixelNowGreen : Color.white.opacity(0.18))
+                .fill(isConnected ? SettingsTheme.accent : Color.white.opacity(0.18))
                 .frame(width: 4, height: 46)
             StoreIcon(asset: iconAsset, imageURL: iconURL, connected: isConnected)
             VStack(alignment: .leading, spacing: 5) {
                 Text(displayName)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(isConnected ? .white : .white.opacity(0.86))
                 Text(statusText(account))
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(isConnected ? .white.opacity(0.62) : .white.opacity(0.44))
             }
             Spacer(minLength: 12)
@@ -993,8 +1023,8 @@ private struct StoreConnectionRow: View {
             }
         }
         .padding(12)
-        .background(isConnected ? Color.pixelNowGreen.opacity(0.095) : SettingsVendorLayout.row)
-        .overlay { Rectangle().stroke(isConnected ? Color.pixelNowGreen.opacity(0.34) : Color.white.opacity(0.08), lineWidth: 1) }
+        .background(isConnected ? SettingsTheme.accent.opacity(0.095) : SettingsTheme.row)
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(isConnected ? SettingsTheme.accent.opacity(0.34) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 
     private func statusText(_ account: CatalogStoreAccount?) -> String {
@@ -1022,7 +1052,7 @@ private struct StoreIcon: View {
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(connected ? Color.pixelNowGreen.opacity(0.18) : Color.white.opacity(0.075))
+                .fill(connected ? SettingsTheme.accent.opacity(0.18) : Color.white.opacity(0.075))
             if let url = resolvedImageURL {
                 StoreRemoteIconImage(url: url, asset: asset, connected: connected)
             } else {
@@ -1030,7 +1060,8 @@ private struct StoreIcon: View {
             }
         }
         .frame(width: 42, height: 42)
-        .overlay { Rectangle().stroke(connected ? Color.pixelNowGreen.opacity(0.42) : Color.white.opacity(0.12), lineWidth: 1) }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(connected ? SettingsTheme.accent.opacity(0.42) : Color.white.opacity(0.12), lineWidth: 1) }
         .accessibilityHidden(true)
     }
 
@@ -1094,8 +1125,8 @@ private struct StoreLocalIconImage: View {
                 .opacity(connected ? 1 : 0.68)
         } else {
             Image(systemName: "link")
-                .font(.settingsNvidia(size: 17, weight: .bold))
-                .foregroundStyle(connected ? Color.pixelNowGreen : .white.opacity(0.56))
+                .font(.settingsText(size: 17, weight: .bold))
+                .foregroundStyle(connected ? SettingsTheme.accent : .white.opacity(0.56))
         }
     }
 }
@@ -1275,10 +1306,10 @@ private struct GameplaySettingsPage: View {
                         .frame(width: 4, height: 48)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Restore default streaming settings")
-                            .font(.settingsNvidia(size: 15, weight: .bold))
+                            .font(.settingsText(size: 15, weight: .bold))
                             .foregroundStyle(.white)
                         Text("Restore all streaming, video, audio, and input settings to default.")
-                            .font(.settingsNvidia(size: 12, weight: .medium))
+                            .font(.settingsText(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.56))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -1286,8 +1317,8 @@ private struct GameplaySettingsPage: View {
                     SettingsActionButton(title: "RESTORE DEFAULTS", minimumWidth: 150) { viewModel.restoreStreamingProfileDefaults() }
                 }
                 .padding(12)
-                .background(SettingsVendorLayout.row)
-                .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+                .background(SettingsTheme.row)
+                .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
             }
         }
     }
@@ -1331,10 +1362,10 @@ private struct ServerLocationSettingsPage: View {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Cloudmatch Region")
-                        .font(.settingsNvidia(size: 15, weight: .bold))
+                        .font(.settingsText(size: 15, weight: .bold))
                         .foregroundStyle(.white)
                     Text("Automatic keeps NVIDIA's capacity-aware route and runs a fresh network preflight before launch.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.58))
                 }
                 Spacer(minLength: 12)
@@ -1376,10 +1407,10 @@ private struct UnavailableRegionPrompt: View {
                     .foregroundStyle(Color.orange)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Selected Region Unavailable")
-                        .font(.settingsNvidia(size: 13, weight: .bold))
+                        .font(.settingsText(size: 13, weight: .bold))
                         .foregroundStyle(.white)
                     Text("CloudMatch no longer advertises the selected route. Keep it for one more launch attempt, or switch to Automatic.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.62))
                     Text(regionUrl)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -1396,7 +1427,7 @@ private struct UnavailableRegionPrompt: View {
         }
         .padding(14)
         .background(Color.orange.opacity(0.08))
-        .overlay { Rectangle().stroke(Color.orange.opacity(0.22), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.orange.opacity(0.22), lineWidth: 1) }
     }
 }
 
@@ -1443,10 +1474,10 @@ private struct SystemSettingsPage: View {
                 HStack(alignment: .top, spacing: 18) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(systemSummaryTitle)
-                            .font(.settingsNvidia(size: 22, weight: .bold))
+                            .font(.settingsText(size: 22, weight: .bold))
                             .foregroundStyle(.white)
                         Text(systemSummaryDetail)
-                            .font(.settingsNvidia(size: 13, weight: .medium))
+                            .font(.settingsText(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.62))
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 8) {
@@ -1482,10 +1513,10 @@ private struct SystemSettingsPage: View {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Identifiers and endpoint paths are masked by default.")
-                            .font(.settingsNvidia(size: 14, weight: .bold))
+                            .font(.settingsText(size: 14, weight: .bold))
                             .foregroundStyle(.white)
                         Text("Reveal only when collecting support information locally.")
-                            .font(.settingsNvidia(size: 12, weight: .medium))
+                            .font(.settingsText(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.56))
                     }
                     Spacer()
@@ -1579,18 +1610,18 @@ private struct SystemHealthBadge: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.settingsNvidia(size: 12, weight: .bold))
+                .font(.settingsText(size: 12, weight: .bold))
                 .foregroundStyle(positive ? .black : .white.opacity(0.88))
                 .tracking(1.1)
             Text(subtitle)
-                .font(.settingsNvidia(size: 11, weight: .bold))
+                .font(.settingsText(size: 11, weight: .bold))
                 .foregroundStyle(positive ? .black.opacity(0.74) : .white.opacity(0.54))
                 .lineLimit(2)
         }
         .padding(.horizontal, 14)
         .frame(width: 172, height: 64, alignment: .leading)
-        .background(positive ? Color.pixelNowGreen : Color.white.opacity(0.07))
-        .overlay { Rectangle().stroke(positive ? Color.pixelNowGreen : Color.white.opacity(0.13), lineWidth: 1) }
+        .background(positive ? SettingsTheme.accent : Color.white.opacity(0.07))
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(positive ? SettingsTheme.accent : Color.white.opacity(0.13), lineWidth: 1) }
     }
 }
 
@@ -1603,29 +1634,29 @@ private struct SystemCapabilityRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Rectangle()
-                .fill(positive ? Color.pixelNowGreen : Color.white.opacity(0.22))
+                .fill(positive ? SettingsTheme.accent : Color.white.opacity(0.22))
                 .frame(width: 4, height: 42)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 Text(subtitle)
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.56))
             }
             Spacer(minLength: 0)
             Text(value.uppercased())
-                .font(.settingsNvidia(size: 11, weight: .bold))
-                .foregroundStyle(positive ? Color.pixelNowGreen : .white.opacity(0.56))
+                .font(.settingsText(size: 11, weight: .bold))
+                .foregroundStyle(positive ? SettingsTheme.accent : .white.opacity(0.56))
                 .tracking(0.8)
                 .padding(.horizontal, 10)
                 .frame(height: 28)
                 .background(Color.white.opacity(positive ? 0.07 : 0.04))
-                .overlay { Rectangle().stroke(positive ? Color.pixelNowGreen.opacity(0.38) : Color.white.opacity(0.08), lineWidth: 1) }
+                .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(positive ? SettingsTheme.accent.opacity(0.38) : Color.white.opacity(0.08), lineWidth: 1) }
         }
         .padding(12)
         .background(Color.white.opacity(0.045))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -1645,7 +1676,7 @@ private struct AboutSettingsPage: View {
                     ZStack {
                         Rectangle()
                             .fill(Color.black.opacity(0.22))
-                            .overlay { Rectangle().stroke(Color.pixelNowGreen.opacity(0.72), lineWidth: 1) }
+                            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SettingsTheme.accent.opacity(0.72), lineWidth: 1) }
                         VendorResourceImage(name: "nv-gfn-logo_v3", fileExtension: "png")
                             .scaledToFit()
                             .padding(.horizontal, 14)
@@ -1655,18 +1686,18 @@ private struct AboutSettingsPage: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text(SettingsAppMetadata.displayName)
-                                .font(.settingsNvidia(size: 25, weight: .bold))
+                                .font(.settingsText(size: 25, weight: .bold))
                                 .foregroundStyle(.white)
                             Text("UNOFFICIAL CLIENT SHELL")
-                                .font(.settingsNvidia(size: 10, weight: .bold))
+                                .font(.settingsText(size: 10, weight: .bold))
                                 .foregroundStyle(.black)
                                 .tracking(0.8)
                                 .padding(.horizontal, 8)
                                 .frame(height: 20)
-                                .background(Color.pixelNowGreen)
+                                .background(SettingsTheme.accent)
                         }
                         Text("A macOS runtime for launching and streaming PixelNOW sessions with local catalog, account, and diagnostics surfaces.")
-                            .font(.settingsNvidia(size: 13, weight: .medium))
+                            .font(.settingsText(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.66))
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 8) {
@@ -1697,7 +1728,7 @@ private struct AboutSettingsPage: View {
                         AppDelegate.requestApplicationUpdateCheck()
                     }
                     Text("Check GitHub releases for newer signed builds.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                 }
             }
@@ -1710,7 +1741,7 @@ private struct AboutSettingsPage: View {
                         viewModel.clearCatalogImageCache()
                     }
                     Text("Purge cached artwork from disk and memory.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                 }
             }
@@ -1727,11 +1758,11 @@ private struct AboutSettingsPage: View {
                         }
                         .disabled(diagnosticsState.isWorking)
                         Text("Upload sanitized runtime logs and copy diagnostics link to clipboard.")
-                            .font(.settingsNvidia(size: 12, weight: .medium))
+                            .font(.settingsText(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.54))
                     }
                     Text(diagnosticsState.message)
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(diagnosticsState.isError ? Color(red: 1, green: 0.54, blue: 0.50) : .white.opacity(0.62))
                 }
             }
@@ -1869,20 +1900,20 @@ private struct DiagnosticsUploadConfirmationDialog: View {
                 HStack(alignment: .top, spacing: 14) {
                     ZStack {
                         Rectangle()
-                            .fill(Color.pixelNowGreen.opacity(0.16))
+                            .fill(SettingsTheme.accent.opacity(0.16))
                         Image(systemName: "doc.text.magnifyingglass")
-                            .font(.settingsNvidia(size: 18, weight: .bold))
-                            .foregroundStyle(Color.pixelNowGreen)
+                            .font(.settingsText(size: 18, weight: .bold))
+                            .foregroundStyle(SettingsTheme.accent)
                     }
                     .frame(width: 44, height: 44)
-                    .overlay { Rectangle().stroke(Color.pixelNowGreen.opacity(0.42), lineWidth: 1) }
+                    .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SettingsTheme.accent.opacity(0.42), lineWidth: 1) }
 
                     VStack(alignment: .leading, spacing: 7) {
                         Text("Upload diagnostics logs?")
-                            .font(.settingsNvidia(size: 19, weight: .bold))
+                            .font(.settingsText(size: 19, weight: .bold))
                             .foregroundStyle(.white)
                         Text("PixelNOW will upload the recent sanitized current-run log to paste.c-net.org and copy a diagnostics summary with the public link.")
-                            .font(.settingsNvidia(size: 13, weight: .medium))
+                            .font(.settingsText(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.72))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -1890,16 +1921,16 @@ private struct DiagnosticsUploadConfirmationDialog: View {
 
                 HStack(alignment: .top, spacing: 10) {
                     Rectangle()
-                        .fill(Color.pixelNowGreen)
+                        .fill(SettingsTheme.accent)
                         .frame(width: 4, height: 42)
                     Text("IP addresses and location fields are redacted before upload. Only generate this when preparing support diagnostics.")
-                        .font(.settingsNvidia(size: 12, weight: .medium))
+                        .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.62))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(12)
                 .background(Color.white.opacity(0.045))
-                .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+                .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
 
                 HStack(spacing: 10) {
                     Spacer(minLength: 0)
@@ -1910,7 +1941,7 @@ private struct DiagnosticsUploadConfirmationDialog: View {
             .padding(22)
             .frame(width: 430, alignment: .leading)
             .background(Color(red: 24 / 255, green: 24 / 255, blue: 24 / 255))
-            .overlay { Rectangle().stroke(Color.white.opacity(0.16), lineWidth: 1) }
+            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1) }
             .shadow(color: .black.opacity(0.62), radius: 34, x: 0, y: 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1931,14 +1962,17 @@ private struct SettingsDialogButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.settingsNvidia(size: 12, weight: .bold))
+                .font(.settingsText(size: 12, weight: .bold))
                 .foregroundStyle(tone == .primary ? .black : .white.opacity(0.82))
                 .tracking(0.8)
                 .padding(.horizontal, 14)
                 .frame(minWidth: 104)
                 .frame(height: 34)
-                .background(backgroundColor)
-                .overlay { Rectangle().stroke(strokeColor, lineWidth: 1) }
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(strokeColor, lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -1946,14 +1980,14 @@ private struct SettingsDialogButton: View {
 
     private var backgroundColor: Color {
         switch tone {
-        case .primary: return Color.pixelNowGreen.opacity(isHovering ? 0.88 : 1)
+        case .primary: return SettingsTheme.accent.opacity(isHovering ? 0.88 : 1)
         case .secondary: return Color.white.opacity(isHovering ? 0.10 : 0.06)
         }
     }
 
     private var strokeColor: Color {
         switch tone {
-        case .primary: return Color.pixelNowGreen
+        case .primary: return SettingsTheme.accent
         case .secondary: return Color.white.opacity(0.14)
         }
     }
@@ -2000,18 +2034,21 @@ private struct AboutStatusPill: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(title.uppercased())
-                .font(.settingsNvidia(size: 9, weight: .bold))
+                .font(.settingsText(size: 9, weight: .bold))
                 .foregroundStyle(.white.opacity(0.44))
                 .tracking(0.8)
             Text(value.isEmpty ? "Unknown" : value)
-                .font(.settingsNvidia(size: 11, weight: .bold))
+                .font(.settingsText(size: 11, weight: .bold))
                 .foregroundStyle(.white.opacity(0.86))
                 .lineLimit(1)
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
-        .background(Color.white.opacity(0.065))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.12), lineWidth: 1) }
+        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        }
     }
 }
 
@@ -2025,25 +2062,25 @@ private struct AboutDetailRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
             Text(label.uppercased())
-                .font(.settingsNvidia(size: 10, weight: .bold))
+                .font(.settingsText(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.44))
                 .tracking(0.5)
                 .frame(width: 150, alignment: .leading)
             Text(value.isEmpty ? "Unavailable" : value)
-                .font(.settingsNvidia(size: 13, weight: .medium))
+                .font(.settingsText(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.84))
                 .lineLimit(2)
                 .textSelection(.enabled)
             Spacer(minLength: 0)
             Button { copy(copyValue) } label: {
                 Text(copiedKey == label ? "COPIED" : "COPY")
-                    .font(.settingsNvidia(size: 10, weight: .bold))
+                    .font(.settingsText(size: 10, weight: .bold))
                     .foregroundStyle(copyDisabled ? .white.opacity(0.28) : .white.opacity(0.74))
                     .tracking(0.7)
                     .padding(.horizontal, 10)
                     .frame(height: 26)
                     .background(Color.white.opacity(copyDisabled ? 0.03 : 0.06))
-                    .overlay { Rectangle().stroke(Color.white.opacity(copyDisabled ? 0.05 : 0.12), lineWidth: 1) }
+                    .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(copyDisabled ? 0.05 : 0.12), lineWidth: 1) }
             }
             .buttonStyle(.plain)
             .disabled(copyDisabled)
@@ -2071,12 +2108,9 @@ private struct SettingsCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Rectangle()
-                    .fill(Color.pixelNowGreen)
-                    .frame(width: 4, height: 18)
                 Text(title.uppercased())
-                    .font(.settingsNvidia(size: 12, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.68))
+                    .font(.settingsText(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.84))
                     .tracking(1.1)
                 Spacer(minLength: 0)
             }
@@ -2091,15 +2125,19 @@ private struct SettingsCard<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            ZStack(alignment: .topLeading) {
-                SettingsVendorLayout.card
-                LinearGradient(colors: [Color.white.opacity(0.035), .clear], startPoint: .top, endPoint: .center)
-                Rectangle()
-                    .fill(Color.pixelNowGreen.opacity(0.10))
-                    .frame(width: 1)
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(SettingsTheme.card)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                LinearGradient(colors: [SettingsTheme.accent.opacity(0.045), .clear], startPoint: .topLeading, endPoint: .center)
             }
         )
-        .overlay { Rectangle().stroke(Color.white.opacity(0.115), lineWidth: 1) }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(SettingsTheme.border, lineWidth: 1)
+        }
         .shadow(color: .black.opacity(0.26), radius: 16, y: 8)
     }
 }
@@ -2120,11 +2158,11 @@ private struct SettingsInfoRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(label.uppercased())
-                .font(.settingsNvidia(size: 10, weight: .bold))
+                .font(.settingsText(size: 10, weight: .bold))
                 .foregroundStyle(.white.opacity(0.44))
                 .frame(width: 150, alignment: .leading)
             Text(value.isEmpty ? "-" : value)
-                .font(.settingsNvidia(size: 13, weight: .medium))
+                .font(.settingsText(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.82))
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -2145,10 +2183,10 @@ private struct SettingsOptionRow: View {
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white.opacity(isLocked ? 0.58 : 1))
                 Text(subtitle)
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(isLocked ? 0.38 : 0.58))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2158,12 +2196,18 @@ private struct SettingsOptionRow: View {
                     let optionEnabled = !isLocked && (enabled.indices.contains(index) ? enabled[index] : true)
                     Button { action(index) } label: {
                         Text(options[index])
-                            .font(.settingsNvidia(size: 12, weight: .bold))
+                            .font(.settingsText(size: 12, weight: .bold))
                             .foregroundStyle(index == selectedIndex && !isLocked ? .black : .white.opacity(optionEnabled ? 0.82 : 0.34))
                             .padding(.horizontal, 12)
                             .frame(height: 32)
-                            .background(index == selectedIndex ? Color.pixelNowGreen.opacity(isLocked ? 0.32 : 1) : Color.white.opacity(optionEnabled ? 0.07 : 0.035))
-                            .overlay { Rectangle().stroke(index == selectedIndex ? Color.pixelNowGreen.opacity(isLocked ? 0.42 : 1) : Color.white.opacity(0.12), lineWidth: 1) }
+                            .background(
+                                index == selectedIndex ? SettingsTheme.accent.opacity(isLocked ? 0.32 : 1) : Color.white.opacity(optionEnabled ? 0.07 : 0.035),
+                                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .stroke(index == selectedIndex ? SettingsTheme.accent.opacity(isLocked ? 0.42 : 1) : Color.white.opacity(0.12), lineWidth: 1)
+                            }
                     }
                     .buttonStyle(.plain)
                     .disabled(!optionEnabled)
@@ -2185,10 +2229,10 @@ private struct SettingsToggleRow: View {
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white.opacity(isLocked ? 0.58 : 1))
                 Text(subtitle)
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(isLocked ? 0.38 : 0.58))
             }
             Spacer()
@@ -2213,22 +2257,25 @@ private struct SettingsTextFieldRow: View {
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 Text(subtitle)
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(width: 250, alignment: .leading)
             TextField(placeholder, text: Binding(get: { draft }, set: { newValue in updateDraft(newValue) }))
                 .textFieldStyle(.plain)
-                .font(.settingsNvidia(size: 13, weight: .medium))
+                .font(.settingsText(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 12)
                 .frame(height: 36)
-                .background(Color.white.opacity(0.07))
-                .overlay { Rectangle().stroke(Color.white.opacity(0.14), lineWidth: 1) }
+                .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                }
                 .onAppear { draft = text }
                 .onChange(of: text) { _, value in
                     guard value != draft else { return }
@@ -2253,22 +2300,25 @@ private struct SettingsSecureTextFieldRow: View {
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                 Text(subtitle)
-                    .font(.settingsNvidia(size: 12, weight: .medium))
+                    .font(.settingsText(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(width: 250, alignment: .leading)
             SecureField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.settingsNvidia(size: 13, weight: .medium))
+                .font(.settingsText(size: 13, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 12)
                 .frame(height: 36)
-                .background(Color.white.opacity(0.07))
-                .overlay { Rectangle().stroke(Color.white.opacity(0.14), lineWidth: 1) }
+                .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                }
         }
     }
 }
@@ -2286,15 +2336,15 @@ private struct SettingsSliderRow: View {
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.settingsNvidia(size: 15, weight: .bold))
+                    .font(.settingsText(size: 15, weight: .bold))
                     .foregroundStyle(.white.opacity(isLocked ? 0.58 : 1))
                 Text(valueText)
-                    .font(.settingsNvidia(size: 12, weight: .bold))
-                    .foregroundStyle(Color.pixelNowGreen.opacity(isLocked ? 0.48 : 1))
+                    .font(.settingsText(size: 12, weight: .bold))
+                    .foregroundStyle(SettingsTheme.accent.opacity(isLocked ? 0.48 : 1))
             }
             .frame(width: 250, alignment: .leading)
             Slider(value: Binding(get: { value }, set: { newValue in action(newValue) }), in: range, step: step)
-                .tint(Color.pixelNowGreen)
+                .tint(SettingsTheme.accent)
                 .disabled(isLocked)
                 .opacity(isLocked ? 0.45 : 1)
         }
@@ -2317,14 +2367,17 @@ private struct SettingsActionButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.settingsNvidia(size: 12, weight: .bold))
+                .font(.settingsText(size: 12, weight: .bold))
                 .foregroundStyle(foregroundColor)
                 .tracking(0.8)
                 .padding(.horizontal, 14)
                 .frame(minWidth: minimumWidth)
                 .frame(height: 32)
-                .background(backgroundColor)
-                .overlay { Rectangle().stroke(strokeColor, lineWidth: 1) }
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(strokeColor, lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -2333,8 +2386,8 @@ private struct SettingsActionButton: View {
     private var backgroundColor: Color {
         guard isEnabled else { return Color.white.opacity(0.045) }
         switch tone {
-        case .primary: return Color.pixelNowGreen.opacity(isHovering ? 0.88 : 1)
-        case .secondary: return Color.pixelNowGreen.opacity(isHovering ? 0.22 : 0.14)
+        case .primary: return SettingsTheme.accent.opacity(isHovering ? 0.88 : 1)
+        case .secondary: return SettingsTheme.accent.opacity(isHovering ? 0.22 : 0.14)
         }
     }
 
@@ -2342,13 +2395,13 @@ private struct SettingsActionButton: View {
         guard isEnabled else { return .white.opacity(0.32) }
         switch tone {
         case .primary: return .black
-        case .secondary: return Color.pixelNowGreen
+        case .secondary: return SettingsTheme.accent
         }
     }
 
     private var strokeColor: Color {
         guard isEnabled else { return Color.white.opacity(0.08) }
-        return tone == .primary ? Color.pixelNowGreen : Color.pixelNowGreen.opacity(0.34)
+        return tone == .primary ? SettingsTheme.accent : SettingsTheme.accent.opacity(0.34)
     }
 }
 
@@ -2360,12 +2413,12 @@ private struct SettingsStatusPill: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 3) {
             Text(title.uppercased())
-                .font(.settingsNvidia(size: 9, weight: .bold))
+                .font(.settingsText(size: 9, weight: .bold))
                 .foregroundStyle(.white.opacity(0.42))
                 .tracking(0.8)
             Text(value.isEmpty ? "-" : value)
-                .font(.settingsNvidia(size: 12, weight: .bold))
-                .foregroundStyle(positive ? Color.pixelNowGreen : .white.opacity(0.66))
+                .font(.settingsText(size: 12, weight: .bold))
+                .foregroundStyle(positive ? SettingsTheme.accent : .white.opacity(0.66))
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -2373,7 +2426,7 @@ private struct SettingsStatusPill: View {
         .frame(minWidth: 94, alignment: .trailing)
         .frame(height: 40)
         .background(Color.white.opacity(positive ? 0.055 : 0.035))
-        .overlay { Rectangle().stroke(positive ? Color.pixelNowGreen.opacity(0.24) : Color.white.opacity(0.08), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(positive ? SettingsTheme.accent.opacity(0.24) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
@@ -2388,13 +2441,13 @@ private struct SettingsRegionRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
                     Text(SettingsRegionName.shortName(for: option))
-                        .font(.settingsNvidia(size: 13, weight: .bold))
+                        .font(.settingsText(size: 13, weight: .bold))
                         .foregroundStyle(selected ? .white : .white.opacity(0.90))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                     Spacer(minLength: 6)
                     Circle()
-                        .fill(selected ? Color.pixelNowGreen : Color.white.opacity(isHovering ? 0.34 : 0.22))
+                        .fill(selected ? SettingsTheme.accent : Color.white.opacity(isHovering ? 0.34 : 0.22))
                         .frame(width: 8, height: 8)
                         .padding(.top, 4)
                 }
@@ -2403,8 +2456,8 @@ private struct SettingsRegionRow: View {
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .padding(.horizontal, 11)
             .padding(.vertical, 9)
-            .background(selected ? Color.pixelNowGreen.opacity(0.13) : Color.white.opacity(isHovering ? 0.065 : 0.045))
-            .overlay { Rectangle().stroke(selected ? Color.pixelNowGreen.opacity(0.74) : Color.white.opacity(isHovering ? 0.16 : 0.08), lineWidth: 1) }
+            .background(selected ? SettingsTheme.accent.opacity(0.13) : Color.white.opacity(isHovering ? 0.065 : 0.045))
+            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(selected ? SettingsTheme.accent.opacity(0.74) : Color.white.opacity(isHovering ? 0.16 : 0.08), lineWidth: 1) }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -2434,14 +2487,14 @@ private struct RegionLatencyBadge: View {
                 .fill(indicatorColor)
                 .frame(width: 6, height: 6)
             Text(latencyText)
-                .font(.settingsNvidia(size: 11, weight: .bold))
-                .foregroundStyle(selected ? Color.pixelNowGreen : .white.opacity(0.74))
+                .font(.settingsText(size: 11, weight: .bold))
+                .foregroundStyle(selected ? SettingsTheme.accent : .white.opacity(0.74))
                 .lineLimit(1)
         }
         .padding(.horizontal, 8)
         .frame(height: 24)
         .background(selected ? Color.black.opacity(0.20) : Color.white.opacity(0.045))
-        .overlay { Rectangle().stroke(selected ? Color.pixelNowGreen.opacity(0.30) : Color.white.opacity(0.08), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(selected ? SettingsTheme.accent.opacity(0.30) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 
     private var latencyText: String {
@@ -2450,7 +2503,7 @@ private struct RegionLatencyBadge: View {
 
     private var indicatorColor: Color {
         guard latencyMs >= 0 else { return .white.opacity(0.36) }
-        if latencyMs <= 40 { return Color.pixelNowGreen }
+        if latencyMs <= 40 { return SettingsTheme.accent }
         if latencyMs <= 65 { return Color(red: 1.0, green: 0.77, blue: 0.24) }
         return Color(red: 1.0, green: 0.32, blue: 0.26)
     }
@@ -2463,15 +2516,15 @@ private struct SettingsMessageView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .foregroundStyle(Color.pixelNowGreen)
+                .foregroundStyle(SettingsTheme.accent)
             Text(message)
-                .font(.settingsNvidia(size: 12, weight: .bold))
+                .font(.settingsText(size: 12, weight: .bold))
                 .foregroundStyle(.white.opacity(0.78))
             Spacer()
         }
         .padding(12)
         .background(Color.white.opacity(0.07))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.10), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1) }
     }
 }
 
@@ -2515,20 +2568,66 @@ private struct SettingsFlowLayout: Layout {
     }
 }
 
-private struct SettingsPlaceholderPage: View {
-    let title: String
+private struct KeybindingsSettingsPage: View {
+    private let shortcuts = [
+        StreamingShortcut(title: "Toggle Stream HUD", keys: ["⌘", "G"], symbol: "rectangle.inset.filled"),
+        StreamingShortcut(title: "Toggle Stats HUD", keys: ["⌘", "N"], symbol: "chart.xyaxis.line"),
+        StreamingShortcut(title: "Toggle Microphone", keys: ["⌘", "M"], symbol: "mic"),
+        StreamingShortcut(title: "Toggle Recording", keys: ["⌘", "R"], symbol: "record.circle"),
+        StreamingShortcut(title: "Toggle Anti-AFK", keys: ["⌘", "K"], symbol: "cursorarrow.motionlines"),
+        StreamingShortcut(title: "Open Quit Menu", keys: ["⌘", "Q"], symbol: "xmark.circle")
+    ]
+
     var body: some View {
-        VStack {
-            Spacer()
-            Text(title)
-                .font(.settingsNvidia(size: 24, weight: .bold))
-                .foregroundStyle(SettingsVendorLayout.textSecondary)
-            Text("This section is under construction.")
-                .font(.settingsNvidia(size: 14))
-                .foregroundStyle(SettingsVendorLayout.textTertiary)
-            Spacer()
+        SettingsCard(title: "Streaming Shortcuts") {
+            VStack(spacing: 0) {
+                ForEach(Array(shortcuts.enumerated()), id: \.offset) { index, shortcut in
+                    if index > 0 { SettingsDivider() }
+                    SettingsShortcutRow(shortcut: shortcut)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct StreamingShortcut {
+    let title: String
+    let keys: [String]
+    let symbol: String
+}
+
+private struct SettingsShortcutRow: View {
+    let shortcut: StreamingShortcut
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: shortcut.symbol)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(SettingsTheme.accent)
+                .frame(width: 34, height: 34)
+                .background(SettingsTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Text(shortcut.title)
+                .font(.settingsText(size: 13, weight: .medium))
+                .foregroundStyle(SettingsTheme.textPrimary)
+            Spacer(minLength: 16)
+            HStack(spacing: 5) {
+                ForEach(shortcut.keys, id: \.self) { key in
+                    Text(key)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .frame(minWidth: 27, minHeight: 26)
+                        .padding(.horizontal, 4)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(SettingsTheme.border, lineWidth: 1)
+                        }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Shortcut: \(shortcut.keys.joined(separator: " plus "))")
+        }
+        .frame(minHeight: 42)
     }
 }
 
@@ -2578,10 +2677,10 @@ private struct VideoSettingsPage: View {
                         .frame(width: 4, height: 48)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Restore default streaming settings")
-                            .font(.settingsNvidia(size: 15, weight: .bold))
+                            .font(.settingsText(size: 15, weight: .bold))
                             .foregroundStyle(.white)
                         Text("Restore all streaming, video, audio, and input settings to default.")
-                            .font(.settingsNvidia(size: 12, weight: .medium))
+                            .font(.settingsText(size: 12, weight: .medium))
                             .foregroundStyle(.white.opacity(0.56))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -2589,8 +2688,8 @@ private struct VideoSettingsPage: View {
                     SettingsActionButton(title: "RESTORE DEFAULTS", minimumWidth: 150) { viewModel.restoreStreamingProfileDefaults() }
                 }
                 .padding(12)
-                .background(SettingsVendorLayout.row)
-                .overlay { Rectangle().stroke(Color.white.opacity(0.08), lineWidth: 1) }
+                .background(SettingsTheme.row)
+                .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
             }
         }
     }
