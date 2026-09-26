@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 
 private enum RecordingAdvancedEditorSection: String, CaseIterable, Identifiable {
@@ -20,6 +21,7 @@ private enum RecordingAdvancedEditorSection: String, CaseIterable, Identifiable 
 
 struct RecordingEditorView: View {
     @ObservedObject var viewModel: RecordingEditorViewModel
+    let player: AVPlayer
     let playheadSeconds: Double
     let onSeek: (Double) -> Void
     let onCancel: () -> Void
@@ -31,67 +33,108 @@ struct RecordingEditorView: View {
     @State private var advancedSection: RecordingAdvancedEditorSection = .arrange
 
     var body: some View {
-        VStack(spacing: 10) {
-            header
-            timelineCard
-            quickActions
-            if showsAdvanced { advancedDrawer }
-            exportBar
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    previewCard(height: min(max(geometry.size.height * 0.38, 245), 390))
+                    timelineCard
+                    quickActions
+                    if showsAdvanced { advancedDrawer }
+                    exportBar
+                }
+                .frame(maxWidth: 1420, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .padding(.horizontal, 42)
+                .padding(.top, 98)
+                .padding(.bottom, 32)
+            }
         }
-        .padding(14)
-        .background(Color(red: 14 / 255, green: 15 / 255, blue: 15 / 255))
-        .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.10)).frame(height: 1) }
         .onChange(of: viewModel.previewSignature) { _, _ in onPreviewChanged() }
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("RECORDING EDITOR")
-                    .font(.recordingsNvidia(size: 10, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundStyle(Color.pixelNowGreen)
-                Text("Drag the green handles to trim. Drag across the timeline to mark a range.")
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("VIDEO EDITOR")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.5)
+                        .foregroundStyle(RecordingsLayout.accent)
+                    Text("Shape your next highlight")
+                        .font(.system(size: 25, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                Spacer(minLength: 12)
+                Button { viewModel.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                    .disabled(!viewModel.canUndo || viewModel.isExporting)
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                Button { viewModel.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
+                    .disabled(!viewModel.canRedo || viewModel.isExporting)
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                Button(showsAdvanced ? "Hide Advanced" : "Advanced") { showsAdvanced.toggle() }
+                    .disabled(viewModel.isExporting)
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                Button("Close", action: onCancel)
+                    .disabled(viewModel.isExporting)
+                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
             }
-            TextField("New clip title", text: $viewModel.outputTitle)
-                .textFieldStyle(.plain)
-                .font(.recordingsNvidia(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.95))
-                .padding(.horizontal, 10)
-                .frame(height: 34)
-                .background(Color.white.opacity(0.065))
-                .overlay { Rectangle().stroke(Color.white.opacity(0.12), lineWidth: 1) }
-            Button("Undo") { viewModel.undo() }
-                .disabled(!viewModel.canUndo || viewModel.isExporting)
-                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-            Button("Redo") { viewModel.redo() }
-                .disabled(!viewModel.canRedo || viewModel.isExporting)
-                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-            Button(showsAdvanced ? "Hide Advanced" : "Advanced") { showsAdvanced.toggle() }
-                .disabled(viewModel.isExporting)
-                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-            Button("Cancel", action: onCancel)
-                .disabled(viewModel.isExporting)
-                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+            HStack(spacing: 12) {
+                Image(systemName: "pencil.line")
+                    .foregroundStyle(RecordingsLayout.accent)
+                TextField("New clip title", text: $viewModel.outputTitle)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.95))
+                Text("Export will save a new video")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 42)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
         }
+        .padding(18)
+        .modifier(LiquidGlassModifier(cornerRadius: 22))
+    }
+
+    private func previewCard(height: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("PREVIEW", systemImage: "play.rectangle.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundStyle(RecordingsLayout.accent)
+                Spacer()
+                Text("\(recordingEditorDurationText(viewModel.outputDurationSeconds)) total")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+            RecordingPlayerView(player: player)
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .background(Color.black, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1) }
+        }
+        .padding(16)
+        .modifier(LiquidGlassModifier(cornerRadius: 22))
     }
 
     private var timelineCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Text("Timeline")
-                    .font(.recordingsNvidia(size: 10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .tracking(1.2)
-                    .foregroundStyle(Color.pixelNowGreen.opacity(0.86))
+                    .foregroundStyle(RecordingsLayout.accent.opacity(0.86))
                 Text("\(recordingEditorDurationText(viewModel.outputDurationSeconds)) output")
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.58))
                 Spacer(minLength: 0)
                 Text("\(viewModel.segments.count) clip\(viewModel.segments.count == 1 ? "" : "s")")
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.46))
             }
             RecordingTimelineView(
@@ -109,13 +152,12 @@ struct RecordingEditorView: View {
                 onSegmentTrimEnd: viewModel.updateSegmentEnd
             )
         }
-        .padding(10)
-        .background(Color.white.opacity(0.045))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.10), lineWidth: 1) }
+        .padding(14)
+        .modifier(LiquidGlassModifier(cornerRadius: 20))
     }
 
     private var quickActions: some View {
-        HStack(spacing: 8) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], alignment: .leading, spacing: 8) {
             quickButton("Trim Start", systemImage: "arrow.left.to.line") { applyAtSourcePlayhead(viewModel.trimStartToPlayhead) }
             quickButton("Trim End", systemImage: "arrow.right.to.line") { applyAtSourcePlayhead(viewModel.trimEndToPlayhead) }
             quickButton("Split", systemImage: "scissors") { applyAtSourcePlayhead(viewModel.splitAtPlayhead) }
@@ -123,11 +165,12 @@ struct RecordingEditorView: View {
             quickButton("Set In", systemImage: "bracket.left") { applyAtSourcePlayhead(viewModel.markIn) }
             quickButton("Set Out", systemImage: "bracket.right") { applyAtSourcePlayhead(viewModel.markOut) }
             quickButton("Remove Selection", systemImage: "trash", isDisabled: !viewModel.canCutMarkedRange) { viewModel.cutMarkedRange() }
-            Spacer(minLength: 0)
-            Button("Reset") { viewModel.resetEdits() }
+            Button("Reset Edits") { viewModel.resetEdits() }
                 .disabled(viewModel.isExporting)
                 .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
         }
+        .padding(14)
+        .modifier(LiquidGlassModifier(cornerRadius: 20))
     }
 
     private var advancedDrawer: some View {
@@ -151,9 +194,8 @@ struct RecordingEditorView: View {
                 exportSettingsPanel
             }
         }
-        .padding(10)
-        .background(Color.white.opacity(0.035))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.10), lineWidth: 1) }
+        .padding(14)
+        .modifier(LiquidGlassModifier(cornerRadius: 20))
     }
 
     private var arrangePanel: some View {
@@ -170,7 +212,7 @@ struct RecordingEditorView: View {
             editorPanel(title: "Add Clip") {
                 if viewModel.library.isEmpty {
                     Text("No other recordings in library.")
-                        .font(.recordingsNvidia(size: 10, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.white.opacity(0.40))
                 } else {
                     Menu {
@@ -198,7 +240,7 @@ struct RecordingEditorView: View {
                 }
                 Toggle("Custom crop", isOn: $viewModel.cropEnabled)
                     .toggleStyle(.checkbox)
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                 if viewModel.cropEnabled {
                     compactSlider("X", value: $viewModel.cropX, range: 0...max(0, 1 - viewModel.cropWidth), valueText: String(format: "%.0f%%", viewModel.cropX * 100))
                     compactSlider("Y", value: $viewModel.cropY, range: 0...max(0, 1 - viewModel.cropHeight), valueText: String(format: "%.0f%%", viewModel.cropY * 100))
@@ -225,7 +267,7 @@ struct RecordingEditorView: View {
             editorPanel(title: "Audio") {
                 Toggle("Mute audio", isOn: $viewModel.isMuted)
                     .toggleStyle(.checkbox)
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                 compactSlider("Volume", value: $viewModel.volume, range: 0...2, valueText: "\(Int(viewModel.volume * 100))%")
                     .disabled(viewModel.isMuted)
                 compactSlider("Fade In", value: $viewModel.fadeInSeconds, range: 0...10, valueText: String(format: "%.1fs", viewModel.fadeInSeconds))
@@ -240,7 +282,7 @@ struct RecordingEditorView: View {
         editorPanel(title: "Output") {
             HStack(spacing: 10) {
                 Text("Quality")
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.62))
                 Picker("Quality", selection: $viewModel.exportQuality) {
                     ForEach(RecordingEditorExportQuality.allCases) { quality in
@@ -260,7 +302,7 @@ struct RecordingEditorView: View {
                     .progressViewStyle(.linear)
                     .frame(width: 180)
                 Text("Exporting \(Int(viewModel.exportProgress * 100))%")
-                    .font(.recordingsNvidia(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white.opacity(0.68))
                 Button("Cancel Export") {
                     viewModel.cancelExport()
@@ -270,12 +312,12 @@ struct RecordingEditorView: View {
                 .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
             } else if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.red.opacity(0.88))
                     .lineLimit(1)
             } else {
                 Text("Edits are non-destructive. Export creates a new recording.")
-                    .font(.recordingsNvidia(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.52))
             }
             Spacer(minLength: 0)
@@ -332,29 +374,29 @@ struct RecordingEditorView: View {
     private func editorPanel<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.recordingsNvidia(size: 9, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .tracking(1.1)
-                .foregroundStyle(Color.pixelNowGreen.opacity(0.82))
+                .foregroundStyle(RecordingsLayout.accent.opacity(0.82))
             content()
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(10)
-        .background(Color.white.opacity(0.045))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.10), lineWidth: 1) }
+        .padding(12)
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1) }
     }
 
     private func compactSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, valueText: String? = nil) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.recordingsNvidia(size: 10, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.white.opacity(0.62))
                 .frame(width: 60, alignment: .leading)
                 .lineLimit(1)
             Slider(value: value, in: range)
-                .tint(Color.pixelNowGreen)
+                .tint(RecordingsLayout.accent)
             if let valueText {
                 Text(valueText)
-                    .font(.recordingsNvidia(size: 10, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.78))
                     .frame(width: 52, alignment: .trailing)
                     .lineLimit(1)
@@ -368,12 +410,12 @@ struct RecordingEditorView: View {
                 Image(systemName: systemImage)
                 Text(title)
             }
-            .font(.recordingsNvidia(size: 11, weight: .bold))
+            .font(.system(size: 11, weight: .bold))
             .foregroundStyle(.white.opacity(0.88))
             .padding(.horizontal, 10)
             .frame(height: 32)
-            .background(Color.white.opacity(0.065))
-            .overlay { Rectangle().stroke(Color.white.opacity(0.12), lineWidth: 1) }
+            .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1) }
         }
         .buttonStyle(.plain)
         .disabled(viewModel.isExporting || isDisabled)
@@ -381,12 +423,12 @@ struct RecordingEditorView: View {
 
     private func smallButton(_ title: String, isDisabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-            .font(.recordingsNvidia(size: 10, weight: .bold))
+            .font(.system(size: 10, weight: .bold))
             .foregroundStyle(.white.opacity(0.86))
             .padding(.horizontal, 8)
             .frame(height: 28)
-            .background(Color.white.opacity(0.07))
-            .overlay { Rectangle().stroke(Color.white.opacity(0.11), lineWidth: 1) }
+            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.11), lineWidth: 1) }
             .buttonStyle(.plain)
             .disabled(viewModel.isExporting || isDisabled)
     }
@@ -396,11 +438,11 @@ struct RecordingEditorView: View {
             Image(systemName: systemImage)
             Text(title)
         }
-        .font(.recordingsNvidia(size: 11, weight: .bold))
+        .font(.system(size: 11, weight: .bold))
         .foregroundStyle(.white.opacity(0.88))
         .frame(maxWidth: .infinity)
         .frame(height: 30)
-        .background(Color.white.opacity(0.075))
-        .overlay { Rectangle().stroke(Color.white.opacity(0.12), lineWidth: 1) }
+        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1) }
     }
 }

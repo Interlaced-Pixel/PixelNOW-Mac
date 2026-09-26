@@ -59,35 +59,37 @@ struct RecordingTimelineView: View {
             ))
         }
         .frame(height: 86)
-        .overlay { Rectangle().stroke(Color.white.opacity(0.12), lineWidth: 1) }
+        .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1) }
     }
 
     private func timelineClip(_ item: (segment: RecordingEditorSegment, x: CGFloat, width: CGFloat)) -> some View {
         let isSelected = item.segment.id == selectedSegmentID
         return ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(isSelected ? Color.pixelNowGreen.opacity(0.30) : Color.white.opacity(0.10))
-            Rectangle()
-                .stroke(isSelected ? Color.pixelNowGreen : Color.white.opacity(0.18), lineWidth: isSelected ? 1.4 : 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? RecordingsLayout.accent.opacity(0.30) : Color.white.opacity(0.10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(isSelected ? RecordingsLayout.accent : Color.white.opacity(0.18), lineWidth: isSelected ? 1.4 : 1)
+                }
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.segment.recording.title)
-                        .font(.recordingsNvidia(size: 11, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.92))
                         .lineLimit(1)
                     Text("\(recordingEditorDurationText(item.segment.startSeconds)) - \(recordingEditorDurationText(item.segment.endSeconds))")
-                        .font(.recordingsNvidia(size: 9, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.white.opacity(0.52))
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if isSelected {
                     Text("KEEP")
-                        .font(.recordingsNvidia(size: 8, weight: .bold))
-                        .foregroundStyle(.black.opacity(0.82))
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
                         .padding(.horizontal, 5)
                         .frame(height: 15)
-                        .background(Color.pixelNowGreen)
+                        .background(RecordingsLayout.accent, in: Capsule())
                 }
             }
             .padding(.horizontal, 10)
@@ -102,12 +104,12 @@ struct RecordingTimelineView: View {
 
     private func trimHandle(item: (segment: RecordingEditorSegment, x: CGFloat, width: CGFloat), isLeading: Bool) -> some View {
         RoundedRectangle(cornerRadius: 2)
-            .fill(Color.pixelNowGreen)
+            .fill(RecordingsLayout.accent)
             .frame(width: 12, height: 72)
             .overlay(alignment: isLeading ? .leading : .trailing) {
                 Rectangle().fill(Color.black.opacity(0.30)).frame(width: 2)
             }
-            .shadow(color: Color.pixelNowGreen.opacity(0.55), radius: 6)
+            .shadow(color: RecordingsLayout.accent.opacity(0.55), radius: 6)
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { value in
                     let key = item.segment.id.uuidString + (isLeading ? "-leading" : "-trailing")
@@ -131,7 +133,7 @@ struct RecordingTimelineView: View {
         Rectangle()
             .fill(Color.white.opacity(0.94))
             .frame(width: 2, height: 94)
-            .shadow(color: Color.pixelNowGreen.opacity(0.95), radius: 7)
+            .shadow(color: RecordingsLayout.accent.opacity(0.95), radius: 7)
             .offset(x: playheadX(in: width), y: -4)
     }
 
@@ -145,9 +147,9 @@ struct RecordingTimelineView: View {
 
     private func insertionIndicator(x: CGFloat) -> some View {
         Rectangle()
-            .fill(Color.pixelNowGreen)
+            .fill(RecordingsLayout.accent)
             .frame(width: 3, height: 78)
-            .shadow(color: Color.pixelNowGreen.opacity(0.80), radius: 8)
+            .shadow(color: RecordingsLayout.accent.opacity(0.80), radius: 8)
             .offset(x: x - 1.5, y: 8)
     }
 
@@ -167,7 +169,7 @@ struct RecordingTimelineView: View {
                 let x = CGFloat(index) / CGFloat(tickCount) * width
                 let seconds = totalDuration * Double(index) / Double(tickCount)
                 Text(recordingEditorDurationText(seconds))
-                    .font(.recordingsNvidia(size: 8, weight: .medium))
+                    .font(.system(size: 8, weight: .medium))
                     .foregroundStyle(.white.opacity(0.38))
                     .offset(x: index == tickCount ? x - 28 : max(x - (index == 0 ? 0 : 14), 0), y: 16)
             }
