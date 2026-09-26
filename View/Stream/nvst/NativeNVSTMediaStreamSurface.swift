@@ -394,6 +394,8 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
     @State private var remoteCoOpDirectHostSessionManager: RemoteCoOpDirectHostSessionManager?
     @State private var remoteCoOpInviteCode: String?
+    @State private var remoteCoOpStatusMessage: String?
+    @State private var isCreatingRemoteCoOpInvite = false
     @State private var networkGovernor: NativeNVSTNetworkGovernor?
     @State private var networkPathTask: Task<Void, Never>?
     @State private var networkPathAvailable = true
@@ -738,6 +740,11 @@ struct NativeNVSTMediaStreamSurface: View {
         let quitCompletion = pendingApplicationQuitCompletion
         pendingApplicationQuitCompletion = nil
         let pendingStartTask = startTask
+        let pendingRemoteCoOpManager = remoteCoOpDirectHostSessionManager
+        remoteCoOpDirectHostSessionManager = nil
+        remoteCoOpInviteCode = nil
+        remoteCoOpStatusMessage = nil
+        isCreatingRemoteCoOpInvite = false
         pendingStartTask?.cancel()
         startTask = nil
         endEventTask?.cancel()
@@ -791,6 +798,7 @@ struct NativeNVSTMediaStreamSurface: View {
         let pendingPath = path
         Task {
             await pendingStartTask?.value
+            await pendingRemoteCoOpManager?.stop()
             await pendingPath?.cancelStart()
             inputDispatcher?.cancel()
             if let pendingPath {
@@ -808,6 +816,12 @@ struct NativeNVSTMediaStreamSurface: View {
                         message: String,
                         forApplicationTermination: Bool = false) async -> Bool {
         guard !isEnding else { return false }
+        let remoteCoOpManager = remoteCoOpDirectHostSessionManager
+        remoteCoOpDirectHostSessionManager = nil
+        remoteCoOpInviteCode = nil
+        remoteCoOpStatusMessage = nil
+        isCreatingRemoteCoOpInvite = false
+        await remoteCoOpManager?.stop()
         let inputDispatcher = await MainActor.run {
             nativeView?.remoteInputEnabled = false
             nativeView?.setNativeNVSTVideoVisible(false)
@@ -874,6 +888,14 @@ struct NativeNVSTMediaStreamSurface: View {
 
     private func finishOnce(report: StreamReport) {
         guard !didEnd else { return }
+        let remoteCoOpManager = remoteCoOpDirectHostSessionManager
+        remoteCoOpDirectHostSessionManager = nil
+        remoteCoOpInviteCode = nil
+        remoteCoOpStatusMessage = nil
+        isCreatingRemoteCoOpInvite = false
+        if let remoteCoOpManager {
+            Task { await remoteCoOpManager.stop() }
+        }
         nativeView?.remoteInputEnabled = false
         inputDispatcher?.cancel()
         inputDispatcher = nil
@@ -1935,7 +1957,7 @@ struct NativeNVSTMediaStreamSurface: View {
                         Text("Remote Co-Op")
                             .font(.nativeNVSTStreamNvidia(size: 14, weight: .bold))
                             .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
-                        Text("Video and audio relay require WebRTC transport.")
+                        Text("Video, audio and controller input stream directly to guests.")
                             .font(.nativeNVSTStreamNvidia(size: 11, weight: .medium))
                             .foregroundStyle(NativeNVSTMediaStreamTheme.textTertiary)
                             .lineLimit(2)
@@ -1952,12 +1974,22 @@ struct NativeNVSTMediaStreamSurface: View {
                         .overlay { Capsule().stroke(NativeNVSTMediaStreamTheme.divider, lineWidth: 1) }
                 }
                 NativeNVSTStreamHUDActionRow(
-                    title: "Create Invite",
-                    subtitle: remoteCoOpInviteCode.map { "PIN \($0)" } ?? (remoteCoOpDirectHostSessionManager != nil ? "Ready" : "Starting..."),
+                    title: remoteCoOpDirectHostSessionManager == nil ? "Create Invite" : "Stop Invite",
+                    subtitle: nativeRemoteCoOpInviteSubtitle,
                     systemName: "person.badge.plus",
                     isActive: remoteCoOpDirectHostSessionManager != nil,
-                    isDisabled: !sidebarCapabilities.supports(.remoteCoOp),
-                    action: { Task { await handleCreateInvite() } }
+                    isDisabled: !sidebarCapabilities.supports(.remoteCoOp)
+                        || isCreatingRemoteCoOpInvite
+                        || (!remoteCoOpPreferences.isEnabled && remoteCoOpDirectHostSessionManager == nil),
+                    action: {
+                        Task {
+                            if remoteCoOpDirectHostSessionManager != nil {
+                                await stopRemoteCoOpInvite()
+                            } else {
+                                await handleCreateInvite()
+                            }
+                        }
+                    }
                 )
                 nativeHUDDetailRow(label: "Slots", value: "\(remoteCoOpPreferences.effectiveReservedGuestSlots)")
                 nativeHUDDetailRow(label: "Quality", value: remoteCoOpPreferences.qualityPreset.label)
@@ -1967,17 +1999,60 @@ struct NativeNVSTMediaStreamSurface: View {
     }
     
     private func handleCreateInvite() async {
+        guard remoteCoOpPreferences.isEnabled,
+              !isCreatingRemoteCoOpInvite,
+              remoteCoOpDirectHostSessionManager == nil else { return }
+        guard let activePath = path,
+              let transport = activePath.transport as? NVSTCoreTransport else {
+            remoteCoOpStatusMessage = "Native stream transport is unavailable."
+            return
+        }
+        isCreatingRemoteCoOpInvite = true
+        remoteCoOpStatusMessage = nil
+        defer { isCreatingRemoteCoOpInvite = false }
+
+        let manager = RemoteCoOpDirectHostSessionManager(
+            videoRelay: transport.remoteCoOpVideoRelay,
+            audioRelay: transport.remoteCoOpAudioRelay,
+            forwardInput: { event in
+                do {
+                    try await activePath.send(event)
+                } catch {
+                    Log.error(.stream, "Remote Co-Op input forwarding failed: \(error.localizedDescription)")
+                    WebRTCMediaTelemetry.capture("remote.coop.input.forward.failed", level: .error, message: error.localizedDescription)
+                }
+            }
+        )
         do {
-            let manager = RemoteCoOpDirectHostSessionManager()
             try await manager.start()
-            self.remoteCoOpDirectHostSessionManager = manager
             let invite = try await manager.startInvite(applicationID: configuration.applicationID, title: configuration.title)
+            remoteCoOpDirectHostSessionManager = manager
             remoteCoOpInviteCode = invite.code
+            remoteCoOpStatusMessage = nil
             Log.info(.stream, "Remote Co-Op invite created")
         } catch {
+            await manager.stop()
+            remoteCoOpInviteCode = nil
+            remoteCoOpStatusMessage = "Invite failed: \(error.localizedDescription)"
             Log.error(.stream, "Failed to create Remote Co-Op invite: \(error.localizedDescription)")
             WebRTCMediaTelemetry.capture("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
         }
+    }
+
+    private func stopRemoteCoOpInvite() async {
+        guard let manager = remoteCoOpDirectHostSessionManager else { return }
+        remoteCoOpDirectHostSessionManager = nil
+        remoteCoOpInviteCode = nil
+        remoteCoOpStatusMessage = "Invite stopped."
+        await manager.stop()
+    }
+
+    private var nativeRemoteCoOpInviteSubtitle: String {
+        if let remoteCoOpInviteCode { return "PIN \(remoteCoOpInviteCode)" }
+        if let remoteCoOpStatusMessage { return remoteCoOpStatusMessage }
+        if isCreatingRemoteCoOpInvite { return "Starting..." }
+        if remoteCoOpDirectHostSessionManager != nil { return "Ready" }
+        return remoteCoOpPreferences.isEnabled ? "Ready" : "Disabled in Settings"
     }
 
     private var nativeHUDVideoPanel: some View {

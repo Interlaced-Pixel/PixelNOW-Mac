@@ -16,10 +16,13 @@ public actor RemoteCoOpDirectHostSessionManager {
                 hostSession: RemoteCoOpHostSession? = nil,
                 directSignalingSession: RemoteCoOpDirectSignalingSession? = nil,
                 peerFactory: any RemoteCoOpHostPeerFactory = RemoteCoOpWebRTCHostPeerFactory(),
-                forwardInput: @escaping @Sendable (UserInputEvent) async -> Void = { _ in },
+                videoRelay: RemoteCoOpHostVideoRelay? = nil,
+                audioRelay: RemoteCoOpHostAudioRelay? = nil,
+                forwardInput: @escaping @Sendable (UserInputEvent) async -> Void,
                 bonjourAdvertiser: BonjourServiceAdvertiser = BonjourServiceAdvertiser(),
                 upnpManager: UPnPManager = UPnPManager()) {
-        let resolvedHostSession = hostSession ?? RemoteCoOpHostSession()
+        let preferences = RemoteCoOpPreferencesStore.load()
+        let resolvedHostSession = hostSession ?? RemoteCoOpHostSession(preferences: preferences)
         let resolvedSignalingSession = directSignalingSession ?? RemoteCoOpDirectSignalingSession(port: directPreferences.signalingPort)
         self.directPreferences = directPreferences
         self.hostSession = resolvedHostSession
@@ -29,9 +32,14 @@ public actor RemoteCoOpDirectHostSessionManager {
         self.hostPeerController = RemoteCoOpHostPeerController(
             signaling: resolvedSignalingSession,
             coordinator: resolvedCoordinator,
-            networkConfiguration: RemoteCoOpNetworkConfiguration(latencyMode: directPreferences.latencyMode),
-            qualityPreset: directPreferences.qualityPreset,
-            latencyMode: directPreferences.latencyMode,
+            networkConfiguration: RemoteCoOpNetworkConfiguration(
+                latencyMode: preferences.latencyMode,
+                iceServers: RemoteCoOpNetworkConfiguration.directICEServers
+            ),
+            qualityPreset: preferences.qualityPreset,
+            latencyMode: preferences.latencyMode,
+            videoRelay: videoRelay,
+            audioRelay: audioRelay,
             peerFactory: peerFactory,
             forwardInput: forwardInput
         )
@@ -47,22 +55,31 @@ public actor RemoteCoOpDirectHostSessionManager {
         
         await applyUPnPConfiguration()
         
-        try await startDirectSignaling()
-        startEventLoop()
-        try await startUPnP()
+        do {
+            try await startDirectSignaling()
+            startEventLoop()
+            await startUPnP()
+        } catch {
+            await stop()
+            throw error
+        }
     }
     
     public func stop() async {
         guard isRunning else { return }
         
         isRunning = false
-        eventTask?.cancel()
+        let pendingEventTask = eventTask
+        pendingEventTask?.cancel()
         eventTask = nil
         
         await stopBonjourAdvertising()
         
-        _ = await coordinator.stopInvite()
+        let neutralEvents = await coordinator.stopInvite()
+        for event in neutralEvents { await forwardInput(event) }
         await stopDirectSignaling()
+        await pendingEventTask?.value
+        await hostPeerController.removeAll()
         
         await clearUPnP()
     }
@@ -74,6 +91,7 @@ public actor RemoteCoOpDirectHostSessionManager {
     
     public func startInvite(applicationID: String = "", title: String = "") async throws -> RemoteCoOpInvite {
         let invite = try await coordinator.startInvite(applicationID: applicationID, title: title)
+        try await directSignalingSession.waitUntilHostRegistered()
         if directPreferences.enableBonjour {
             let hostIP = await getLocalIPAddress()
             try await advertiseDirectSession(hostIP: hostIP, pin: invite.code)
@@ -95,21 +113,22 @@ public actor RemoteCoOpDirectHostSessionManager {
         defer { freeifaddrs(ifaddr) }
         
         var ptr = ifaddr
-        while ptr != nil {
-            let interface = ptr!.pointee
+        while let currentInterface = ptr {
+            let interface = currentInterface.pointee
+            ptr = interface.ifa_next
+            guard let socketAddress = interface.ifa_addr else { continue }
             let flags = Int32(interface.ifa_flags)
-            let addrFamily = interface.ifa_addr.pointee.sa_family
+            let addrFamily = socketAddress.pointee.sa_family
             
             if flags & IFF_UP != 0 && flags & IFF_LOOPBACK == 0 && addrFamily == UInt8(AF_INET) {
                 var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                if getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                if getnameinfo(socketAddress, socklen_t(socketAddress.pointee.sa_len),
                                &hostname, socklen_t(hostname.count),
                                nil, 0, NI_NUMERICHOST) == 0 {
                     let bytes = hostname.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
                     address = String(decoding: bytes, as: UTF8.self)
                 }
             }
-            ptr = interface.ifa_next
         }
         
         return address ?? "127.0.0.1"
@@ -158,7 +177,7 @@ public actor RemoteCoOpDirectHostSessionManager {
         await bonjourAdvertiser.stop()
     }
     
-    private func startUPnP() async throws {
+    private func startUPnP() async {
         guard directPreferences.enableUPnP else { return }
         
         do {
@@ -167,7 +186,7 @@ public actor RemoteCoOpDirectHostSessionManager {
             try await upnpManager.mapPort(directPreferences.signalingPort, protocol: .udp)
         } catch {
             WebRTCMediaTelemetry.capture("remote.coop.direct.upnp.start.failed", level: .warning, message: error.localizedDescription)
-            throw error
+            await upnpManager.clearAllMappings()
         }
     }
     
