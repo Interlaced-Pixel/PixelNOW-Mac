@@ -114,6 +114,7 @@
 				7729CE732FDEDAB300D5C9D5 /* Frameworks */,
 				7729CE892FDEDAB500D5C9D5 /* Embed Frameworks */,
 				7729CE742FDEDAB300D5C9D5 /* Resources */,
+				A00000000000000000000501 /* Generate Build Metadata */,
 			);
 			buildRules = (
 			);
@@ -181,6 +182,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A00000000000000000000501 /* Generate Build Metadata */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			inputPaths = (
+				"$(SRCROOT)/scripts/write-build-metadata.sh",
+				"$(SRCROOT)/.git/HEAD",
+				"$(SRCROOT)/.git/refs/heads",
+				"$(SRCROOT)/.git/refs/heads/main",
+				"$(SRCROOT)/.git/packed-refs",
+			);
+			name = "Generate Build Metadata";
+			alwaysOutOfDate = 1;
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PixelNOWBuildMetadata.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/write-build-metadata.sh\"";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		7729CE722FDEDAB300D5C9D5 /* Sources */ = {

@@ -2,6 +2,10 @@ import CryptoKit
 import SwiftData
 import SwiftUI
 
+private enum CatalogChromeLayout {
+    static let accountPillWidth: CGFloat = 220
+}
+
 struct CatalogChrome: View {
     @ObservedObject var viewModel: CatalogViewModel
     let accounts: [LoginAccount]
@@ -25,17 +29,80 @@ struct CatalogChrome: View {
             
             Spacer(minLength: 20)
             
-            AccountGlassControl(
-                account: viewModel.account,
-                accounts: accounts,
-                onSwitch: onSwitch,
-                onAddAccount: onAddAccount,
-                onSignOut: onSignOut,
-                onForget: onForget
-            )
+            VStack(alignment: .trailing, spacing: 8) {
+                AccountGlassControl(
+                    account: viewModel.account,
+                    accounts: accounts,
+                    onSwitch: onSwitch,
+                    onAddAccount: onAddAccount,
+                    onSignOut: onSignOut,
+                    onForget: onForget
+                )
+                MonthlyUsageProgressBar(
+                    subscriptionStatus: viewModel.subscriptionStatus,
+                    width: CatalogChromeLayout.accountPillWidth
+                )
+            }
             .padding(.top, 16)
             .padding(.trailing, 20)
         }
+    }
+}
+
+private struct MonthlyUsageProgressBar: View {
+    let subscriptionStatus: CatalogSubscriptionStatus
+    let width: CGFloat
+
+    private var usageProgress: Double {
+        guard subscriptionStatus.totalHours > 0,
+              subscriptionStatus.isAvailable,
+              !subscriptionStatus.isUnlimited else { return 0 }
+        return min(subscriptionStatus.usedHours / subscriptionStatus.totalHours, 1)
+    }
+
+    var body: some View {
+        let usageValue = CatalogSubscriptionStatus.hoursText(subscriptionStatus.usedHours)
+        let totalValue = CatalogSubscriptionStatus.hoursText(subscriptionStatus.totalHours)
+        let usageLabel = subscriptionStatus.totalHours > 0
+            ? "\(usageValue) / \(totalValue)"
+            : subscriptionStatus.usageText
+        let usageTint = usageProgress >= 0.9 ? Color.red : usageProgress >= 0.7 ? Color.orange : Color.blue
+
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.black.opacity(0.72))
+
+                Capsule(style: .continuous)
+                    .fill(usageTint.opacity(0.78))
+                    .frame(width: geometry.size.width * usageProgress)
+
+                HStack(spacing: 4) {
+                    Label("Monthly Usage", systemImage: "calendar.circle.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+
+                    Spacer(minLength: 2)
+
+                    Text(usageLabel)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+            }
+            .clipShape(Capsule(style: .continuous))
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            }
+        }
+        .frame(width: width, height: 30)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Monthly Usage")
+        .accessibilityValue(usageLabel)
     }
 }
 
@@ -99,9 +166,8 @@ private struct AccountGlassControl: View {
             .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
+        .frame(width: CatalogChromeLayout.accountPillWidth)
         .modifier(LiquidGlassModifier(cornerRadius: 18))
-        .fixedSize()
-        .frame(maxWidth: 240, alignment: .trailing)
     }
 }
 

@@ -1,78 +1,113 @@
+import Foundation
 import SwiftUI
 
 struct HomeDashboardView: View {
     @ObservedObject var viewModel: CatalogViewModel
     @ObservedObject var store: CatalogSelectionStore
     let play: (CatalogGameObject) -> Void
+    @State private var hasMoreGamesToRight = false
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 20) {
-                HStack(alignment: .top, spacing: 20) {
-                    VStack(spacing: 12) {
-                        GameDetailOverlayPanel(
-                            game: store.selectedGame,
-                            isFavorite: {
-                                if let g = store.selectedGame { return viewModel.isFavorite(g) }
-                                return false
-                            }(),
-                            play: { if let g = store.selectedGame { play(g) } },
-                            toggleFavorite: {
-                                if let g = store.selectedGame {
-                                    viewModel.selectGame(g)
-                                    viewModel.toggleFavoriteSelectedGame()
-                                }
-                            }
-                        )
+            let centerWidth = min(920, max(700, geometry.size.width - 448))
 
-                        ScrollViewReader { proxy in
-                            GeometryReader { railGeometry in
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 12) {
-                                        ForEach(Array(store.games.enumerated()), id: \.element.id) { index, game in
-                                            GameCardView(
-                                                game: game,
-                                                isSelected: index == store.selectedIndex,
-                                                scale: 0.8,
-                                                select: { store.select(at: index) },
-                                                launch: { play(game) },
-                                                onToggleFavorite: { viewModel.toggleFavorite(for: game) },
-                                                onSelectPlatform: { idx in viewModel.selectVariant(for: game, variantIndex: idx) },
-                                                onAddShortcut: { viewModel.addShortcut(for: game) },
-                                                onOpenStore: { viewModel.openStore(for: game) }
-                                            )
-                                            .id(CatalogSelectionStore.gameIdentity(game))
-                                        }
-                                    }
-                                    .frame(minWidth: railGeometry.size.width)
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                }
-                            }
-                            .frame(height: 207 * 0.8 + 11 * 0.8 + 5)
-                            .onChange(of: store.selectedIndex) { _, newIndex in
-                                guard store.games.indices.contains(newIndex) else { return }
-                                let identity = CatalogSelectionStore.gameIdentity(store.games[newIndex])
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    proxy.scrollTo(identity, anchor: nil)
-                                }
+            ZStack {
+                PixelPatternBackground()
+
+                centerContent(width: centerWidth)
+                    .padding(.top, max(geometry.size.height * 0.08, 48))
+                    .padding(.bottom, 40)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                DashboardEdgeMetricsView()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func centerContent(width: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            GameDetailOverlayPanel(
+                game: store.selectedGame,
+                isFavorite: {
+                    if let game = store.selectedGame { return viewModel.isFavorite(game) }
+                    return false
+                }(),
+                play: { if let game = store.selectedGame { play(game) } },
+                toggleFavorite: {
+                    if let game = store.selectedGame {
+                        viewModel.selectGame(game)
+                        viewModel.toggleFavoriteSelectedGame()
+                    }
+                }
+            )
+
+            ScrollViewReader { proxy in
+                GeometryReader { railGeometry in
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        HStack(spacing: 12) {
+                            ForEach(Array(store.games.enumerated()), id: \.element.id) { index, game in
+                                GameCardView(
+                                    game: game,
+                                    isSelected: index == store.selectedIndex,
+                                    scale: railCardScale(for: railGeometry.size.width),
+                                    select: { store.select(at: index) },
+                                    launch: { play(game) },
+                                    onToggleFavorite: { viewModel.toggleFavorite(for: game) },
+                                    onSelectPlatform: { variantIndex in viewModel.selectVariant(for: game, variantIndex: variantIndex) },
+                                    onAddShortcut: { viewModel.addShortcut(for: game) },
+                                    onOpenStore: { viewModel.openStore(for: game) }
+                                )
+                                .id(CatalogSelectionStore.gameIdentity(game))
                             }
                         }
+                        .frame(minWidth: railGeometry.size.width)
+                        .frame(maxWidth: .infinity, alignment: .center)
                     }
-                    .frame(maxWidth: .infinity)
-
-                    PlayerStatsWidgetView(
-                        statistics: viewModel.playtimeStatistics,
-                        subscriptionStatus: viewModel.subscriptionStatus
-                    )
+                    .onScrollGeometryChange(for: Bool.self) { scrollGeometry in
+                        scrollGeometry.contentOffset.x + scrollGeometry.containerSize.width
+                            < scrollGeometry.contentSize.width - 1
+                    } action: { _, canScrollRight in
+                        hasMoreGamesToRight = canScrollRight
+                    }
+                    .overlay(alignment: .trailing) {
+                        if hasMoreGamesToRight {
+                            LinearGradient(
+                                colors: [.clear, Color.black.opacity(0.34)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: 52)
+                            .overlay(alignment: .trailing) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.76))
+                                    .padding(.trailing, 8)
+                            }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        }
+                    }
                 }
-
-                Spacer()
+                .frame(height: 207 * railCardScale(for: width) + 18)
+                .onChange(of: store.selectedIndex) { _, newIndex in
+                    guard store.games.indices.contains(newIndex) else { return }
+                    let identity = CatalogSelectionStore.gameIdentity(store.games[newIndex])
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(identity, anchor: nil)
+                    }
+                }
             }
-            .padding(.horizontal, 40)
-            .padding(.top, 120)
-            .padding(.bottom, 20)
-            .background(PixelPatternBackground())
         }
+        .frame(maxWidth: width)
+    }
+
+    private func railCardScale(for width: CGFloat) -> CGFloat {
+        guard !store.games.isEmpty else { return 0.88 }
+        let spacing = CGFloat(max(store.games.count - 1, 0)) * 12
+        let scaleThatFits = (width - spacing) / (CGFloat(store.games.count) * 138)
+        return min(0.92, max(0.76, scaleThatFits))
     }
 }
 
@@ -216,7 +251,7 @@ struct PixelPatternBackground: View {
                             let originX = CGFloat(col) * cellWidth + (cellWidth - glyphPixelWidth) / 2 + jitterX
                             let originY = CGFloat(row) * cellHeight + (cellHeight - glyphPixelHeight) / 2 + jitterY
 
-                            let opacity: Double = 0.05 + Double(seed % 8) * 0.012
+                            let opacity: Double = 0.035 + Double(seed % 8) * 0.007
 
                             var glyphPath = Path()
                             for (r, rowData) in bitmap.enumerated() {
@@ -251,139 +286,46 @@ struct PixelPatternBackground: View {
     }
 }
 
-struct PlayerStatsWidgetView: View {
-    let statistics: CatalogPlaytimeStatistics
-    let subscriptionStatus: CatalogSubscriptionStatus
-
-    private var usageProgress: Double {
-        guard subscriptionStatus.totalHours > 0 else { return 0 }
-        return min(subscriptionStatus.usedHours / subscriptionStatus.totalHours, 1.0)
-    }
-
+private struct DashboardEdgeMetricsView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Player Stats")
-                .font(.title2).bold()
-                .foregroundStyle(.white)
-
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 10) {
-                    StatRow(icon: "clock.fill", label: "Remaining Playtime", value: subscriptionStatus.remainingPlaytimeText)
-                    if subscriptionStatus.isAvailable && !subscriptionStatus.isUnlimited && !subscriptionStatus.usageText.isEmpty {
-                        UsageRow(
-                            usedHours: subscriptionStatus.usedHours,
-                            totalHours: subscriptionStatus.totalHours,
-                            progress: usageProgress
-                        )
-                    }
-                    if subscriptionStatus.rolledOverHours > 0 {
-                        StatRow(icon: "arrow.clockwise", label: "Rolled Over", value: CatalogSubscriptionStatus.hoursText(subscriptionStatus.rolledOverHours))
-                    }
-                    if subscriptionStatus.purchasedHours > 0 {
-                        StatRow(icon: "plus.circle.fill", label: "Extra Playtime", value: CatalogSubscriptionStatus.hoursText(subscriptionStatus.purchasedHours))
-                    }
+        GeometryReader { geometry in
+            Color.clear
+                .overlay(alignment: .bottomTrailing) {
+                    ClientBuildDetailsView()
+                        .padding(.trailing, 14)
+                        .padding(.bottom, 10)
                 }
-                .padding(.bottom, 10)
-
-                Divider()
-                    .background(Color.white.opacity(0.12))
-                    .padding(.bottom, 10)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    StatRow(icon: "timer", label: "Total Playtime", value: formatDuration(statistics.totalSeconds))
-                    StatRow(icon: "gamecontroller.fill", label: "Total Sessions", value: "\(statistics.sessionCount)")
-                    if statistics.lastSessionSeconds > 0 {
-                        StatRow(icon: "play.circle.fill", label: "Last Session", value: formatDuration(statistics.lastSessionSeconds))
-                    }
-                    if statistics.averageSessionSeconds > 0 {
-                        StatRow(icon: "chart.bar.fill", label: "Average Session", value: formatDuration(statistics.averageSessionSeconds))
-                    }
-                    if statistics.longestSessionSeconds > 0 {
-                        StatRow(icon: "trophy.fill", label: "Longest Session", value: formatDuration(statistics.longestSessionSeconds))
-                    }
-                    if !statistics.lastPlayedTitle.isEmpty {
-                        StatRow(icon: "sparkles", label: "Last Played", value: statistics.lastPlayedTitle)
-                    }
-                }
-            }
-            .padding()
-            .background(Color.black.opacity(0.4))
-            .cornerRadius(12)
+                .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .padding()
-        .background(.ultraThinMaterial)
-        .cornerRadius(16)
-        .frame(width: 320)
-    }
-
-    private func formatDuration(_ seconds: Double) -> String {
-        let totalMinutes = max(0, Int((seconds / 60).rounded()))
-        let hrs = totalMinutes / 60
-        let mins = totalMinutes % 60
-        if hrs > 0, mins > 0 {
-            return "\(hrs)h \(mins)m"
-        }
-        if hrs > 0 {
-            return "\(hrs)h"
-        }
-        return "\(mins)m"
+        .allowsHitTesting(false)
     }
 }
 
-private struct UsageRow: View {
-    let usedHours: Double
-    let totalHours: Double
-    let progress: Double
+private struct ClientBuildDetailsView: View {
+    private let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    private let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    private let metadata = DashboardBuildMetadata.current
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Image(systemName: "calendar.circle.fill")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
-                Text("Monthly Usage")
-                    .foregroundStyle(.secondary)
-                    .layoutPriority(1)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(CatalogSubscriptionStatus.hoursText(usedHours))
-                        .foregroundStyle(.white)
-                        .bold()
-                    if totalHours > 0 {
-                        Text("of \(CatalogSubscriptionStatus.hoursText(totalHours))")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    }
-                }
-            }
-            ProgressView(value: progress)
-                .tint(progress >= 0.9 ? .red : progress >= 0.7 ? .orange : .blue)
-                .padding(.leading, 22)
-        }
+        Text("PixelNOW \(version) (\(build))  ·  Git \(metadata.gitHash)  ·  Built \(metadata.buildDate)")
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .accessibilityLabel("PixelNOW version \(version), build \(build), Git \(metadata.gitHash), built \(metadata.buildDate)")
     }
 }
 
-struct StatRow: View {
-    let icon: String
-    let label: String
-    let value: String
+private struct DashboardBuildMetadata: Decodable {
+    let gitHash: String
+    let buildDate: String
 
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(label)
-                .foregroundStyle(.secondary)
-                .layoutPriority(1)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.white)
-                .bold()
-                .multilineTextAlignment(.trailing)
-                .lineLimit(2)
+    static let current: DashboardBuildMetadata = {
+        guard let url = Bundle.main.url(forResource: "PixelNOWBuildMetadata", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let metadata = try? PropertyListDecoder().decode(DashboardBuildMetadata.self, from: data) else {
+            return DashboardBuildMetadata(gitHash: "Unavailable", buildDate: "Unavailable")
         }
-    }
+        return metadata
+    }()
 }
-
-
