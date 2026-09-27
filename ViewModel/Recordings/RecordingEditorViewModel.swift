@@ -161,6 +161,7 @@ final class RecordingEditorViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private var activeExportSession: AVAssetExportSession?
+    private var hasRecordedOutputTitleEdit = false
 
     private var undoStack: [RecordingEditorSnapshot] = []
     private var redoStack: [RecordingEditorSnapshot] = []
@@ -293,6 +294,41 @@ final class RecordingEditorViewModel: ObservableObject {
 
     func beginInteractiveEdit() {
         recordUndo()
+    }
+
+    func setCropEnabled(_ enabled: Bool) {
+        guard cropEnabled != enabled else { return }
+        recordUndo()
+        cropEnabled = enabled
+    }
+
+    func setMuted(_ muted: Bool) {
+        guard isMuted != muted else { return }
+        recordUndo()
+        isMuted = muted
+    }
+
+    func beginOutputTitleEdit() {
+        hasRecordedOutputTitleEdit = false
+    }
+
+    func updateOutputTitle(_ title: String) {
+        guard outputTitle != title else { return }
+        if !hasRecordedOutputTitleEdit {
+            recordUndo()
+            hasRecordedOutputTitleEdit = true
+        }
+        outputTitle = title
+    }
+
+    func endOutputTitleEdit() {
+        hasRecordedOutputTitleEdit = false
+    }
+
+    func setExportQuality(_ quality: RecordingEditorExportQuality) {
+        guard exportQuality != quality else { return }
+        recordUndo()
+        exportQuality = quality
     }
 
     func trimStartToPlayhead(_ playheadSeconds: Double) {
