@@ -67,6 +67,10 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PixelNOW uses the microphone for voice chat during GeForce NOW streams.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>PixelNOW uses speech recognition to create an editable transcript and captions for a recording.</string>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>PixelNOW captures optional cursor click timing for recordings when you enable pointer capture.</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>PixelNOW writes GeForce NOW shortcut files to your Desktop when you choose Add shortcut.</string>
 </dict>
