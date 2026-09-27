@@ -1,6 +1,5 @@
 import AVKit
 import AppKit
-import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -144,12 +143,11 @@ struct RecordingEditorView: View {
         }
         .onAppear { timelineZoomScale = CGFloat(viewModel.timelineZoomScale) }
         .onChange(of: timelineZoomScale) { _, scale in viewModel.timelineZoomScale = Double(scale) }
-        .onReceive(viewModel.objectWillChange.debounce(for: .milliseconds(600), scheduler: RunLoop.main)) { _ in viewModel.saveProject() }
-        .onDisappear { viewModel.saveProject() }
         .confirmationDialog("Discard this edit project?", isPresented: $showsDiscardProjectConfirmation) {
             Button("Discard Project", role: .destructive) {
-                viewModel.discardProject()
-                onCancel()
+                if viewModel.discardProject() {
+                    onCancel()
+                }
             }
             Button("Keep Editing", role: .cancel) {}
         } message: {
@@ -232,6 +230,9 @@ struct RecordingEditorView: View {
                 .disabled(viewModel.isExporting)
                 .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
             Menu("Project") {
+                Button("Save Project") { viewModel.saveProject() }
+                    .keyboardShortcut("s", modifiers: .command)
+                Divider()
                 Button("Duplicate Project") { viewModel.duplicateProject() }
                 if let missingID = viewModel.missingProjectRecordingIDs.first {
                     Button("Relink Missing Media") { relinkMissingMedia(missingID) }

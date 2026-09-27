@@ -922,11 +922,15 @@ final class RecordingEditorViewModel: ObservableObject {
         saveProject()
     }
 
-    func discardProject() {
+    @discardableResult
+    func discardProject() -> Bool {
         do {
             try RecordingEditorProjectStore.discard(projectID: editorProjectID)
+            errorMessage = nil
+            return true
         } catch {
             errorMessage = "The saved edit project could not be discarded: \(error.localizedDescription)"
+            return false
         }
     }
 
