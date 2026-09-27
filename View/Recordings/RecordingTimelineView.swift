@@ -46,13 +46,15 @@ struct RecordingTimelineView: View {
                     .contentShape(Rectangle())
                     .gesture(timelineGesture(width: proxy.size.width))
                 timelineTicks(width: proxy.size.width)
+                    .allowsHitTesting(false)
                 ForEach(segmentFrames(in: proxy.size.width), id: \.segment.id) { item in
                     timelineClip(item, canvasWidth: proxy.size.width)
                     if item.segment.id == selectedSegmentID {
-                        trimHandle(item: item, isLeading: true, canvasWidth: proxy.size.width)
-                            .offset(x: item.x - 6)
-                        trimHandle(item: item, isLeading: false, canvasWidth: proxy.size.width)
-                            .offset(x: item.x + item.width - 6)
+                        let handleWidth = min(12, max(0, item.width / 2))
+                        trimHandle(item: item, isLeading: true, handleWidth: handleWidth, canvasWidth: proxy.size.width)
+                            .offset(x: item.x)
+                        trimHandle(item: item, isLeading: false, handleWidth: handleWidth, canvasWidth: proxy.size.width)
+                            .offset(x: item.x + item.width - handleWidth)
                     }
                 }
                 ForEach(markers) { marker in
@@ -67,6 +69,7 @@ struct RecordingTimelineView: View {
                         }
                         .offset(x: markerX(marker.timeSeconds, width: proxy.size.width), y: 10)
                         .accessibilityLabel(marker.name.isEmpty ? "Marker" : marker.name)
+                        .allowsHitTesting(false)
                 }
                 if let frame = activeSelectionFrame(in: proxy.size.width) {
                     selectionOverlay(frame: frame, opacity: 0.24)
@@ -138,7 +141,9 @@ struct RecordingTimelineView: View {
             }
             .padding(.horizontal, 10)
         }
-        .frame(width: max(2, item.width), height: 58)
+        .frame(width: max(0, item.width), height: 58)
+        .clipped()
+        .contentShape(Rectangle())
         .offset(x: item.x, y: 14)
         .gesture(SpatialTapGesture().onEnded { value in
             onSelect(item.segment)
@@ -150,14 +155,15 @@ struct RecordingTimelineView: View {
         }
     }
 
-    private func trimHandle(item: (segment: RecordingEditorSegment, x: CGFloat, width: CGFloat), isLeading: Bool, canvasWidth: CGFloat) -> some View {
+    private func trimHandle(item: (segment: RecordingEditorSegment, x: CGFloat, width: CGFloat), isLeading: Bool, handleWidth: CGFloat, canvasWidth: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 2)
             .fill(RecordingsLayout.accent)
-            .frame(width: 12, height: 72)
+            .frame(width: handleWidth, height: 72)
             .overlay(alignment: isLeading ? .leading : .trailing) {
                 Rectangle().fill(Color.black.opacity(0.30)).frame(width: 2)
             }
             .shadow(color: RecordingsLayout.accent.opacity(0.55), radius: 6)
+            .clipped()
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { value in
                     let handleID = item.segment.id.uuidString + (isLeading ? "-leading" : "-trailing")
@@ -196,6 +202,7 @@ struct RecordingTimelineView: View {
             .shadow(color: RecordingsLayout.accent.opacity(0.95), radius: 7)
             .offset(x: playheadX(in: width), y: -4)
             .id("timeline-playhead")
+            .allowsHitTesting(false)
     }
 
     private func selectionOverlay(frame: (x: CGFloat, width: CGFloat), opacity: Double) -> some View {
@@ -204,6 +211,7 @@ struct RecordingTimelineView: View {
             .frame(width: max(2, frame.width), height: 58)
             .overlay { Rectangle().stroke(Color.red.opacity(0.62), lineWidth: 1) }
             .offset(x: frame.x, y: 14)
+            .allowsHitTesting(false)
     }
 
     private func insertionIndicator(x: CGFloat) -> some View {
@@ -212,6 +220,7 @@ struct RecordingTimelineView: View {
             .frame(width: 3, height: 78)
             .shadow(color: RecordingsLayout.accent.opacity(0.80), radius: 8)
             .offset(x: x - 1.5, y: 8)
+            .allowsHitTesting(false)
     }
 
     private func timelineTicks(width: CGFloat) -> some View {
@@ -291,7 +300,7 @@ struct RecordingTimelineView: View {
         var cursor = 0.0
         for segment in segments {
             let next = cursor + segment.durationSeconds / max(playbackRate, 0.25)
-            if timelineSeconds <= next || segment.id == segments.last?.id { return segment }
+            if timelineSeconds < next || segment.id == segments.last?.id { return segment }
             cursor = next
         }
         return nil

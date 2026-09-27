@@ -179,6 +179,8 @@ private struct RecordingEditorSnapshot {
     var outputTitle: String
     var segments: [RecordingEditorSegment]
     var selectedSegmentID: UUID?
+    var markInSeconds: Double?
+    var markOutSeconds: Double?
     var cropX: Double
     var cropY: Double
     var cropWidth: Double
@@ -202,6 +204,13 @@ private struct RecordingEditorSnapshot {
     var burnInCaptions: Bool
     var overlays: [RecordingEditorOverlay]
     var zoomKeyframes: [RecordingEditorZoomKeyframe]
+}
+
+private struct RecordingEditorTimeRange {
+    var startSeconds: Double
+    var endSeconds: Double
+
+    var durationSeconds: Double { max(0, endSeconds - startSeconds) }
 }
 
 @MainActor
@@ -399,7 +408,7 @@ final class RecordingEditorViewModel: ObservableObject {
         for segment in segments {
             let outputDuration = segment.durationSeconds / rate
             let nextCursor = cursor + outputDuration
-            if target <= nextCursor || segment.id == segments.last?.id {
+            if target < nextCursor || segment.id == segments.last?.id {
                 let sourceOffset = (target - cursor) * rate
                 return (segment, min(max(segment.startSeconds, segment.startSeconds + sourceOffset), segment.endSeconds))
             }
@@ -972,32 +981,27 @@ final class RecordingEditorViewModel: ObservableObject {
             .sorted { $0.startSeconds < $1.startSeconds }
         guard !removedRanges.isEmpty else { return }
         recordUndo()
-        var kept: [RecordingEditorSegment] = []
+        var keptRanges: [RecordingEditorTimeRange] = []
         var cursor = segment.startSeconds
         for range in removedRanges {
             let start = max(cursor, range.startSeconds)
             if start - cursor > 0.05 {
-                let keptSegment = copySegment(segment, startSeconds: cursor, endSeconds: start)
-                kept.append(keptSegment)
+                keptRanges.append(RecordingEditorTimeRange(startSeconds: cursor, endSeconds: start))
             }
             cursor = max(cursor, range.endSeconds)
         }
         if segment.endSeconds - cursor > 0.05 {
-            kept.append(copySegment(segment, startSeconds: cursor, endSeconds: segment.endSeconds))
+            keptRanges.append(RecordingEditorTimeRange(startSeconds: cursor, endSeconds: segment.endSeconds))
         }
         let outputStart = segments[..<index].reduce(0.0) { $0 + $1.durationSeconds / max(0.25, playbackRate) }
         let removedTimelineRanges = removedRanges.map { range in
-            (start: outputStart + (range.startSeconds - segment.startSeconds) / max(0.25, playbackRate), duration: (range.endSeconds - range.startSeconds) / max(0.25, playbackRate))
+            let start = outputStart + (range.startSeconds - segment.startSeconds) / max(0.25, playbackRate)
+            let duration = (range.endSeconds - range.startSeconds) / max(0.25, playbackRate)
+            return RecordingEditorTimeRange(startSeconds: start, endSeconds: start + duration)
         }
-        markers = markers.compactMap { marker in
-            var shiftedTime = marker.timeSeconds
-            for range in removedTimelineRanges {
-                if shiftedTime >= range.start && shiftedTime < range.start + range.duration { return nil }
-                if shiftedTime >= range.start + range.duration { shiftedTime -= range.duration }
-            }
-            return RecordingEditorMarker(id: marker.id, timeSeconds: shiftedTime, name: marker.name)
-        }
+        let kept = makeSegmentFragments(of: segment, ranges: keptRanges)
         segments.replaceSubrange(index...index, with: kept)
+        rebaseTimelineContent(afterRemoving: removedTimelineRanges)
         if let firstKept = kept.first {
             selectedSegmentID = firstKept.id
         } else if segments.indices.contains(index) {
@@ -1005,6 +1009,8 @@ final class RecordingEditorViewModel: ObservableObject {
         } else {
             selectedSegmentID = segments.last?.id
         }
+        markInSeconds = nil
+        markOutSeconds = nil
         audioAnalysis = nil
         selectedSilenceRangeIDs.removeAll()
     }
@@ -1035,30 +1041,43 @@ final class RecordingEditorViewModel: ObservableObject {
     func splitAtPlayhead(_ playheadSeconds: Double) {
         guard let index = selectedSegmentIndex else { return }
         let segment = segments[index]
-        let split = min(max(segment.startSeconds + 0.05, playheadSeconds), segment.endSeconds - 0.05)
-        guard split > segment.startSeconds, split < segment.endSeconds else { return }
+        guard playheadSeconds.isFinite,
+              playheadSeconds >= segment.startSeconds + 0.05,
+              playheadSeconds <= segment.endSeconds - 0.05 else { return }
+        let fragments = makeSegmentFragments(of: segment, ranges: [
+            RecordingEditorTimeRange(startSeconds: segment.startSeconds, endSeconds: playheadSeconds),
+            RecordingEditorTimeRange(startSeconds: playheadSeconds, endSeconds: segment.endSeconds),
+        ])
+        guard let right = fragments.last, fragments.count == 2 else { return }
         recordUndo()
-        let left = copySegment(segment, startSeconds: segment.startSeconds, endSeconds: split)
-        let right = copySegment(segment, startSeconds: split, endSeconds: segment.endSeconds)
-        segments.replaceSubrange(index...index, with: [left, right])
+        segments.replaceSubrange(index...index, with: fragments)
         selectedSegmentID = right.id
+        markInSeconds = nil
+        markOutSeconds = nil
     }
 
     func cutRange(startSeconds: Double, endSeconds: Double) {
         guard let index = selectedSegmentIndex else { return }
         let segment = segments[index]
+        guard startSeconds.isFinite, endSeconds.isFinite else { return }
         let start = min(max(segment.startSeconds, startSeconds), segment.endSeconds)
         let end = max(min(segment.endSeconds, endSeconds), segment.startSeconds)
         guard end - start > 0.05 else { return }
         recordUndo()
-        var replacements: [RecordingEditorSegment] = []
+        var replacementRanges: [RecordingEditorTimeRange] = []
         if start - segment.startSeconds > 0.05 {
-            replacements.append(copySegment(segment, startSeconds: segment.startSeconds, endSeconds: start))
+            replacementRanges.append(RecordingEditorTimeRange(startSeconds: segment.startSeconds, endSeconds: start))
         }
         if segment.endSeconds - end > 0.05 {
-            replacements.append(copySegment(segment, startSeconds: end, endSeconds: segment.endSeconds))
+            replacementRanges.append(RecordingEditorTimeRange(startSeconds: end, endSeconds: segment.endSeconds))
         }
+        let replacements = makeSegmentFragments(of: segment, ranges: replacementRanges)
+        let rate = max(0.25, playbackRate)
+        let outputStart = segments[..<index].reduce(0.0) { $0 + $1.durationSeconds / rate }
+        let removalStart = outputStart + (start - segment.startSeconds) / rate
+        let removalDuration = (end - start) / rate
         segments.replaceSubrange(index...index, with: replacements)
+        rebaseTimelineContent(afterRemoving: [RecordingEditorTimeRange(startSeconds: removalStart, endSeconds: removalStart + removalDuration)])
         if let replacement = replacements.last {
             selectedSegmentID = replacement.id
         } else if segments.indices.contains(index) {
@@ -1066,6 +1085,8 @@ final class RecordingEditorViewModel: ObservableObject {
         } else {
             selectedSegmentID = segments.first?.id
         }
+        markInSeconds = nil
+        markOutSeconds = nil
     }
 
     func appendRecording(_ recording: WebRTCStreamRecording) {
@@ -1139,8 +1160,14 @@ final class RecordingEditorViewModel: ObservableObject {
     func removeSelectedSegment() {
         guard let index = selectedSegmentIndex, segments.count > 1 else { return }
         recordUndo()
+        let rate = max(0.25, playbackRate)
+        let removalStart = segments[..<index].reduce(0.0) { $0 + $1.durationSeconds / rate }
+        let removalDuration = segments[index].durationSeconds / rate
         segments.remove(at: index)
+        rebaseTimelineContent(afterRemoving: [RecordingEditorTimeRange(startSeconds: removalStart, endSeconds: removalStart + removalDuration)])
         selectedSegmentID = segments.indices.contains(index) ? segments[index].id : segments.last?.id
+        markInSeconds = nil
+        markOutSeconds = nil
     }
 
     func moveSelectedSegment(offset: Int) {
@@ -1364,6 +1391,136 @@ final class RecordingEditorViewModel: ObservableObject {
         return min(max(segment.startSeconds, playheadSeconds), segment.endSeconds)
     }
 
+    private func makeSegmentFragments(of segment: RecordingEditorSegment, ranges: [RecordingEditorTimeRange]) -> [RecordingEditorSegment] {
+        let validRanges = ranges
+            .filter { $0.startSeconds.isFinite && $0.endSeconds.isFinite && $0.endSeconds > $0.startSeconds }
+            .sorted { $0.startSeconds < $1.startSeconds }
+        return validRanges.enumerated().map { index, range in
+            let keepsLeadingEffects = index == 0
+            let keepsTrailingEffects = index == validRanges.count - 1
+            return RecordingEditorSegment(
+                recording: segment.recording,
+                startSeconds: range.startSeconds,
+                endSeconds: range.endSeconds,
+                audioGain: segment.audioGain,
+                isAudioMuted: segment.isAudioMuted,
+                fadeInSeconds: keepsLeadingEffects ? segment.fadeInSeconds : 0,
+                fadeOutSeconds: keepsTrailingEffects ? segment.fadeOutSeconds : 0,
+                transitionBefore: keepsLeadingEffects ? segment.transitionBefore : .cut,
+                transitionDurationSeconds: segment.transitionDurationSeconds
+            )
+        }
+    }
+
+    private func rebaseTimelineContent(afterRemoving ranges: [RecordingEditorTimeRange]) {
+        let removals = mergedTimelineRanges(ranges)
+        guard !removals.isEmpty else { return }
+
+        markers = markers.compactMap { marker in
+            guard let time = mappedTimelineTime(marker.timeSeconds, removing: removals) else { return nil }
+            return RecordingEditorMarker(id: marker.id, timeSeconds: time, name: marker.name)
+        }
+        captions = captions.flatMap { caption in
+            mappedTimelineIntervals(from: caption.startSeconds, to: caption.endSeconds, removing: removals)
+                .enumerated()
+                .map { index, interval in
+                    RecordingEditorCaption(
+                        id: index == 0 ? caption.id : UUID(),
+                        startSeconds: interval.startSeconds,
+                        endSeconds: interval.endSeconds,
+                        text: caption.text,
+                        language: caption.language
+                    )
+                }
+        }.sorted { $0.startSeconds < $1.startSeconds }
+        overlays = overlays.flatMap { overlay in
+            mappedTimelineIntervals(from: overlay.startSeconds, to: overlay.endSeconds, removing: removals)
+                .enumerated()
+                .map { index, interval in
+                    RecordingEditorOverlay(
+                        id: index == 0 ? overlay.id : UUID(),
+                        kind: overlay.kind,
+                        startSeconds: interval.startSeconds,
+                        endSeconds: interval.endSeconds,
+                        x: overlay.x,
+                        y: overlay.y,
+                        width: overlay.width,
+                        height: overlay.height,
+                        text: overlay.text
+                    )
+                }
+        }
+        zoomKeyframes = zoomKeyframes.compactMap { keyframe in
+            guard let time = mappedTimelineTime(keyframe.timeSeconds, removing: removals) else { return nil }
+            var updated = keyframe
+            updated.timeSeconds = time
+            return updated
+        }.sorted { $0.timeSeconds < $1.timeSeconds }
+        let visibleTime = mappedTimelineTime(timelineVisibleStartSeconds, removing: removals)
+            ?? mappedTimelineBoundary(timelineVisibleStartSeconds, removing: removals)
+        timelineVisibleStartSeconds = min(max(visibleTime, 0), outputDurationSeconds)
+    }
+
+    private func mergedTimelineRanges(_ ranges: [RecordingEditorTimeRange]) -> [RecordingEditorTimeRange] {
+        let sortedRanges = ranges
+            .filter { $0.startSeconds.isFinite && $0.endSeconds.isFinite && $0.endSeconds > $0.startSeconds }
+            .sorted { $0.startSeconds < $1.startSeconds }
+        var merged: [RecordingEditorTimeRange] = []
+        for range in sortedRanges {
+            if let lastIndex = merged.indices.last, range.startSeconds <= merged[lastIndex].endSeconds {
+                merged[lastIndex].endSeconds = max(merged[lastIndex].endSeconds, range.endSeconds)
+            } else {
+                merged.append(range)
+            }
+        }
+        return merged
+    }
+
+    private func mappedTimelineTime(_ seconds: Double, removing ranges: [RecordingEditorTimeRange]) -> Double? {
+        guard seconds.isFinite else { return nil }
+        var removedDuration = 0.0
+        for range in ranges {
+            if seconds < range.startSeconds { break }
+            if seconds < range.endSeconds { return nil }
+            removedDuration += range.durationSeconds
+        }
+        return max(0, seconds - removedDuration)
+    }
+
+    private func mappedTimelineBoundary(_ seconds: Double, removing ranges: [RecordingEditorTimeRange]) -> Double {
+        var removedDuration = 0.0
+        for range in ranges {
+            if seconds < range.startSeconds { break }
+            if seconds < range.endSeconds { return max(0, range.startSeconds - removedDuration) }
+            removedDuration += range.durationSeconds
+        }
+        return max(0, seconds - removedDuration)
+    }
+
+    private func mappedTimelineIntervals(from startSeconds: Double, to endSeconds: Double, removing ranges: [RecordingEditorTimeRange]) -> [RecordingEditorTimeRange] {
+        guard startSeconds.isFinite, endSeconds.isFinite, endSeconds > startSeconds else { return [] }
+        var retained = [RecordingEditorTimeRange(startSeconds: startSeconds, endSeconds: endSeconds)]
+        for removal in ranges {
+            retained = retained.flatMap { interval in
+                guard removal.startSeconds < interval.endSeconds, removal.endSeconds > interval.startSeconds else { return [interval] }
+                var fragments: [RecordingEditorTimeRange] = []
+                if removal.startSeconds > interval.startSeconds {
+                    fragments.append(RecordingEditorTimeRange(startSeconds: interval.startSeconds, endSeconds: min(removal.startSeconds, interval.endSeconds)))
+                }
+                if removal.endSeconds < interval.endSeconds {
+                    fragments.append(RecordingEditorTimeRange(startSeconds: max(removal.endSeconds, interval.startSeconds), endSeconds: interval.endSeconds))
+                }
+                return fragments
+            }
+        }
+        return retained.compactMap { interval in
+            let mappedStart = mappedTimelineBoundary(interval.startSeconds, removing: ranges)
+            let mappedEnd = mappedTimelineBoundary(interval.endSeconds, removing: ranges)
+            guard mappedEnd > mappedStart else { return nil }
+            return RecordingEditorTimeRange(startSeconds: mappedStart, endSeconds: mappedEnd)
+        }
+    }
+
     private func copySegment(_ segment: RecordingEditorSegment, startSeconds: Double, endSeconds: Double) -> RecordingEditorSegment {
         RecordingEditorSegment(recording: segment.recording, startSeconds: startSeconds, endSeconds: endSeconds, audioGain: segment.audioGain, isAudioMuted: segment.isAudioMuted, fadeInSeconds: segment.fadeInSeconds, fadeOutSeconds: segment.fadeOutSeconds, transitionBefore: segment.transitionBefore, transitionDurationSeconds: segment.transitionDurationSeconds)
     }
@@ -1401,6 +1558,8 @@ final class RecordingEditorViewModel: ObservableObject {
             outputTitle: outputTitle,
             segments: segments,
             selectedSegmentID: selectedSegmentID,
+            markInSeconds: markInSeconds,
+            markOutSeconds: markOutSeconds,
             cropX: cropX,
             cropY: cropY,
             cropWidth: cropWidth,
@@ -1431,6 +1590,8 @@ final class RecordingEditorViewModel: ObservableObject {
         outputTitle = snapshot.outputTitle
         segments = snapshot.segments
         selectedSegmentID = snapshot.selectedSegmentID
+        markInSeconds = snapshot.markInSeconds
+        markOutSeconds = snapshot.markOutSeconds
         cropX = snapshot.cropX
         cropY = snapshot.cropY
         cropWidth = snapshot.cropWidth

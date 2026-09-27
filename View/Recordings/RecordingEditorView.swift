@@ -368,13 +368,12 @@ struct RecordingEditorView: View {
             Spacer(minLength: 0)
 
             Menu {
-                Button("Set In Point") { viewModel.markIn(playheadSeconds) }
+                Button("Set In Point") { applyAtSourcePlayhead(viewModel.markIn) }
                     .keyboardShortcut("i", modifiers: [])
-                Button("Set Out Point") { viewModel.markOut(playheadSeconds) }
+                Button("Set Out Point") { applyAtSourcePlayhead(viewModel.markOut) }
                     .keyboardShortcut("o", modifiers: [])
                 Divider()
-                Button("Split at Playhead") { viewModel.splitAtPlayhead(playheadSeconds) }
-                    .keyboardShortcut("b", modifiers: .command)
+                Button("Split at Playhead") { applyAtSourcePlayhead(viewModel.splitAtPlayhead) }
                     .disabled(viewModel.selectedSegment == nil)
                 Button("Add Marker") { viewModel.addMarker(at: playheadSeconds) }
                     .keyboardShortcut("m", modifiers: [])
