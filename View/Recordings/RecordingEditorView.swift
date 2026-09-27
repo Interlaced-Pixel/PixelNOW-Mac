@@ -29,10 +29,12 @@ struct RecordingEditorView: View {
     let onPreviewChanged: () -> Void
 
     @State private var exportTask: Task<Void, Never>?
+    @State private var selectedExportQuality: RecordingEditorExportQuality = .highest
     @State private var showsAdvanced = false
     @State private var advancedSection: RecordingAdvancedEditorSection = .arrange
     @State private var previewHeight: CGFloat = 260
     @State private var previewDragStartHeight: CGFloat?
+    @FocusState private var isOutputTitleFocused: Bool
 
     var body: some View {
         GeometryReader { geometry in
@@ -59,6 +61,9 @@ struct RecordingEditorView: View {
             }
         }
         .onChange(of: viewModel.previewSignature) { _, _ in onPreviewChanged() }
+        .onAppear { selectedExportQuality = viewModel.exportQuality }
+        .onChange(of: selectedExportQuality) { _, quality in viewModel.setExportQuality(quality) }
+        .onChange(of: viewModel.exportQuality) { _, quality in selectedExportQuality = quality }
     }
 
     private var header: some View {
@@ -95,11 +100,15 @@ struct RecordingEditorView: View {
             HStack(spacing: 12) {
                 Image(systemName: "pencil.line")
                     .foregroundStyle(RecordingsLayout.accent)
-                TextField("Name your exported video", text: $viewModel.outputTitle)
+                TextField("Name your exported video", text: Binding(
+                    get: { viewModel.outputTitle },
+                    set: viewModel.updateOutputTitle
+                ))
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.95))
                     .help("This name will appear in your Recordings library")
+                    .focused($isOutputTitleFocused)
                 Text("Exports to Recordings; the source stays unchanged")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
@@ -108,6 +117,13 @@ struct RecordingEditorView: View {
             .frame(height: 42)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
+        }
+        .onChange(of: isOutputTitleFocused) { _, isFocused in
+            if isFocused {
+                viewModel.beginOutputTitleEdit()
+            } else {
+                viewModel.endOutputTitleEdit()
+            }
         }
         .padding(18)
         .modifier(LiquidGlassModifier(cornerRadius: 22))
@@ -294,7 +310,10 @@ struct RecordingEditorView: View {
                         smallButton(preset.title) { viewModel.applyCropPreset(preset) }
                     }
                 }
-                Toggle("Custom crop", isOn: $viewModel.cropEnabled)
+                Toggle("Custom crop", isOn: Binding(
+                    get: { viewModel.cropEnabled },
+                    set: viewModel.setCropEnabled
+                ))
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11, weight: .medium))
                 if viewModel.cropEnabled {
@@ -321,7 +340,10 @@ struct RecordingEditorView: View {
                 compactSlider("Speed", value: $viewModel.playbackRate, range: 0.25...4, valueText: String(format: "%.2fx", viewModel.playbackRate))
             }
             editorPanel(title: "Audio") {
-                Toggle("Mute audio", isOn: $viewModel.isMuted)
+                Toggle("Mute audio", isOn: Binding(
+                    get: { viewModel.isMuted },
+                    set: viewModel.setMuted
+                ))
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11, weight: .medium))
                 compactSlider("Volume", value: $viewModel.volume, range: 0...2, valueText: "\(Int(viewModel.volume * 100))%")
@@ -340,7 +362,7 @@ struct RecordingEditorView: View {
                 Text("Quality")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.62))
-                Picker("Quality", selection: $viewModel.exportQuality) {
+                Picker("Quality", selection: $selectedExportQuality) {
                     ForEach(RecordingEditorExportQuality.allCases) { quality in
                         Text(quality.title).tag(quality)
                     }
@@ -448,7 +470,9 @@ struct RecordingEditorView: View {
                 .foregroundStyle(.white.opacity(0.62))
                 .frame(width: 60, alignment: .leading)
                 .lineLimit(1)
-            Slider(value: value, in: range)
+            Slider(value: value, in: range, onEditingChanged: { isEditing in
+                if isEditing { viewModel.beginInteractiveEdit() }
+            })
                 .tint(RecordingsLayout.accent)
             if let valueText {
                 Text(valueText)
