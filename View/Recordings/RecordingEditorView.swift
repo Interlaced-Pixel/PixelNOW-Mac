@@ -2,7 +2,6 @@ import AVKit
 import SwiftUI
 
 private enum RecordingAdvancedEditorSection: String, CaseIterable, Identifiable {
-    case arrange
     case frame
     case audio
     case export
@@ -11,7 +10,6 @@ private enum RecordingAdvancedEditorSection: String, CaseIterable, Identifiable 
 
     var title: String {
         switch self {
-        case .arrange: return "Arrange"
         case .frame: return "Frame"
         case .audio: return "Audio"
         case .export: return "Export"
@@ -30,33 +28,61 @@ struct RecordingEditorView: View {
 
     @State private var exportTask: Task<Void, Never>?
     @State private var selectedExportQuality: RecordingEditorExportQuality = .highest
-    @State private var showsAdvanced = false
-    @State private var advancedSection: RecordingAdvancedEditorSection = .arrange
-    @State private var previewHeight: CGFloat = 260
+    @State private var showsAdvanced = true
+    @State private var advancedSection: RecordingAdvancedEditorSection = .frame
+    @State private var previewHeight: CGFloat = 380
     @State private var previewDragStartHeight: CGFloat?
     @FocusState private var isOutputTitleFocused: Bool
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    previewCard(height: min(max(previewHeight, 180), max(180, min(geometry.size.height * 0.5, 420))))
-                    timelineCard
-                    quickActions
-                    if showsAdvanced { advancedDrawer }
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                if geometry.size.width >= 1180 && geometry.size.height >= 680 {
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            quickActions
+                            arrangePanel
+                        }
+                        .frame(width: min(max(geometry.size.width * 0.19, 232), 280))
+
+                        VStack(spacing: 12) {
+                            previewCard(height: min(max(previewHeight, 170), max(170, min(geometry.size.height * 0.48, 420))))
+                            timelineCard
+                        }
+                        .frame(maxWidth: .infinity, alignment: .top)
+
+                        if showsAdvanced {
+                            advancedDrawer
+                                .frame(width: min(max(geometry.size.width * 0.25, 320), 360))
+                        }
+                    }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            previewCard(height: min(max(previewHeight, 180), max(180, min(geometry.size.height * 0.4, 380))))
+                            timelineCard
+                            quickActions
+                            arrangePanel
+                            if showsAdvanced { advancedDrawer }
+                        }
+                        .frame(maxWidth: 900, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .padding(.bottom, 16)
+                    }
                 }
-                .frame(maxWidth: 1420, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .top)
-                .padding(.horizontal, 28)
-                .padding(.top, 88)
-                .padding(.bottom, 24)
             }
+            .frame(maxWidth: 1880, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 12)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 exportBar
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 12)
-                    .frame(maxWidth: 1476)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: 1880)
                     .background(.ultraThinMaterial)
             }
         }
@@ -67,37 +93,17 @@ struct RecordingEditorView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("VIDEO EDITOR")
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(RecordingsLayout.accent)
-                    Text("Edit video")
-                        .font(.system(size: 25, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("Trim and arrange, then export a new copy.")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.58))
-                }
-                Spacer(minLength: 12)
-                Button { viewModel.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                    .disabled(!viewModel.canUndo || viewModel.isExporting)
-                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                    .keyboardShortcut("z", modifiers: .command)
-                Button { viewModel.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
-                    .disabled(!viewModel.canRedo || viewModel.isExporting)
-                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                    .keyboardShortcut("z", modifiers: [.command, .shift])
-                Button(showsAdvanced ? "Hide Edit Tools" : "Edit Tools") { showsAdvanced.toggle() }
-                    .disabled(viewModel.isExporting)
-                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
-                Button("Close", action: onCancel)
-                    .disabled(viewModel.isExporting)
-                    .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("VIDEO EDITOR")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(RecordingsLayout.accent)
+                Text("Edit video")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(.white)
             }
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: "pencil.line")
                     .foregroundStyle(RecordingsLayout.accent)
                 TextField("Name your exported video", text: Binding(
@@ -107,17 +113,32 @@ struct RecordingEditorView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.95))
-                    .help("This name will appear in your Recordings library")
+                    .help("Exports to Recordings; the source stays unchanged")
                     .focused($isOutputTitleFocused)
-                Text("Exports to Recordings; the source stays unchanged")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.55))
             }
             .padding(.horizontal, 14)
-            .frame(height: 42)
+            .frame(maxWidth: 360)
+            .frame(height: 40)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(RecordingsLayout.stroke, lineWidth: 1) }
+            Spacer(minLength: 4)
+            Button { viewModel.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                .disabled(!viewModel.canUndo || viewModel.isExporting)
+                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                .keyboardShortcut("z", modifiers: .command)
+            Button { viewModel.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
+                .disabled(!viewModel.canRedo || viewModel.isExporting)
+                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+            Button(showsAdvanced ? "Hide Edit Tools" : "Edit Tools") { showsAdvanced.toggle() }
+                .disabled(viewModel.isExporting)
+                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+            Button("Close", action: onCancel)
+                .disabled(viewModel.isExporting)
+                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
         }
+        .padding(12)
+        .modifier(LiquidGlassModifier(cornerRadius: 18))
         .onChange(of: isOutputTitleFocused) { _, isFocused in
             if isFocused {
                 viewModel.beginOutputTitleEdit()
@@ -125,8 +146,6 @@ struct RecordingEditorView: View {
                 viewModel.endOutputTitleEdit()
             }
         }
-        .padding(18)
-        .modifier(LiquidGlassModifier(cornerRadius: 22))
     }
 
     private func previewCard(height: CGFloat) -> some View {
@@ -229,25 +248,27 @@ struct RecordingEditorView: View {
     }
 
     private var quickActions: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], alignment: .leading, spacing: 8) {
-            quickButton("Trim Start", systemImage: "arrow.left.to.line") { applyAtSourcePlayhead(viewModel.trimStartToPlayhead) }
-            quickButton("Trim End", systemImage: "arrow.right.to.line") { applyAtSourcePlayhead(viewModel.trimEndToPlayhead) }
-            quickButton("Split", systemImage: "scissors") { applyAtSourcePlayhead(viewModel.splitAtPlayhead) }
-            quickButton("Join", systemImage: "link", isDisabled: !viewModel.canJoinSelectedSection) { viewModel.joinSelectedSection() }
-            quickButton("Set In", systemImage: "arrowtriangle.left.fill") { applyAtSourcePlayhead(viewModel.markIn) }
-            quickButton("Set Out", systemImage: "arrowtriangle.right.fill") { applyAtSourcePlayhead(viewModel.markOut) }
-            quickButton("Remove Selection", systemImage: "trash", isDisabled: !viewModel.canCutMarkedRange) { viewModel.cutMarkedRange() }
-            Button("Reset Edits") { viewModel.resetEdits() }
-                .disabled(viewModel.isExporting)
-                .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+        editorPanel(title: "Timeline Actions") {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], alignment: .leading, spacing: 6) {
+                quickButton("Trim Start", systemImage: "arrow.left.to.line") { applyAtSourcePlayhead(viewModel.trimStartToPlayhead) }
+                quickButton("Trim End", systemImage: "arrow.right.to.line") { applyAtSourcePlayhead(viewModel.trimEndToPlayhead) }
+                quickButton("Split", systemImage: "scissors") { applyAtSourcePlayhead(viewModel.splitAtPlayhead) }
+                quickButton("Join", systemImage: "link", isDisabled: !viewModel.canJoinSelectedSection) { viewModel.joinSelectedSection() }
+                quickButton("Set In", systemImage: "arrowtriangle.left.fill") { applyAtSourcePlayhead(viewModel.markIn) }
+                quickButton("Set Out", systemImage: "arrowtriangle.right.fill") { applyAtSourcePlayhead(viewModel.markOut) }
+                quickButton("Remove Range", systemImage: "trash", isDisabled: !viewModel.canCutMarkedRange) { viewModel.cutMarkedRange() }
+                quickButton("Reset", systemImage: "arrow.counterclockwise") { viewModel.resetEdits() }
+            }
         }
-        .padding(14)
-        .modifier(LiquidGlassModifier(cornerRadius: 20))
     }
 
     private var advancedDrawer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("Advanced section", selection: $advancedSection) {
+            Text("Inspector")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.2)
+                .foregroundStyle(RecordingsLayout.accent)
+            Picker("Inspector section", selection: $advancedSection) {
                 ForEach(RecordingAdvancedEditorSection.allCases) { section in
                     Text(section.title).tag(section)
                 }
@@ -256,8 +277,6 @@ struct RecordingEditorView: View {
             .labelsHidden()
 
             switch advancedSection {
-            case .arrange:
-                arrangePanel
             case .frame:
                 framePanel
             case .audio:
@@ -271,9 +290,9 @@ struct RecordingEditorView: View {
     }
 
     private var arrangePanel: some View {
-        HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             editorPanel(title: "Selected Clip") {
-                HStack(spacing: 7) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], alignment: .leading, spacing: 6) {
                     smallButton("Duplicate") { viewModel.duplicateSelectedSegment() }
                     smallButton("Remove") { viewModel.removeSelectedSegment() }
                     smallButton("Join", isDisabled: !viewModel.canJoinSelectedSection) { viewModel.joinSelectedSection() }
@@ -303,9 +322,9 @@ struct RecordingEditorView: View {
     }
 
     private var framePanel: some View {
-        HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             editorPanel(title: "Crop") {
-                HStack(spacing: 7) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)], alignment: .leading, spacing: 5) {
                     ForEach(RecordingEditorCropPreset.allCases) { preset in
                         smallButton(preset.title) { viewModel.applyCropPreset(preset) }
                     }
@@ -324,7 +343,7 @@ struct RecordingEditorView: View {
                 }
             }
             editorPanel(title: "Orientation") {
-                HStack(spacing: 7) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)], alignment: .leading, spacing: 5) {
                     smallButton("Rotate Left") { viewModel.rotateLeft() }
                     smallButton("Rotate Right") { viewModel.rotateRight() }
                     smallButton(viewModel.isFlippedHorizontally ? "Unflip H" : "Flip H") { viewModel.toggleHorizontalFlip() }
@@ -335,7 +354,7 @@ struct RecordingEditorView: View {
     }
 
     private var audioPanel: some View {
-        HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             editorPanel(title: "Playback") {
                 compactSlider("Speed", value: $viewModel.playbackRate, range: 0.25...4, valueText: String(format: "%.2fx", viewModel.playbackRate))
             }
