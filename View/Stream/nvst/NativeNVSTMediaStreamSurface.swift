@@ -1,5 +1,6 @@
 import Foundation
 import GameController
+import CoreGraphics
 import SwiftUI
 
 public typealias NativeNVSTMediaStreamProgressCallback = @MainActor @Sendable (_ progress: StreamProgress) -> Void
@@ -404,6 +405,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var streamingFullScreenWindow: NSWindow?
     @State private var recordingStatus = WebRTCStreamRecordingStatus.idle
     @State private var recordingNotificationTask: Task<Void, Never>?
+    @State private var capturePointerEvents = false
     @State private var streamUpscalingMode = 0
     @State private var streamUpscalingSharpness = 10
     @State private var streamUpscalingDenoise = 0
@@ -1201,7 +1203,8 @@ struct NativeNVSTMediaStreamSurface: View {
             enhancedVideoEnabled: profile.recordingEnhancedVideoEnabled,
             microphoneDeviceId: profile.microphoneDeviceId,
             microphoneVolume: profile.microphoneVolume,
-            microphoneEnabled: profile.microphoneMode != "disabled"
+            microphoneEnabled: profile.microphoneMode != "disabled",
+            pointerCaptureEnabled: capturePointerEvents
         )
         recordingStatus = .starting
         Task {
@@ -1233,6 +1236,17 @@ struct NativeNVSTMediaStreamSurface: View {
             recordingStatus = .idle
             recordingNotificationTask = nil
         }
+    }
+
+    private func togglePointerEventCapture() {
+        guard !recordingStatus.isRecording, !recordingIsBusy else { return }
+        capturePointerEvents.toggle()
+        if capturePointerEvents, !CGPreflightListenEventAccess() {
+            _ = CGRequestListenEventAccess()
+        }
+        showNativeTransientStreamMessage(capturePointerEvents
+            ? "Pointer capture is enabled for the next recording. Click metadata needs Input Monitoring permission."
+            : "Pointer capture disabled.")
     }
 
     private func logRecordingStatusChanged(_ status: WebRTCStreamRecordingStatus, previousStatus: WebRTCStreamRecordingStatus) {
@@ -1912,6 +1926,14 @@ struct NativeNVSTMediaStreamSurface: View {
                     isActive: recordingStatus.isRecording,
                     isDisabled: !sidebarCapabilities.supports(.recording) || !isConnected || recordingIsBusy,
                     action: toggleRecording
+                )
+                NativeNVSTStreamHUDActionRow(
+                    title: capturePointerEvents ? "Pointer Capture On" : "Capture Pointer Events",
+                    subtitle: "Optional cursor positions and clicks",
+                    systemName: "cursorarrow.click.2",
+                    isActive: capturePointerEvents,
+                    isDisabled: recordingStatus.isRecording || recordingIsBusy,
+                    action: togglePointerEventCapture
                 )
                 NativeNVSTStreamHUDActionRow(
                     title: antiAFKMouseMovementEnabled ? "Disable Anti-AFK" : "Enable Anti-AFK",

@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import CoreGraphics
 import CoreImage
 import CoreMedia
@@ -12,6 +13,25 @@ public typealias StreamRecordingLibrary = WebRTCStreamRecordingLibrary
 public typealias StreamRecordingConfiguration = WebRTCStreamRecordingConfiguration
 public typealias StreamRecordingStatus = WebRTCStreamRecordingStatus
 public typealias StreamRecorder = WebRTCStreamRecorder
+
+public struct RecordingPointerEvent: Codable, Equatable, Sendable {
+    public enum ClickType: String, Codable, Sendable {
+        case left
+        case right
+    }
+
+    public var timeSeconds: Double
+    public var x: Double
+    public var y: Double
+    public var clickType: ClickType?
+
+    public init(timeSeconds: Double, x: Double, y: Double, clickType: ClickType? = nil) {
+        self.timeSeconds = timeSeconds
+        self.x = x
+        self.y = y
+        self.clickType = clickType
+    }
+}
 
 public struct WebRTCStreamRecording: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
@@ -27,6 +47,7 @@ public struct WebRTCStreamRecording: Codable, Equatable, Identifiable, Sendable 
     public let fileName: String
     public let fileSizeBytes: Int64
     public let storageDirectoryPath: String?
+    public var pointerEvents: [RecordingPointerEvent]? = nil
 
     public var videoURL: URL { storageDirectory.appendingPathComponent(fileName) }
     public var metadataURL: URL { storageDirectory.appendingPathComponent(id.uuidString).appendingPathExtension("json") }
@@ -78,7 +99,8 @@ public enum WebRTCStreamRecordingLibrary {
                         enhancedVideo: recording.enhancedVideo,
                         fileName: recording.fileName,
                         fileSizeBytes: recording.fileSizeBytes,
-                        storageDirectoryPath: url.deletingLastPathComponent().path
+                        storageDirectoryPath: url.deletingLastPathComponent().path,
+                        pointerEvents: recording.pointerEvents
                     )
                 }
                 return recording
@@ -230,6 +252,7 @@ public struct WebRTCStreamRecordingConfiguration: Equatable, Sendable {
     public let microphoneDeviceId: String
     public let microphoneVolume: Double
     public let microphoneEnabled: Bool
+    public let pointerCaptureEnabled: Bool
 
     public init(
         title: String,
@@ -242,7 +265,8 @@ public struct WebRTCStreamRecordingConfiguration: Equatable, Sendable {
         enhancedVideoEnabled: Bool,
         microphoneDeviceId: String = "",
         microphoneVolume: Double = 1.0,
-        microphoneEnabled: Bool = false
+        microphoneEnabled: Bool = false,
+        pointerCaptureEnabled: Bool = false
     ) {
         self.title = title.isEmpty ? "GeForce NOW Stream" : title
         self.applicationID = applicationID
@@ -255,6 +279,7 @@ public struct WebRTCStreamRecordingConfiguration: Equatable, Sendable {
         self.microphoneDeviceId = microphoneDeviceId
         self.microphoneVolume = min(max(microphoneVolume, 0.0), 2.0)
         self.microphoneEnabled = microphoneEnabled
+        self.pointerCaptureEnabled = pointerCaptureEnabled
     }
 }
 
@@ -323,6 +348,9 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
     private var selectedVideoFrameSource: VideoFrameSource?
     private var pendingNativeVideoRecordingId: UUID?
     private var pendingEnhancedVideoFrameCount = 0
+    private var pointerSamplingTimer: DispatchSourceTimer?
+    private var pointerEventMonitor: Any?
+    private var pointerEvents: [RecordingPointerEvent] = []
 
     public init(firstFrameTimeout: DispatchTimeInterval = .seconds(5)) {
         self.firstFrameTimeout = firstFrameTimeout
@@ -353,11 +381,15 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
                 self.recordingHeight = 0
                 self.finishing = false
                 self.failed = false
+                self.pointerEvents.removeAll(keepingCapacity: true)
                 let url = directory.appendingPathComponent(self.id.uuidString).appendingPathExtension("mp4")
                 if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
                 self.outputURL = url
                 self.startedAt = self.createdAt
                 self.firstHostTime = CACurrentMediaTime()
+                if configuration.pointerCaptureEnabled {
+                    self.startPointerCapture()
+                }
                 if configuration.microphoneEnabled {
                     let capturer = StreamRecordingMicrophoneCapturer(preferredDeviceId: configuration.microphoneDeviceId)
                     capturer.onAudioSample = { [weak self] sampleBuffer in
@@ -583,7 +615,8 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
             enhancedVideo: configuration.enhancedVideoEnabled,
             fileName: outputURL.lastPathComponent,
             fileSizeBytes: fileSize,
-            storageDirectoryPath: outputURL.deletingLastPathComponent().path
+            storageDirectoryPath: outputURL.deletingLastPathComponent().path,
+            pointerEvents: configuration.pointerCaptureEnabled ? pointerEvents : nil
         )
         do {
             let data = try JSONEncoder.recordingEncoder.encode(recording)
@@ -608,6 +641,11 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
     }
 
     private func reset() {
+        pointerSamplingTimer?.cancel()
+        pointerSamplingTimer = nil
+        if let pointerEventMonitor { NSEvent.removeMonitor(pointerEventMonitor) }
+        pointerEventMonitor = nil
+        pointerEvents.removeAll(keepingCapacity: false)
         microphoneCapturer?.stop()
         microphoneCapturer = nil
         audioMixer?.stop()
@@ -626,6 +664,42 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         finishing = false
         failed = false
         setActiveRecordingId(nil, enhancedVideoPreferred: false)
+    }
+
+    private func startPointerCapture() {
+        let bounds = CGDisplayBounds(CGMainDisplayID())
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(66), leeway: .milliseconds(8))
+        timer.setEventHandler { [weak self] in
+            guard let self, let firstHostTime = self.firstHostTime else { return }
+            let point = CGEvent(source: nil)?.location ?? .zero
+            self.recordPointerEvent(point, bounds: bounds, time: CACurrentMediaTime() - firstHostTime, clickType: nil)
+        }
+        pointerSamplingTimer = timer
+        timer.resume()
+        DispatchQueue.main.async { [weak self] in
+            guard let recorder = self else { return }
+            recorder.pointerEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak recorder] event in
+                guard let recorder else { return }
+                let point = NSEvent.mouseLocation
+                let clickType: RecordingPointerEvent.ClickType = event.type == .rightMouseDown ? .right : .left
+                let queue = recorder.queue
+                queue.async { [weak recorder] in
+                    guard let recorder, let firstHostTime = recorder.firstHostTime else { return }
+                    recorder.recordPointerEvent(point, bounds: bounds, time: CACurrentMediaTime() - firstHostTime, clickType: clickType)
+                }
+            }
+        }
+    }
+
+    private func recordPointerEvent(_ point: CGPoint, bounds: CGRect, time: Double, clickType: RecordingPointerEvent.ClickType?) {
+        guard time.isFinite, time >= 0 else { return }
+        let x = min(max((point.x - bounds.minX) / bounds.width, 0), 1)
+        let y = min(max(1 - (point.y - bounds.minY) / bounds.height, 0), 1)
+        if clickType == nil, let previous = pointerEvents.last, previous.clickType == nil,
+           abs(previous.x - x) < 0.002, abs(previous.y - y) < 0.002 { return }
+        pointerEvents.append(RecordingPointerEvent(timeSeconds: time, x: x, y: y, clickType: clickType))
     }
 
     private var recordingStartedTime: CFTimeInterval = 0
