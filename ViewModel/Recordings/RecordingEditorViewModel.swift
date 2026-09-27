@@ -392,19 +392,6 @@ final class RecordingEditorViewModel: ObservableObject {
         return [segmentSignature, cropSignature, transformSignature, audioSignature, outputSignature, colorSignature, captionSignature, overlaySignature, isCropOverlayEditing ? "crop-overlay" : "crop-final"].joined(separator: "#")
     }
 
-    func sourceTime(forTimelineSeconds timelineSeconds: Double) -> (segment: RecordingEditorSegment, seconds: Double)? {
-        var cursor = 0.0
-        let target = min(max(0, timelineSeconds), totalSourceDurationSeconds)
-        for segment in segments {
-            let nextCursor = cursor + segment.durationSeconds
-            if target <= nextCursor || segment.id == segments.last?.id {
-                return (segment, min(max(segment.startSeconds, segment.startSeconds + target - cursor), segment.endSeconds))
-            }
-            cursor = nextCursor
-        }
-        return nil
-    }
-
     func sourceTime(forOutputSeconds outputSeconds: Double) -> (segment: RecordingEditorSegment, seconds: Double)? {
         var cursor = 0.0
         let rate = max(0.25, playbackRate)

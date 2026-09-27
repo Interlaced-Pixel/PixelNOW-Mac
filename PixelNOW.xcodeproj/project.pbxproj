@@ -186,7 +186,10 @@
 /* Begin PBXShellScriptBuildPhase section */
 		A00000000000000000000501 /* Generate Build Metadata */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
+			files = (
+			);
 			inputPaths = (
 				"$(SRCROOT)/scripts/write-build-metadata.sh",
 				"$(SRCROOT)/.git/HEAD",
@@ -195,7 +198,6 @@
 				"$(SRCROOT)/.git/packed-refs",
 			);
 			name = "Generate Build Metadata";
-			alwaysOutOfDate = 1;
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PixelNOWBuildMetadata.plist",
 			);

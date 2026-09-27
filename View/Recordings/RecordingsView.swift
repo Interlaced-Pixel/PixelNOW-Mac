@@ -66,7 +66,11 @@ struct RecordingsView: View {
                         viewModel: editorViewModel,
                         player: player,
                         playheadSeconds: playerTimeSeconds,
+                        isPlaying: playerIsPlaying,
                         onSeek: seekEditorPreview,
+                        onTogglePlayback: toggleEditorPlayback,
+                        onPause: pauseEditorPreview,
+                        onShuttle: shuttleEditorPreview,
                         onCancel: closeEditor,
                         onSaved: editedRecordingSaved,
                         onPreviewChanged: { refreshEditedPreview(debounce: true) }
@@ -490,13 +494,41 @@ struct RecordingsView: View {
         syncEditorSelectionForPreviewTime(boundedSeconds)
     }
 
+    private func toggleEditorPlayback() {
+        guard let player else { return }
+        if player.timeControlStatus == .playing {
+            player.pause()
+            playerIsPlaying = false
+        } else {
+            player.play()
+            playerIsPlaying = true
+        }
+    }
+
+    private func pauseEditorPreview() {
+        player?.pause()
+        playerIsPlaying = false
+    }
+
+    private func shuttleEditorPreview(_ rate: Float) {
+        guard let player else { return }
+        if rate < 0, player.currentItem?.canPlayReverse != true {
+            message = "Reverse playback is not supported by this recording."
+            return
+        }
+        player.playImmediately(atRate: rate)
+        playerIsPlaying = true
+    }
+
     private func startEditing(_ recording: WebRTCStreamRecording) {
         if selectedRecording?.id != recording.id { select(recording, autoplay: false) }
         player?.pause()
         playerIsPlaying = false
-        editorViewModel = RecordingEditorViewModel(recording: recording, library: recordings)
+        let viewModel = RecordingEditorViewModel(recording: recording, library: recordings)
+        _ = viewModel.restoreProjectIfAvailable()
+        editorViewModel = viewModel
         refreshEditedPreview(debounce: false, preservePlaybackTime: false)
-        message = "Editing \(recording.title). Export saves a new video."
+        message = viewModel.errorMessage ?? "Editing \(recording.title). Export saves a new video."
     }
 
     private func closeEditor() {
@@ -520,7 +552,7 @@ struct RecordingsView: View {
 
     private func refreshEditedPreview(debounce: Bool, preservePlaybackTime: Bool = true) {
         guard let editorViewModel else { return }
-        let request = editorViewModel.request()
+        let request = editorViewModel.request(isCropEditingPreview: editorViewModel.isCropOverlayEditing)
         let signature = editorViewModel.previewSignature
         let targetSeconds = preservePlaybackTime ? playerTimeSeconds : 0
         let shouldResumePlayback = player?.timeControlStatus == .playing
@@ -569,8 +601,7 @@ struct RecordingsView: View {
 
     private func syncEditorSelectionForPreviewTime(_ outputSeconds: Double) {
         guard let editorViewModel else { return }
-        let sourceTimelineSeconds = outputSeconds * max(0.25, editorViewModel.playbackRate)
-        guard let target = editorViewModel.sourceTime(forTimelineSeconds: sourceTimelineSeconds) else { return }
+        guard let target = editorViewModel.sourceTime(forOutputSeconds: outputSeconds) else { return }
         editorViewModel.selectPreviewSegment(target.segment)
     }
 
