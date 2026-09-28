@@ -47,23 +47,31 @@ private struct RecordingEditorWorkspaceMetrics {
 }
 
 private enum RecordingAdvancedEditorSection: String, CaseIterable, Identifiable {
-    case frame
+    case video
     case audio
     case color
-    case transcript
-    case overlays
-    case export
+    case captions
+    case effects
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .frame: return "Frame"
+        case .video: return "Video"
         case .audio: return "Audio"
         case .color: return "Color"
-        case .transcript: return "Transcript"
-        case .overlays: return "Overlays"
-        case .export: return "Export"
+        case .captions: return "Captions"
+        case .effects: return "Effects"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .video: return "viewfinder"
+        case .audio: return "waveform"
+        case .color: return "slider.horizontal.3"
+        case .captions: return "text.bubble"
+        case .effects: return "sparkles"
         }
     }
 }
@@ -84,8 +92,10 @@ struct RecordingEditorView: View {
     @State private var exportTask: Task<Void, Never>?
     @State private var exportedCopyURL: URL?
     @State private var selectedExportQuality: RecordingEditorExportQuality = .highest
+    @State private var showsOutputSettings = false
     @State private var showsAdvanced = true
-    @State private var advancedSection: RecordingAdvancedEditorSection = .frame
+    @State private var advancedSection: RecordingAdvancedEditorSection = .video
+    @State private var showsAudioSuggestions = false
     @State private var selectedBrowserRecordingID: UUID?
     @State private var browserSearchText = ""
     @State private var showsDiscardProjectConfirmation = false
@@ -112,11 +122,8 @@ struct RecordingEditorView: View {
                         .frame(maxWidth: .infinity, maxHeight: workspaceHeight, alignment: .top)
 
                     if showsAdvanced {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            advancedDrawer
-                                .frame(width: metrics.inspectorWidth)
-                        }
-                        .frame(width: metrics.inspectorWidth, height: workspaceHeight, alignment: .top)
+                        advancedDrawer
+                            .frame(width: metrics.inspectorWidth, height: workspaceHeight, alignment: .top)
                     }
                 }
                 .frame(maxWidth: 1880, minHeight: workspaceHeight, maxHeight: workspaceHeight, alignment: .top)
@@ -636,57 +643,92 @@ struct RecordingEditorView: View {
     }
 
     private var advancedDrawer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Inspector")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(RecordingsLayout.accent)
-            ScrollView(.horizontal, showsIndicators: false) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("INSPECTOR")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundStyle(RecordingsLayout.accent)
+                    Text(viewModel.selectedSegment?.recording.title ?? "No clip selected")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 2)
+                Text(advancedSection.title.uppercased())
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.7)
+                    .foregroundStyle(.white.opacity(0.48))
+            }
+
+            if let selectedSegment = viewModel.selectedSegment {
                 HStack(spacing: 5) {
-                    ForEach(RecordingAdvancedEditorSection.allCases) { section in
-                        Button {
-                            advancedSection = section
-                        } label: {
-                            Text(section.title)
-                                .font(.system(size: 10, weight: .semibold))
-                                .lineLimit(1)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 6)
-                                .background(advancedSection == section ? RecordingsLayout.accent.opacity(0.24) : Color.white.opacity(0.055), in: Capsule())
-                                .overlay { Capsule().stroke(advancedSection == section ? RecordingsLayout.accent.opacity(0.45) : Color.white.opacity(0.10), lineWidth: 1) }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(advancedSection == section ? .isSelected : [])
+                    Image(systemName: "film")
+                        .foregroundStyle(RecordingsLayout.accent)
+                    Text("CLIP \((viewModel.selectedSegmentIndex ?? 0) + 1) OF \(viewModel.segments.count)")
+                        .foregroundStyle(.white.opacity(0.54))
+                    Spacer(minLength: 2)
+                    Text("\(recordingEditorTimecode(selectedSegment.startSeconds))–\(recordingEditorTimecode(selectedSegment.endSeconds))")
+                        .foregroundStyle(.white.opacity(0.68))
+                }
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+            }
+
+            HStack(spacing: 4) {
+                ForEach(RecordingAdvancedEditorSection.allCases) { section in
+                    Button {
+                        advancedSection = section
+                    } label: {
+                        Image(systemName: section.symbolName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(advancedSection == section ? RecordingsLayout.accent : Color.white.opacity(0.62))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 30)
+                            .background(advancedSection == section ? RecordingsLayout.accent.opacity(0.18) : Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(advancedSection == section ? RecordingsLayout.accent.opacity(0.46) : Color.white.opacity(0.08), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help(section.title)
+                    .accessibilityLabel("\(section.title) inspector")
+                    .accessibilityAddTraits(advancedSection == section ? .isSelected : [])
+                }
+            }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    switch advancedSection {
+                    case .video:
+                        framePanel
+                    case .audio:
+                        audioPanel
+                    case .color:
+                        colorPanel
+                    case .captions:
+                        transcriptPanel
+                    case .effects:
+                        overlaysPanel
                     }
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 30)
-
-            switch advancedSection {
-            case .frame:
-                framePanel
-            case .audio:
-                audioPanel
-            case .color:
-                colorPanel
-            case .transcript:
-                transcriptPanel
-            case .overlays:
-                overlaysPanel
-            case .export:
-                exportSettingsPanel
-            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .padding(14)
         .modifier(LiquidGlassModifier(cornerRadius: 20))
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var framePanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             editorPanel(title: "Crop") {
-                Picker("Aspect", selection: Binding(
+                Picker("Output Aspect", selection: Binding(
                     get: { viewModel.cropAspectPreset },
                     set: viewModel.setCropAspectPreset
                 )) {
@@ -695,18 +737,18 @@ struct RecordingEditorView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                Button(viewModel.isCropOverlayEditing ? "Finish Viewer Crop" : "Crop in Viewer") {
-                    viewModel.isCropOverlayEditing.toggle()
+                HStack(spacing: 6) {
+                    smallButton(viewModel.isCropOverlayEditing ? "Finish Crop" : "Crop in Viewer") {
+                        viewModel.isCropOverlayEditing.toggle()
+                    }
+                    smallButton("Reset Crop", isDisabled: !viewModel.cropEnabled && viewModel.cropAspectPreset == .source) {
+                        viewModel.setCropAspectPreset(.source)
+                    }
                 }
                 if viewModel.isCropOverlayEditing {
                     Toggle("Safe area guides", isOn: $viewModel.showsSafeAreaGuides)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 10, weight: .medium))
-                }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)], alignment: .leading, spacing: 5) {
-                    ForEach(RecordingEditorCropPreset.allCases) { preset in
-                        smallButton(preset.title) { viewModel.applyCropPreset(preset) }
-                    }
                 }
                 Toggle("Custom crop", isOn: Binding(
                     get: { viewModel.cropEnabled },
@@ -721,7 +763,7 @@ struct RecordingEditorView: View {
                     compactSlider("H", value: $viewModel.cropHeight, range: 0.1...max(0.1, 1 - viewModel.cropY), valueText: String(format: "%.0f%%", viewModel.cropHeight * 100))
                 }
             }
-            editorPanel(title: "Orientation") {
+            editorPanel(title: "Transform") {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)], alignment: .leading, spacing: 5) {
                     smallButton("Rotate Left") { viewModel.rotateLeft() }
                     smallButton("Rotate Right") { viewModel.rotateRight() }
@@ -729,18 +771,35 @@ struct RecordingEditorView: View {
                     smallButton(viewModel.isFlippedVertically ? "Unflip V" : "Flip V") { viewModel.toggleVerticalFlip() }
                 }
             }
+            editorPanel(title: "Speed") {
+                compactSlider("Playback", value: $viewModel.playbackRate, range: 0.25...4, valueText: String(format: "%.2fx", viewModel.playbackRate))
+            }
+            if let selectedSegment = viewModel.selectedSegment,
+               let selectedIndex = viewModel.selectedSegmentIndex,
+               selectedIndex > 0 {
+                editorPanel(title: "Incoming Transition") {
+                    Picker("Style", selection: Binding(
+                        get: { selectedSegment.transitionBefore },
+                        set: viewModel.setSelectedTransition
+                    )) {
+                        Text("Cut").tag(WebRTCStreamRecordingTransitionStyle.cut)
+                        Text("Fade Through Black").tag(WebRTCStreamRecordingTransitionStyle.fadeThroughBlack)
+                    }
+                    .pickerStyle(.menu)
+                    if selectedSegment.transitionBefore == .fadeThroughBlack {
+                        compactSlider("Duration", value: Binding(
+                            get: { selectedSegment.transitionDurationSeconds },
+                            set: viewModel.setSelectedTransitionDuration
+                        ), range: 0.1...2, valueText: String(format: "%.1fs", selectedSegment.transitionDurationSeconds))
+                    }
+                }
+            }
         }
     }
 
     private var audioPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            editorPanel(title: "Playback") {
-                compactSlider("Speed", value: $viewModel.playbackRate, range: 0.25...4, valueText: String(format: "%.2fx", viewModel.playbackRate))
-            }
-            editorPanel(title: "Audio") {
-                Text(viewModel.selectedSegment.map { "Clip: \($0.recording.title)" } ?? "No clip selected")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.58))
+            editorPanel(title: "Clip Audio") {
                 Toggle("Mute selected clip", isOn: Binding(
                     get: { viewModel.selectedSegment?.isAudioMuted ?? false },
                     set: viewModel.setSelectedSegmentMuted
@@ -762,6 +821,8 @@ struct RecordingEditorView: View {
                     set: viewModel.setSelectedSegmentFadeOut
                 ), range: 0...10, valueText: String(format: "%.1fs", viewModel.selectedSegment?.fadeOutSeconds ?? 0))
                     .disabled(viewModel.selectedSegment?.isAudioMuted ?? true)
+            }
+            editorPanel(title: "Analysis & Cleanup") {
                 Button {
                     Task { await viewModel.analyzeSelectedAudio() }
                 } label: {
@@ -773,27 +834,31 @@ struct RecordingEditorView: View {
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.white.opacity(0.56))
                     Button("Apply Peak Normalization") { viewModel.normalizeSelectedAudio() }
-                    Text("Silence suggestions: below −48 dBFS for at least 0.5 seconds")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.56))
-                    ForEach(analysis.result.silenceRanges) { range in
-                        Toggle(isOn: Binding(
-                            get: { viewModel.selectedSilenceRangeIDs.contains(range.id) },
-                            set: { isSelected in
-                                if isSelected { viewModel.selectedSilenceRangeIDs.insert(range.id) }
-                                else { viewModel.selectedSilenceRangeIDs.remove(range.id) }
-                            }
-                        )) {
-                            Text("\(recordingEditorTimecode(range.startSeconds))–\(recordingEditorTimecode(range.endSeconds))")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        }
-                        .toggleStyle(.checkbox)
-                    }
                     if !analysis.result.silenceRanges.isEmpty {
-                        Button("Remove Selected Silence") { viewModel.removeSelectedSilenceRanges() }
-                            .disabled(viewModel.selectedSilenceRangeIDs.isEmpty)
+                        DisclosureGroup("Silence suggestions · \(analysis.result.silenceRanges.count)", isExpanded: $showsAudioSuggestions) {
+                            Text("Below −48 dBFS for at least 0.5 seconds")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.56))
+                            ForEach(analysis.result.silenceRanges) { range in
+                                Toggle(isOn: Binding(
+                                    get: { viewModel.selectedSilenceRangeIDs.contains(range.id) },
+                                    set: { isSelected in
+                                        if isSelected { viewModel.selectedSilenceRangeIDs.insert(range.id) }
+                                        else { viewModel.selectedSilenceRangeIDs.remove(range.id) }
+                                    }
+                                )) {
+                                    Text("\(recordingEditorTimecode(range.startSeconds))–\(recordingEditorTimecode(range.endSeconds))")
+                                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                            Button("Remove Selected Silence") { viewModel.removeSelectedSilenceRanges() }
+                                .disabled(viewModel.selectedSilenceRangeIDs.isEmpty)
+                        }
                     }
                 }
+            }
+            editorPanel(title: "Output Mix") {
                 Toggle("Mute audio", isOn: Binding(
                     get: { viewModel.isMuted },
                     set: viewModel.setMuted
@@ -843,180 +908,200 @@ struct RecordingEditorView: View {
     }
 
     private var colorPanel: some View {
-        editorPanel(title: "Color Adjustments") {
-            compactSlider("Exposure", value: $viewModel.colorAdjustment.exposure, range: -4...4, valueText: String(format: "%.1f EV", viewModel.colorAdjustment.exposure))
-            compactSlider("Contrast", value: $viewModel.colorAdjustment.contrast, range: 0...2, valueText: String(format: "%.2f", viewModel.colorAdjustment.contrast))
-            compactSlider("Saturation", value: $viewModel.colorAdjustment.saturation, range: 0...2, valueText: String(format: "%.2f", viewModel.colorAdjustment.saturation))
-            compactSlider("Temperature", value: $viewModel.colorAdjustment.temperature, range: -1...1, valueText: String(format: "%.2f", viewModel.colorAdjustment.temperature))
-            compactSlider("Tint", value: $viewModel.colorAdjustment.tint, range: -1...1, valueText: String(format: "%.2f", viewModel.colorAdjustment.tint))
-            compactSlider("Vignette", value: $viewModel.colorAdjustment.vignette, range: 0...1, valueText: String(format: "%.2f", viewModel.colorAdjustment.vignette))
-            smallButton("Reset Color") { viewModel.resetColorAdjustments() }
+        VStack(alignment: .leading, spacing: 10) {
+            editorPanel(title: "Light") {
+                compactSlider("Exposure", value: $viewModel.colorAdjustment.exposure, range: -4...4, valueText: String(format: "%.1f EV", viewModel.colorAdjustment.exposure))
+                compactSlider("Contrast", value: $viewModel.colorAdjustment.contrast, range: 0...2, valueText: String(format: "%.2f", viewModel.colorAdjustment.contrast))
+            }
+            editorPanel(title: "Color") {
+                compactSlider("Saturation", value: $viewModel.colorAdjustment.saturation, range: 0...2, valueText: String(format: "%.2f", viewModel.colorAdjustment.saturation))
+                compactSlider("Temperature", value: $viewModel.colorAdjustment.temperature, range: -1...1, valueText: String(format: "%.2f", viewModel.colorAdjustment.temperature))
+                compactSlider("Tint", value: $viewModel.colorAdjustment.tint, range: -1...1, valueText: String(format: "%.2f", viewModel.colorAdjustment.tint))
+                compactSlider("Vignette", value: $viewModel.colorAdjustment.vignette, range: 0...1, valueText: String(format: "%.2f", viewModel.colorAdjustment.vignette))
+                smallButton("Reset Color") { viewModel.resetColorAdjustments() }
+            }
         }
     }
 
     private var transcriptPanel: some View {
-        editorPanel(title: "Transcript and Captions") {
-            Button {
-                Task { await viewModel.createTranscriptDraft() }
-            } label: {
-                Label(viewModel.isTranscribing ? "Transcribing…" : "Create Transcript", systemImage: "waveform")
-            }
-            .disabled(viewModel.isTranscribing)
-            Button {
-                Task { await viewModel.addOCRMarker(at: playheadSeconds) }
-            } label: {
-                Label("Read Screen Text at Playhead", systemImage: "text.viewfinder")
-            }
-            if let draftTranscript = viewModel.draftTranscript {
-                Text("Draft · \(draftTranscript.segments.count) phrases · review before saving")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.6))
-                Button("Save Transcript") { viewModel.approveTranscriptDraft() }
-            }
-            if let transcript = viewModel.transcript {
-                HStack {
-                    Text("\(transcript.language) · \(transcript.segments.count) phrases")
-                    Spacer()
-                    Button("Build Captions") { viewModel.createCaptionsFromTranscript() }
-                    Button("Export SRT…") { exportSRT() }
+        VStack(alignment: .leading, spacing: 10) {
+            editorPanel(title: "Recognition") {
+                Button {
+                    Task { await viewModel.createTranscriptDraft() }
+                } label: {
+                    Label(viewModel.isTranscribing ? "Transcribing…" : "Create Transcript", systemImage: "waveform")
                 }
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.white.opacity(0.7))
-                Toggle("Burn captions into video", isOn: $viewModel.burnInCaptions)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 10, weight: .medium))
-                TextField("Search transcript", text: $transcriptSearchText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 10))
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(transcript.segments.filter { transcriptSearchText.isEmpty || $0.text.localizedCaseInsensitiveContains(transcriptSearchText) }) { phrase in
-                            HStack(alignment: .top) {
-                                Button {
-                                    guard let timelineSeconds = viewModel.timelineSeconds(forSourceTime: phrase.startSeconds, recordingID: transcript.sourceRecordingID) else { return }
-                                    onSeek(timelineSeconds)
-                                } label: {
-                                    HStack(alignment: .top) {
+                .disabled(viewModel.isTranscribing)
+                Button {
+                    Task { await viewModel.addOCRMarker(at: playheadSeconds) }
+                } label: {
+                    Label("Scan Text at Playhead", systemImage: "text.viewfinder")
+                }
+                .disabled(viewModel.selectedSegment == nil)
+                if let draftTranscript = viewModel.draftTranscript {
+                    HStack {
+                        Text("Draft · \(draftTranscript.segments.count) phrases")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.6))
+                        Spacer()
+                        Button("Save") { viewModel.approveTranscriptDraft() }
+                    }
+                } else if viewModel.transcript == nil {
+                    Text("A transcript stays a draft until you save it.")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+
+            if let transcript = viewModel.transcript {
+                editorPanel(title: "Transcript") {
+                    HStack(spacing: 5) {
+                        Text(transcript.language.uppercased())
+                        Text("·")
+                        Text("\(transcript.segments.count) phrases")
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    HStack(spacing: 6) {
+                        Button("Build Captions") { viewModel.createCaptionsFromTranscript() }
+                        Button("SRT…") { exportSRT() }
+                            .help("Export transcript as an SRT file")
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    TextField("Search transcript", text: $transcriptSearchText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 10))
+                    ForEach(transcript.segments.filter { transcriptSearchText.isEmpty || $0.text.localizedCaseInsensitiveContains(transcriptSearchText) }) { phrase in
+                        HStack(alignment: .top, spacing: 6) {
+                            Button {
+                                guard let timelineSeconds = viewModel.timelineSeconds(forSourceTime: phrase.startSeconds, recordingID: transcript.sourceRecordingID) else { return }
+                                onSeek(timelineSeconds)
+                            } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
                                     Text(recordingEditorTimecode(phrase.startSeconds))
                                         .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(RecordingsLayout.accent)
                                     Text(phrase.text)
                                         .font(.system(size: 10, weight: .regular))
                                         .lineLimit(2)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.plain)
-                                Button("Cut") { viewModel.cutTranscriptPhrase(phrase, recordingID: transcript.sourceRecordingID) }
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .help("Remove this recognized phrase from the selected recording")
                             }
+                            .buttonStyle(.plain)
+                            .help("Jump to this phrase")
+                            Button {
+                                viewModel.cutTranscriptPhrase(phrase, recordingID: transcript.sourceRecordingID)
+                            } label: {
+                                Image(systemName: "scissors")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove this phrase from the timeline")
                         }
+                        .padding(.vertical, 3)
                     }
                 }
-                .frame(maxHeight: 120)
-                if !viewModel.captions.isEmpty {
+            }
+
+            if viewModel.transcript != nil || !viewModel.captions.isEmpty {
+                editorPanel(title: "Captions") {
+                    Toggle("Burn into video", isOn: Binding(
+                        get: { viewModel.burnInCaptions },
+                        set: { value in
+                            guard viewModel.burnInCaptions != value else { return }
+                            viewModel.beginInteractiveEdit()
+                            viewModel.burnInCaptions = value
+                        }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 10, weight: .medium))
                     ForEach($viewModel.captions) { $caption in
                         HStack(spacing: 5) {
                             Text(recordingEditorTimecode(caption.startSeconds))
                                 .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            TextField("Caption", text: $caption.text)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 10))
+                            TextField("Caption", text: $caption.text, onEditingChanged: { isEditing in
+                                if isEditing { viewModel.beginInteractiveEdit() }
+                            })
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 10))
                             Button(role: .destructive) { viewModel.removeCaption(id: caption.id) } label: {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.plain)
+                            .help("Remove caption")
                         }
                     }
                 }
-            } else {
-                Text("Recognition stays a draft until you save it. Captions can be edited before export.")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
             }
         }
     }
 
     private var overlaysPanel: some View {
-        editorPanel(title: "Timed Overlays") {
-            if let selectedSegment = viewModel.selectedSegment,
-               selectedSegment.recording.pointerEvents?.isEmpty == false {
-                Text("Cursor position and click metadata is available for this clip.")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.56))
-                Button("Suggest Zooms from Clicks") {
-                    viewModel.suggestZoomsFromSelectedPointerClicks()
+        VStack(alignment: .leading, spacing: 10) {
+            if viewModel.selectedSegment?.recording.pointerEvents?.isEmpty == false {
+                editorPanel(title: "Pointer Data") {
+                    Text("Recorded cursor and click events are available for this clip.")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.56))
+                    Button("Suggest Zooms from Clicks") {
+                        viewModel.suggestZoomsFromSelectedPointerClicks()
+                    }
+                    .help("Create editable zoom keyframes around captured clicks")
+                    Button("Remove Captured Pointer Data", role: .destructive) {
+                        viewModel.removeSelectedPointerMetadata()
+                    }
+                    .help("Remove cursor and click metadata from the recording sidecar")
                 }
-                .help("Create editable zoom keyframes around captured clicks in the selected clip")
-                Button("Remove Captured Pointer Metadata", role: .destructive) {
-                    viewModel.removeSelectedPointerMetadata()
-                }
-                .help("Remove cursor and click metadata from the recording sidecar")
-            }
-            if let selectedSegment = viewModel.selectedSegment, viewModel.selectedSegmentID != viewModel.segments.first?.id {
-                Picker("Transition", selection: Binding(
-                    get: { selectedSegment.transitionBefore },
-                    set: viewModel.setSelectedTransition
-                )) {
-                    Text("Cut").tag(WebRTCStreamRecordingTransitionStyle.cut)
-                    Text("Fade Through Black").tag(WebRTCStreamRecordingTransitionStyle.fadeThroughBlack)
-                }
-                .pickerStyle(.menu)
-                if selectedSegment.transitionBefore == .fadeThroughBlack {
-                    compactSlider("Fade", value: Binding(
-                        get: { selectedSegment.transitionDurationSeconds },
-                        set: viewModel.setSelectedTransitionDuration
-                    ), range: 0.1...2, valueText: String(format: "%.1fs", selectedSegment.transitionDurationSeconds))
-                }
-            } else {
-                Text("Select a clip after the first to set its incoming transition.")
-                    .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white.opacity(0.5))
             }
             if !viewModel.zoomKeyframes.isEmpty {
-                Text("Pointer Zoom Keyframes")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.82))
-                ForEach(viewModel.zoomKeyframes) { keyframe in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            RecordingTrimTimeField(title: "Time", seconds: keyframe.timeSeconds) { seconds in
-                                viewModel.beginInteractiveEdit()
-                                var updated = keyframe
-                                updated.timeSeconds = seconds
-                                viewModel.updateZoomKeyframe(updated)
+                editorPanel(title: "Pointer Zoom") {
+                    ForEach(viewModel.zoomKeyframes) { keyframe in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                RecordingTrimTimeField(title: "Time", seconds: keyframe.timeSeconds) { seconds in
+                                    viewModel.beginInteractiveEdit()
+                                    var updated = keyframe
+                                    updated.timeSeconds = seconds
+                                    viewModel.updateZoomKeyframe(updated)
+                                }
+                                Spacer()
+                                Button(role: .destructive) { viewModel.removeZoomKeyframe(id: keyframe.id) } label: {
+                                    Image(systemName: "minus.circle")
+                                }
+                                .buttonStyle(.plain)
+                                .help("Remove zoom keyframe")
                             }
-                            Spacer()
-                            Button(role: .destructive) { viewModel.removeZoomKeyframe(id: keyframe.id) } label: {
-                                Image(systemName: "minus.circle")
-                            }
-                            .buttonStyle(.plain)
-                            .help("Remove zoom keyframe")
+                            compactSlider("Center X", value: zoomKeyframeBinding(keyframe, keyPath: \.centerX), range: 0.2...0.8, valueText: "\(Int(keyframe.centerX * 100))%")
+                            compactSlider("Center Y", value: zoomKeyframeBinding(keyframe, keyPath: \.centerY), range: 0.2...0.8, valueText: "\(Int(keyframe.centerY * 100))%")
+                            compactSlider("Scale", value: zoomKeyframeBinding(keyframe, keyPath: \.scale), range: 1...2.5, valueText: String(format: "%.1fx", keyframe.scale))
                         }
-                        compactSlider("Center X", value: zoomKeyframeBinding(keyframe, keyPath: \.centerX), range: 0.2...0.8, valueText: "\(Int(keyframe.centerX * 100))%")
-                        compactSlider("Center Y", value: zoomKeyframeBinding(keyframe, keyPath: \.centerY), range: 0.2...0.8, valueText: "\(Int(keyframe.centerY * 100))%")
-                        compactSlider("Scale", value: zoomKeyframeBinding(keyframe, keyPath: \.scale), range: 1...2.5, valueText: String(format: "%.1fx", keyframe.scale))
+                        .padding(7)
+                        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    .padding(7)
-                    .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
-            HStack(spacing: 6) {
-                Button("Callout") { viewModel.addOverlay(kind: .callout, at: playheadSeconds) }
-                Button("Redact") { viewModel.addOverlay(kind: .redaction, at: playheadSeconds) }
-                Button("Blur") { viewModel.addOverlay(kind: .blur, at: playheadSeconds) }
-            }
-            .font(.system(size: 10, weight: .semibold))
-            Text("Overlays render only during their time range and never change the source recording.")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.white.opacity(0.56))
-            if viewModel.overlays.isEmpty {
-                Text("No overlays yet.")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.45))
-            }
-            ForEach(viewModel.overlays) { overlay in
-                overlayEditor(overlay)
+
+            editorPanel(title: "Timed Overlays") {
+                Menu {
+                    Button("Callout") { viewModel.addOverlay(kind: .callout, at: playheadSeconds) }
+                    Button("Redact") { viewModel.addOverlay(kind: .redaction, at: playheadSeconds) }
+                    Button("Blur") { viewModel.addOverlay(kind: .blur, at: playheadSeconds) }
+                } label: {
+                    Label("Add Overlay at Playhead", systemImage: "plus")
+                }
+                .menuStyle(.borderlessButton)
+                .font(.system(size: 10, weight: .semibold))
+                Text("Overlays render only during their time range and never change the source recording.")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.56))
+                if viewModel.overlays.isEmpty {
+                    Text("No overlays yet.")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+                ForEach(viewModel.overlays) { overlay in
+                    overlayEditor(overlay)
+                }
             }
         }
     }
@@ -1119,6 +1204,17 @@ struct RecordingEditorView: View {
                 Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([exportedCopyURL]) }
                     .help("Reveal the exported copy in Finder")
                 ShareLink(item: exportedCopyURL) { Label("Share", systemImage: "square.and.arrow.up") }
+            }
+            Button { showsOutputSettings.toggle() } label: {
+                Label("Settings", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(RecordingActionButtonStyle(tone: .secondary))
+            .help("Export resolution and quality")
+            .popover(isPresented: $showsOutputSettings, arrowEdge: .bottom) {
+                exportSettingsPanel
+                    .frame(width: 300)
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             Button("Export Copy…") { beginExportCopy() }
                 .disabled(!viewModel.canExport)

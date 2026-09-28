@@ -77,41 +77,6 @@ struct RecordingEditorMarker: Codable, Equatable, Identifiable {
     }
 }
 
-enum RecordingEditorCropPreset: String, CaseIterable, Identifiable {
-    case full
-    case square
-    case wide
-    case vertical
-    case center
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .full: return "Full"
-        case .square: return "1:1"
-        case .wide: return "16:9"
-        case .vertical: return "9:16"
-        case .center: return "Center"
-        }
-    }
-
-    var crop: WebRTCStreamRecordingCrop? {
-        switch self {
-        case .full:
-            return nil
-        case .square:
-            return WebRTCStreamRecordingCrop(x: 0.125, y: 0, width: 0.75, height: 1)
-        case .wide:
-            return WebRTCStreamRecordingCrop(x: 0, y: 0.1094, width: 1, height: 0.7812)
-        case .vertical:
-            return WebRTCStreamRecordingCrop(x: 0.3418, y: 0, width: 0.3164, height: 1)
-        case .center:
-            return WebRTCStreamRecordingCrop(x: 0.10, y: 0.10, width: 0.80, height: 0.80)
-        }
-    }
-}
-
 enum RecordingEditorAspectPreset: String, CaseIterable, Identifiable {
     case source
     case landscape16x9
@@ -1178,30 +1143,22 @@ final class RecordingEditorViewModel: ObservableObject {
         segments.swapAt(index, nextIndex)
     }
 
-    func applyCropPreset(_ preset: RecordingEditorCropPreset) {
-        recordUndo()
-        if let crop = preset.crop {
-            cropEnabled = true
-            cropX = crop.x
-            cropY = crop.y
-            cropWidth = crop.width
-            cropHeight = crop.height
-        } else {
+    func setCropAspectPreset(_ preset: RecordingEditorAspectPreset) {
+        guard let targetAspect = preset.aspectRatio else {
+            guard cropAspectPreset != preset || cropEnabled || cropX != 0 || cropY != 0 || cropWidth != 1 || cropHeight != 1 else { return }
+            recordUndo()
+            cropAspectPreset = preset
             cropEnabled = false
             cropX = 0
             cropY = 0
             cropWidth = 1
             cropHeight = 1
+            return
         }
-    }
-
-    func setCropAspectPreset(_ preset: RecordingEditorAspectPreset) {
-        guard cropAspectPreset != preset else { return }
-        recordUndo()
-        cropAspectPreset = preset
-        guard let targetAspect = preset.aspectRatio else { return }
         let desiredCropAspect = (rotation == .degrees90 || rotation == .degrees270) ? 1 / targetAspect : targetAspect
         let sourceAspect = Double(primaryRecording.width) / Double(max(1, primaryRecording.height))
+        let cropWidth: Double
+        let cropHeight: Double
         if desiredCropAspect > sourceAspect {
             cropWidth = 1
             cropHeight = max(0.05, sourceAspect / desiredCropAspect)
@@ -1209,8 +1166,15 @@ final class RecordingEditorViewModel: ObservableObject {
             cropHeight = 1
             cropWidth = max(0.05, desiredCropAspect / sourceAspect)
         }
-        cropX = (1 - cropWidth) / 2
-        cropY = (1 - cropHeight) / 2
+        let cropX = (1 - cropWidth) / 2
+        let cropY = (1 - cropHeight) / 2
+        guard cropAspectPreset != preset || !cropEnabled || self.cropX != cropX || self.cropY != cropY || self.cropWidth != cropWidth || self.cropHeight != cropHeight else { return }
+        recordUndo()
+        cropAspectPreset = preset
+        self.cropX = cropX
+        self.cropY = cropY
+        self.cropWidth = cropWidth
+        self.cropHeight = cropHeight
         cropEnabled = true
     }
 
