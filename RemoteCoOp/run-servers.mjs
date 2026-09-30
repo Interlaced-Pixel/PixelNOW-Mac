@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const directSignalingScript = join(root, "server", "direct-signaling.mjs");
-const directSignalingHost = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST", "198.12.95.48");
-const directSignalingPort = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_PORT", 32189);
+const directSignalingHost = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST", "127.0.0.1");
+const directSignalingPort = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_PORT", 32190);
 const directSignalingPortAlternates = portCandidates(directSignalingPort, process.env.PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES);
 const directSignalingEnvironment = {
   ...process.env,
@@ -23,7 +23,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 console.log("PixelNOW Remote Co-Op direct signaling service");
 console.log(`  bind: ${directSignalingHost}:${directSignalingPort}${alternatePortSummary(directSignalingPortAlternates)}`);
 console.log("  media path: direct WebRTC peer connection");
-console.log("  fallback path: none");
+console.log("  relay fallback: TURN credentials issued per room");
 
 const child = spawn(process.execPath, [directSignalingScript], {
   env: directSignalingEnvironment,
@@ -98,8 +98,8 @@ Starts the direct signaling service. It only coordinates room membership and
 WebRTC negotiation; media and controller input travel peer-to-peer.
 
 Environment:
-  PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST       Bind host, default 198.12.95.48
-  PIXELNOW_REMOTE_COOP_DIRECT_PORT            Signaling port, default 32189
+  PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST       Bind host, default 127.0.0.1
+  PIXELNOW_REMOTE_COOP_DIRECT_PORT            Signaling port, default 32190
   PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES Comma-separated alternate ports
   PIXELNOW_REMOTE_COOP_DIRECT_CERT            Optional TLS certificate
   PIXELNOW_REMOTE_COOP_DIRECT_KEY             Optional TLS private key`);

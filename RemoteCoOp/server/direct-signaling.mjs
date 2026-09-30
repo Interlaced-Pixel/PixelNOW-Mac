@@ -1,26 +1,35 @@
 import { createServer as createHTTPServer } from "node:http";
 import { createServer as createHTTPSServer } from "node:https";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const productionHost = "198.12.95.48";
-const port = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_PORT", 32189);
+const port = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_PORT", 32190);
 const portAlternates = portCandidates(port, environmentValue("PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES"));
-const bindHost = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST", productionHost);
+const bindHost = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST", "127.0.0.1");
 const certificatePath = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_CERT", "") || stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_TLS_CERT", "");
 const keyPath = stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_KEY", "") || stringEnv("PIXELNOW_REMOTE_COOP_DIRECT_TLS_KEY", "");
 const tlsEnabled = Boolean(certificatePath && keyPath);
 const httpProtocol = tlsEnabled ? "https" : "http";
 const webSocketProtocol = tlsEnabled ? "wss" : "ws";
-const networkLoggingEnabled = booleanEnv("PIXELNOW_REMOTE_COOP_DIRECT_LOG_NETWORK", true);
+const networkLoggingEnabled = booleanEnv("PIXELNOW_REMOTE_COOP_DIRECT_LOG_NETWORK", false);
 const messageFlowLoggingEnabled = booleanEnv("PIXELNOW_REMOTE_COOP_DIRECT_LOG_MESSAGES", false);
 const rateLimitWindowMs = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_RATE_LIMIT_WINDOW_MS", 5_000);
-const rateLimitMaxMessages = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_RATE_LIMIT_MAX_MESSAGES", 420);
+const rateLimitMaxMessages = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_RATE_LIMIT_MAX_MESSAGES", 180);
 const hostTimeoutMs = integerEnv("PIXELNOW_REMOTE_COOP_DIRECT_HOST_TIMEOUT_MS", 3600_000);
+const turnHost = stringEnv("PIXELNOW_REMOTE_COOP_TURN_HOST", "jayian.dev");
+const turnPort = integerEnv("PIXELNOW_REMOTE_COOP_TURN_PORT", 38474);
+const turnTLSPort = integerEnv("PIXELNOW_REMOTE_COOP_TURN_TLS_PORT", 38475);
+const turnCredentialLifetimeSeconds = integerEnv("PIXELNOW_REMOTE_COOP_TURN_CREDENTIAL_LIFETIME_SECONDS", 3600);
+const turnSharedSecret = stringEnv("PIXELNOW_REMOTE_COOP_TURN_SHARED_SECRET", "");
+const maximumGuestSlots = Math.min(3, Math.max(1, integerEnv("PIXELNOW_REMOTE_COOP_MAX_GUESTS", 3)));
+const maximumMessageBytes = integerEnv("PIXELNOW_REMOTE_COOP_MAX_MESSAGE_BYTES", 65_536);
+const admissionWindowMs = integerEnv("PIXELNOW_REMOTE_COOP_ADMISSION_WINDOW_MS", 60_000);
+const admissionMaxAttempts = integerEnv("PIXELNOW_REMOTE_COOP_ADMISSION_MAX_ATTEMPTS", 20);
 const rooms = new Map();
 const sockets = new Set();
+const admissionAttempts = new Map();
 let nextSocketID = 1;
 let listeningPort = port;
 
@@ -43,7 +52,7 @@ const server = await makeDirectSignalingServer(async (request, response) => {
       forwardedFor: request.headers["x-forwarded-for"]
     }));
     if (url.pathname === "/health") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(JSON.stringify({ status: "ok", mode: "direct" }));
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }).end(JSON.stringify({ status: "ok", mode: "signaling", relayAvailable: Boolean(turnSharedSecret) }));
       return;
     }
     if (url.pathname.startsWith("/api/discover/")) {
@@ -89,7 +98,8 @@ server.on("upgrade", (request, socket) => {
     ""
   ].join("\r\n"));
   logNetwork("ws.upgrade.accepted", { remote: socketAddress(socket), path: url.pathname, forwardedFor: request.headers["x-forwarded-for"] });
-  attachSocket(socket);
+  const forwardedAddress = request.headers["x-real-ip"] ?? request.headers["x-forwarded-for"]?.split(",")[0]?.trim();
+  attachSocket(socket, forwardedAddress || socket.remoteAddress || "unknown");
 });
 
 listenOnAvailablePort(0);
@@ -144,8 +154,8 @@ setInterval(() => {
   }
 }, 10_000).unref();
 
-function attachSocket(socket) {
-  const state = { id: nextSocketID++, socket, buffer: Buffer.alloc(0), role: "unknown", roomID: null, participantID: null, connectedAt: Date.now(), lastSeenAt: Date.now(), messageTimes: [], bytesIn: 0, detached: false };
+function attachSocket(socket, remoteAddress) {
+  const state = { id: nextSocketID++, socket, remoteAddress, buffer: Buffer.alloc(0), role: "unknown", roomID: null, participantID: null, connectedAt: Date.now(), lastSeenAt: Date.now(), messageTimes: [], bytesIn: 0, detached: false };
   sockets.add(state);
   logNetwork("socket.open", socketLogFields(state));
   socket.on("data", chunk => {
@@ -197,6 +207,11 @@ function parseFrames(state) {
       const low = state.buffer.readUInt32BE(offset + 4);
       length = high * 2 ** 32 + low;
       offset += 8;
+    }
+    if (!Number.isSafeInteger(length) || length > maximumMessageBytes) {
+      logNetwork("socket.frame.rejected", { ...socketLogFields(state), reason: "message_too_large", length });
+      state.socket.destroy();
+      return;
     }
     const maskOffset = offset;
     if (masked) offset += 4;
@@ -271,8 +286,8 @@ function handleMessage(state, message) {
 }
 
 function registerHost(state, message) {
-  const roomID = stringValue(message.roomID);
-  if (!roomID) {
+  const roomID = stringValue(message.roomID)?.trim().toUpperCase();
+  if (!roomID || !/^[A-Z0-9]{6}$/.test(roomID)) {
     logNetwork("host.rejected", { ...socketLogFields(state), reason: "missing_room" });
     send(state, { kind: "hostJoinRejected", reason: "Missing room ID" });
     return;
@@ -284,34 +299,55 @@ function registerHost(state, message) {
     return;
   }
   room.host = state;
+  room.networkConfiguration = createNetworkConfiguration(roomID);
   state.role = "host";
   state.roomID = roomID;
   state.lastSeenAt = Date.now();
   logNetwork("host.registered", { ...socketLogFields(state), guests: room.guests.size });
-  send(state, { kind: "hostJoinAccepted", roomID });
+  send(state, { kind: "hostJoinAccepted", roomID, networkConfiguration: room.networkConfiguration });
   sendSignalingStats();
 }
 
 function registerGuest(state, message) {
-  const roomID = stringValue(message.roomID);
-  if (!roomID) {
+  const roomID = stringValue(message.roomID)?.trim().toUpperCase();
+  const participantID = stringValue(message.participantID);
+  if (!roomID || !participantID || !/^[A-Z0-9]{6}$/.test(roomID)) {
     logNetwork("guest.rejected", { ...socketLogFields(state), reason: "missing_room" });
     send(state, { kind: "guestJoinRejected", reason: "Missing room ID" });
     return;
   }
-  const room = roomFor(roomID);
-  if (!room.host) {
+  if (isAdmissionRateLimited(state)) {
+    logNetwork("guest.rejected", { ...socketLogFields(state), reason: "admission_rate_limited" });
+    send(state, { kind: "guestJoinRejected", reason: "Too many invite attempts. Try again shortly." });
+    state.socket.end();
+    return;
+  }
+  const room = rooms.get(roomID);
+  if (!room?.host) {
     logNetwork("guest.rejected", { ...socketLogFields(state), reason: "no_host" });
     send(state, { kind: "guestJoinRejected", reason: "Host not connected" });
     return;
   }
+  if (room.guests.size >= maximumGuestSlots) {
+    logNetwork("guest.rejected", { ...socketLogFields(state), reason: "room_full" });
+    send(state, { kind: "guestJoinRejected", reason: "All guest slots are in use." });
+    state.socket.end();
+    return;
+  }
+  if (room.guests.has(participantID)) {
+    logNetwork("guest.rejected", { ...socketLogFields(state), reason: "participant_already_connected" });
+    send(state, { kind: "guestJoinRejected", reason: "This participant is already connected." });
+    state.socket.end();
+    return;
+  }
   state.role = "guest";
   state.roomID = roomID;
-  state.participantID = message.participantID;
+  state.participantID = participantID;
   state.displayName = stringValue(message.displayName) ?? "Guest";
   room.guests.set(state.participantID, state);
   room.maxGuests = Math.max(room.maxGuests, room.guests.size);
   logNetwork("guest.registered", { ...socketLogFields(state), hostConnected: Boolean(room.host) });
+  send(state, { kind: "networkConfiguration", roomID, networkConfiguration: room.networkConfiguration });
   send(state, { kind: "guestJoinAccepted", roomID });
   send(room.host, { kind: "guestConnected", roomID, participantID: state.participantID, displayName: state.displayName });
   sendSignalingStats();
@@ -418,9 +454,36 @@ function closeRoom(roomID, reason = "closed") {
 function roomFor(roomID) {
   const existing = rooms.get(roomID);
   if (existing) return existing;
-  const room = { host: null, guests: new Map(), createdAtMs: Date.now(), maxGuests: 0 };
+  const room = { host: null, guests: new Map(), createdAtMs: Date.now(), maxGuests: 0, networkConfiguration: null };
   rooms.set(roomID, room);
   return room;
+}
+
+function createNetworkConfiguration(roomID) {
+  const iceServers = [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
+  ];
+  if (turnSharedSecret) {
+    const expiresAt = Math.floor(Date.now() / 1_000) + Math.max(300, turnCredentialLifetimeSeconds);
+    const username = `${expiresAt}:pixelnow:${roomID}`;
+    const credential = createHmac("sha1", turnSharedSecret).update(username).digest("base64");
+    iceServers.push({
+      urls: [
+        `turn:${turnHost}:${turnPort}?transport=udp`,
+        `turn:${turnHost}:${turnPort}?transport=tcp`,
+        `turns:${turnHost}:${turnTLSPort}?transport=tcp`
+      ],
+      username,
+      credential
+    });
+  }
+  return {
+    latencyMode: "lowLatency",
+    iceServers,
+    dataChannelInputEnabled: true,
+    websocketInputFallbackEnabled: false,
+    directPeerCandidateWarning: "Direct peer connections expose candidate network addresses. TURN is available when direct routes fail."
+  };
 }
 
 function signalingStats() {
@@ -445,10 +508,8 @@ function stringValue(value) {
 
 function logMessageFlow(direction, state, message) {
   if (!messageFlowLoggingEnabled) return;
-  const participantID = stringValue(message.participantID) ?? "none";
-  const roomID = stringValue(message.roomID ?? state.roomID) ?? "none";
   const signalKind = message.peerSignal?.kind ? ` signal=${message.peerSignal.kind}` : "";
-  console.log(`[flow] ${direction} role=${state.role} kind=${message.kind ?? "unknown"}${signalKind} room=${roomID} participant=${participantID}`);
+  console.log(`[flow] ${direction} role=${state.role} kind=${message.kind ?? "unknown"}${signalKind}`);
 }
 
 function logNetwork(event, fields = {}) {
@@ -463,10 +524,8 @@ function logNetwork(event, fields = {}) {
 function socketLogFields(state) {
   return {
     socketID: state.id,
-    remote: socketAddress(state.socket),
-    role: state.role,
-    roomID: state.roomID ?? "none",
-    participantID: state.participantID ?? "none"
+    remote: state.remoteAddress,
+    role: state.role
   };
 }
 
@@ -487,11 +546,16 @@ function isRateLimited(state) {
   return state.messageTimes.length > rateLimitMaxMessages;
 }
 
-function splitEnv(name, fallback) {
-  return (environmentValue(name) ?? fallback)
-    .split(",")
-    .map(value => value.trim())
-    .filter(Boolean);
+function isAdmissionRateLimited(state) {
+  const now = Date.now();
+  const address = state.remoteAddress || "unknown";
+  const attempts = (admissionAttempts.get(address) ?? []).filter(time => now - time < admissionWindowMs);
+  attempts.push(now);
+  admissionAttempts.set(address, attempts);
+  for (const [key, times] of admissionAttempts) {
+    if (times.every(time => now - time >= admissionWindowMs)) admissionAttempts.delete(key);
+  }
+  return attempts.length > admissionMaxAttempts;
 }
 
 function integerEnv(name, fallback) {
