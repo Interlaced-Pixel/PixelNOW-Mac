@@ -1,0 +1,21 @@
+# Managed by PixelNOW Remote Co-Op deployment.
+[Unit]
+Description=PixelNOW Remote Co-Op TURN relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=turnserver
+Group=turnserver
+ExecStart=/usr/bin/turnserver -c /etc/pixelnow-remote-coop/turnserver.conf --no-cli
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# Managed by PixelNOW Remote Co-Op deployment.
+[Unit]
+Description=PixelNOW Remote Co-Op signaling
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jayian
+Group=jayian
+WorkingDirectory=/opt/pixelnow-remote-coop
+EnvironmentFile=/etc/pixelnow-remote-coop/server.env
+Environment=PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST=127.0.0.1
+Environment=PIXELNOW_REMOTE_COOP_DIRECT_PORT=32190
+Environment=PIXELNOW_REMOTE_COOP_DIRECT_PORT_ALTERNATES=32190
+Environment=PIXELNOW_REMOTE_COOP_TURN_HOST=jayian.dev
+Environment=PIXELNOW_REMOTE_COOP_TURN_PORT=38474
+Environment=PIXELNOW_REMOTE_COOP_TURN_TLS_PORT=38475
+Environment=PIXELNOW_REMOTE_COOP_DIRECT_LOG_NETWORK=false
+Environment=PIXELNOW_REMOTE_COOP_DIRECT_LOG_MESSAGES=false
+ExecStart=/home/jayian/.local/node22/bin/node /opt/pixelnow-remote-coop/server/direct-signaling.mjs
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/run
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

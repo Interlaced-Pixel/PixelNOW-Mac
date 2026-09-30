@@ -1,56 +1,64 @@
 # PixelNOW Remote Co-Op
 
-Remote Co-Op uses a relayless peer-to-peer topology:
+Remote Co-Op keeps the six-character PIN invite. The guest opens the link
+copied by the host and enters the PIN if the link did not prefill it. A
+signaling service matches the room and forwards WebRTC negotiation messages;
+media and controller input use a direct peer connection whenever possible.
+Coturn provides a TURN path when direct connectivity fails.
 
 ```text
-guest browser ── direct WebRTC media/data ── host app
-      \────── short-lived room rendezvous ──────/
+host app ── WSS signaling ── guest browser
+host app ══ direct WebRTC, or TURN-relayed WebRTC ══ guest browser
 ```
 
-The server only holds a room while the host and guest exchange WebRTC
-offers, answers, and candidates. It never carries video, audio, or controller
-input. A direct connection failure is reported to the user; there is no
-server-side media fallback.
+## Public service
 
-## Components
+- Guest page and HTTPS/WSS endpoint: `https://jayian.dev:38473/`
+- Signaling path: `wss://jayian.dev:38473/remote-coop-direct`
+- TURN over UDP/TCP: `jayian.dev:38474`
+- TURN over TLS/TCP: `jayian.dev:38475`
+- TURN UDP relay range: `40000-40100`
 
-- `browser/index.html` and `browser/app.js` are the guest client.
-- `server/direct-signaling.mjs` is the room rendezvous service.
-- `run-servers.mjs` starts exactly one rendezvous service.
-- `App/RemoteCoOp/remote-coop-direct-config.json` documents the direct-only WebRTC policy.
+Port 38473 is an additive Nginx listener. The existing website on ports 80 and
+443 is served by its current configuration and is not replaced or edited. The
+new listener reuses the existing `jayian.dev` certificate. Node signaling is
+bound to localhost on port 32190. Coturn runs as a separate service with its
+own configuration and time-limited room credentials.
 
-## Run the rendezvous service
+## Install and operate
+
+From this repository checkout:
 
 ```sh
-node RemoteCoOp/run-servers.mjs
+RemoteCoOp/deploy/deploy.sh jayian
 ```
 
-Defaults bind the service to `198.12.95.48:32189`. For a LAN deployment:
+The deploy command stages the service files over SSH and invokes the isolated
+server installer with `sudo` (the server may prompt for its admin password).
+To stage without installing, use `RemoteCoOp/deploy/deploy.sh --stage-only jayian`.
+The installer checks the required ports and certificate,
+installs separate PixelNOW systemd services and an additive Nginx site file,
+tests the Nginx configuration before reload, and adds only the required
+firewall rules. It does not edit the existing website files or listeners.
+
+To inspect the service after deployment:
 
 ```sh
-PIXELNOW_REMOTE_COOP_DIRECT_BIND_HOST=192.168.1.25 \
-PIXELNOW_REMOTE_COOP_DIRECT_PORT=32189 \
-node RemoteCoOp/run-servers.mjs
+ssh jayian 'sudo systemctl status pixelnow-remote-coop pixelnow-remote-coop-turn'
+ssh jayian 'sudo journalctl -u pixelnow-remote-coop -u pixelnow-remote-coop-turn -f'
 ```
 
-Use `PIXELNOW_REMOTE_COOP_DIRECT_CERT` and
-`PIXELNOW_REMOTE_COOP_DIRECT_KEY` together for encrypted signaling in a
-deployed environment. The guest endpoint is:
+To remove this deployment later, run `sudo /bin/bash ~/.cache/pixelnow-remote-coop-stage/RemoteCoOp/deploy/uninstall-server.sh` on the server. It removes only the PixelNOW Remote Co-Op units, files, firewall rules, and the added port 38473 Nginx site.
 
-```text
-wss://host:32189/remote-coop-direct
-```
+## Security and connection behavior
 
-## Direct connection contract
-
-- WebRTC ICE policy is `all`; configured ICE servers are discovery-only.
-- The default configuration contains no server-side media route.
-- Controller input uses a WebRTC data channel.
-- WebSocket signaling is used only for room membership and peer negotiation.
-- Bonjour, manual host address, and six-character room code are supported for discovery and admission.
-- Room admission is host-authoritative and expires with the invite.
-- NAT or firewall incompatibility produces an explicit connection error.
-
-Relayless networking cannot traverse every symmetric NAT or restrictive
-firewall. That limitation is intentional: the product does not silently add
-a media service that changes the topology or its privacy characteristics.
+- The signaling server forwards room and peer-negotiation messages. It does
+  not receive video, audio, or controller input.
+- TURN credentials are generated per room, signed on the server, and expire.
+- The signaling service limits message size and invite attempts and does not
+  log room PINs, SDP, or TURN credentials.
+- Direct ICE candidates are preferred. TURN carries media only when WebRTC
+  cannot establish a direct route.
+- STUN services provide address discovery; TURN is the media relay fallback.
+- Restrictive firewalls can still block both direct and relay paths. External
+  access must be verified after deployment from a network outside the host.
