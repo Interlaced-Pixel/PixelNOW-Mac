@@ -1,30 +1,23 @@
 import Foundation
 
 public actor RemoteCoOpDirectHostSessionManager {
-    private let directPreferences: RemoteCoOpDirectPreferences
     private let hostSession: RemoteCoOpHostSession
     private let directSignalingSession: RemoteCoOpDirectSignalingSession
     private let coordinator: RemoteCoOpHostCoordinator
     private let hostPeerController: RemoteCoOpHostPeerController
-    private let bonjourAdvertiser: BonjourServiceAdvertiser
-    private let upnpManager: UPnPManager
     private let forwardInput: @Sendable (UserInputEvent) async -> Void
     private var isRunning = false
     private var eventTask: Task<Void, Never>?
     
-    public init(directPreferences: RemoteCoOpDirectPreferences = RemoteCoOpDirectPreferences(),
-                hostSession: RemoteCoOpHostSession? = nil,
+    public init(hostSession: RemoteCoOpHostSession? = nil,
                 directSignalingSession: RemoteCoOpDirectSignalingSession? = nil,
                 peerFactory: any RemoteCoOpHostPeerFactory = RemoteCoOpWebRTCHostPeerFactory(),
                 videoRelay: RemoteCoOpHostVideoRelay? = nil,
                 audioRelay: RemoteCoOpHostAudioRelay? = nil,
-                forwardInput: @escaping @Sendable (UserInputEvent) async -> Void,
-                bonjourAdvertiser: BonjourServiceAdvertiser = BonjourServiceAdvertiser(),
-                upnpManager: UPnPManager = UPnPManager()) {
+                forwardInput: @escaping @Sendable (UserInputEvent) async -> Void) {
         let preferences = RemoteCoOpPreferencesStore.load()
         let resolvedHostSession = hostSession ?? RemoteCoOpHostSession(preferences: preferences)
-        let resolvedSignalingSession = directSignalingSession ?? RemoteCoOpDirectSignalingSession(port: directPreferences.signalingPort)
-        self.directPreferences = directPreferences
+        let resolvedSignalingSession = directSignalingSession ?? RemoteCoOpDirectSignalingSession()
         self.hostSession = resolvedHostSession
         self.directSignalingSession = resolvedSignalingSession
         let resolvedCoordinator = RemoteCoOpHostCoordinator(hostSession: resolvedHostSession, signaling: resolvedSignalingSession)
@@ -44,8 +37,6 @@ public actor RemoteCoOpDirectHostSessionManager {
             forwardInput: forwardInput
         )
         self.forwardInput = forwardInput
-        self.bonjourAdvertiser = bonjourAdvertiser
-        self.upnpManager = upnpManager
     }
     
     public func start() async throws {
@@ -53,12 +44,9 @@ public actor RemoteCoOpDirectHostSessionManager {
         
         isRunning = true
         
-        await applyUPnPConfiguration()
-        
         do {
             try await startDirectSignaling()
             startEventLoop()
-            await startUPnP()
         } catch {
             await stop()
             throw error
@@ -73,15 +61,12 @@ public actor RemoteCoOpDirectHostSessionManager {
         pendingEventTask?.cancel()
         eventTask = nil
         
-        await stopBonjourAdvertising()
-        
         let neutralEvents = await coordinator.stopInvite()
         for event in neutralEvents { await forwardInput(event) }
         await stopDirectSignaling()
         await pendingEventTask?.value
         await hostPeerController.removeAll()
         
-        await clearUPnP()
     }
     
     public func generatePIN() async -> (pin: String, expiresAt: Date) {
@@ -92,61 +77,32 @@ public actor RemoteCoOpDirectHostSessionManager {
     public func startInvite(applicationID: String = "", title: String = "") async throws -> RemoteCoOpInvite {
         let invite = try await coordinator.startInvite(applicationID: applicationID, title: title)
         try await directSignalingSession.waitUntilHostRegistered()
-        if directPreferences.enableBonjour {
-            let hostIP = await getLocalIPAddress()
-            try await advertiseDirectSession(hostIP: hostIP, pin: invite.code)
+        if let configuration = directSignalingSession.latestNetworkConfiguration() {
+            await hostPeerController.updateNetworkConfiguration(configuration)
         }
-        return invite
+        var joinURL = URLComponents()
+        joinURL.scheme = "https"
+        joinURL.host = "jayian.dev"
+        joinURL.port = 38473
+        joinURL.path = "/"
+        joinURL.queryItems = [URLQueryItem(name: "invite", value: invite.code)]
+        return RemoteCoOpInvite(
+            id: invite.id,
+            code: invite.code,
+            createdAt: invite.createdAt,
+            expiresAt: invite.expiresAt,
+            token: invite.code,
+            joinURL: joinURL.url,
+            applicationID: invite.applicationID,
+            title: invite.title,
+            hideGuestInviteDetails: invite.hideGuestInviteDetails
+        )
     }
     
     public func validatePIN(_ pin: String, from _: String) async -> Bool {
         let normalizedPIN = pin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard normalizedPIN.count == 6 else { return false }
         return await hostSession.snapshot().invite?.code == normalizedPIN
-    }
-    
-    public func getLocalIPAddress() async -> String {
-        var address: String?
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        
-        guard getifaddrs(&ifaddr) == 0 else { return "127.0.0.1" }
-        defer { freeifaddrs(ifaddr) }
-        
-        var ptr = ifaddr
-        while let currentInterface = ptr {
-            let interface = currentInterface.pointee
-            ptr = interface.ifa_next
-            guard let socketAddress = interface.ifa_addr else { continue }
-            let flags = Int32(interface.ifa_flags)
-            let addrFamily = socketAddress.pointee.sa_family
-            
-            if flags & IFF_UP != 0 && flags & IFF_LOOPBACK == 0 && addrFamily == UInt8(AF_INET) {
-                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                if getnameinfo(socketAddress, socklen_t(socketAddress.pointee.sa_len),
-                               &hostname, socklen_t(hostname.count),
-                               nil, 0, NI_NUMERICHOST) == 0 {
-                    let bytes = hostname.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
-                    address = String(decoding: bytes, as: UTF8.self)
-                }
-            }
-        }
-        
-        return address ?? "127.0.0.1"
-    }
-    
-    public func advertiseDirectSession(hostIP: String, pin: String) async throws {
-        try await bonjourAdvertiser.advertise(
-            hostID: UUID(),
-            pin: pin,
-            hostIP: hostIP,
-            signalingPort: Int(directPreferences.signalingPort),
-            quality: "720p60",
-            latency: "low"
-        )
-    }
-    
-    private func applyUPnPConfiguration() async {
-        await upnpManager.setEnabled(directPreferences.enableUPnP)
     }
     
     private func startDirectSignaling() async throws {
@@ -162,40 +118,6 @@ public actor RemoteCoOpDirectHostSessionManager {
         await directSignalingSession.close()
     }
     
-    private func startBonjourAdvertising() async throws {
-        guard directPreferences.enableBonjour else { return }
-        
-        let hostIP = await getLocalIPAddress()
-        let (pin, _) = await generatePIN()
-        
-        try await advertiseDirectSession(hostIP: hostIP, pin: pin)
-    }
-    
-    private func stopBonjourAdvertising() async {
-        guard directPreferences.enableBonjour else { return }
-        
-        await bonjourAdvertiser.stop()
-    }
-    
-    private func startUPnP() async {
-        guard directPreferences.enableUPnP else { return }
-        
-        do {
-            try await upnpManager.discoverRouter()
-            try await upnpManager.mapPort(directPreferences.signalingPort, protocol: .tcp)
-            try await upnpManager.mapPort(directPreferences.signalingPort, protocol: .udp)
-        } catch {
-            WebRTCMediaTelemetry.capture("remote.coop.direct.upnp.start.failed", level: .warning, message: error.localizedDescription)
-            await upnpManager.clearAllMappings()
-        }
-    }
-    
-    private func clearUPnP() async {
-        guard directPreferences.enableUPnP else { return }
-        
-        await upnpManager.clearAllMappings()
-    }
-
     private func startEventLoop() {
         let events = directSignalingSession.events()
         eventTask = Task { [weak self] in
@@ -204,6 +126,8 @@ public actor RemoteCoOpDirectHostSessionManager {
                 switch event {
                 case .peerSignal(let participantID, let signal):
                     try? await self.hostPeerController.receiveSignal(participantID: participantID, signal: signal)
+                case .networkConfiguration(let configuration):
+                    await self.hostPeerController.updateNetworkConfiguration(configuration)
                 default:
                     let routedEvents = await self.coordinator.handle(event)
                     for routedEvent in routedEvents { await self.forwardInput(routedEvent) }

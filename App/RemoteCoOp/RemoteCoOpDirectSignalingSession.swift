@@ -80,18 +80,23 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
     private var heartbeatTask: Task<Void, Never>?
     private var roomID: String?
     private var invite: RemoteCoOpInvite?
+    private var networkConfiguration: RemoteCoOpNetworkConfiguration?
     private var isClosed = false
     private var hostRegistrationResolved = false
     private var hostRegistrationError: SignalingError?
     private var hostRegistrationWaiter: CheckedContinuation<Void, Error>?
 
-    public init(port: UInt16 = 32189,
+    public init(port: UInt16 = 38473,
                 serverURL: String? = nil,
                 urlSession: URLSession = .shared) {
         self.serverURLString = serverURL
             ?? ProcessInfo.processInfo.environment["PIXELNOW_REMOTE_COOP_DIRECT_URL"]
-            ?? "ws://198.12.95.48:\(port)/remote-coop-direct"
+            ?? "wss://jayian.dev:\(port)/remote-coop-direct"
         self.urlSession = urlSession
+    }
+
+    public func latestNetworkConfiguration() -> RemoteCoOpNetworkConfiguration? {
+        lock.withLock { networkConfiguration }
     }
 
     public func events() -> AsyncStream<RemoteCoOpSignalingEvent> {
@@ -154,6 +159,7 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             self.heartbeatTask = nil
             roomID = nil
             invite = nil
+            networkConfiguration = nil
             return (continuations, socket, receiveTask, heartbeatTask)
         }
         state.2?.cancel()
@@ -182,6 +188,7 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             isClosed = false
             hostRegistrationResolved = false
             hostRegistrationError = nil
+            networkConfiguration = nil
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = task
         }
@@ -307,8 +314,14 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
                   let participantID = message.fromParticipantID ?? message.participantID else { return }
             yield(.peerSignal(participantID: participantID, signal: signal))
         case "networkConfiguration":
-            if let configuration = message.networkConfiguration { yield(.networkConfiguration(configuration)) }
+            if let configuration = message.networkConfiguration {
+                lock.withLock { networkConfiguration = configuration }
+                yield(.networkConfiguration(configuration))
+            }
         case "hostJoinAccepted":
+            if let configuration = message.networkConfiguration {
+                lock.withLock { networkConfiguration = configuration }
+            }
             resolveHostRegistration(error: nil)
         case "hostJoinRejected":
             let error = SignalingError.hostRejected(message.reason ?? "Direct signaling rejected the host.")

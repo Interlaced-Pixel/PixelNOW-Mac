@@ -11,7 +11,7 @@ public struct RemoteCoOpDirectPreferences: Codable, Equatable, Sendable {
     
     public init(enableUPnP: Bool = true,
                 enableBonjour: Bool = true,
-                signalingPort: UInt16 = 32189) {
+                signalingPort: UInt16 = 38473) {
         self.enableUPnP = enableUPnP
         self.enableBonjour = enableBonjour
         self.signalingPort = signalingPort

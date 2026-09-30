@@ -2,6 +2,7 @@ import Foundation
 import GameController
 import CoreGraphics
 import SwiftUI
+import AppKit
 
 public typealias NativeNVSTMediaStreamProgressCallback = @MainActor @Sendable (_ progress: StreamProgress) -> Void
 public typealias NativeNVSTMediaStreamEndCallback = @MainActor @Sendable (_ success: Bool, _ message: String, _ report: StreamReport?) -> Void
@@ -395,6 +396,8 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
     @State private var remoteCoOpDirectHostSessionManager: RemoteCoOpDirectHostSessionManager?
     @State private var remoteCoOpInviteCode: String?
+    @State private var remoteCoOpInviteLink: URL?
+    @State private var remoteCoOpInviteLinkStatus: String?
     @State private var remoteCoOpStatusMessage: String?
     @State private var isCreatingRemoteCoOpInvite = false
     @State private var networkGovernor: NativeNVSTNetworkGovernor?
@@ -745,6 +748,8 @@ struct NativeNVSTMediaStreamSurface: View {
         let pendingRemoteCoOpManager = remoteCoOpDirectHostSessionManager
         remoteCoOpDirectHostSessionManager = nil
         remoteCoOpInviteCode = nil
+        remoteCoOpInviteLink = nil
+        remoteCoOpInviteLinkStatus = nil
         remoteCoOpStatusMessage = nil
         isCreatingRemoteCoOpInvite = false
         pendingStartTask?.cancel()
@@ -821,6 +826,8 @@ struct NativeNVSTMediaStreamSurface: View {
         let remoteCoOpManager = remoteCoOpDirectHostSessionManager
         remoteCoOpDirectHostSessionManager = nil
         remoteCoOpInviteCode = nil
+        remoteCoOpInviteLink = nil
+        remoteCoOpInviteLinkStatus = nil
         remoteCoOpStatusMessage = nil
         isCreatingRemoteCoOpInvite = false
         await remoteCoOpManager?.stop()
@@ -893,6 +900,8 @@ struct NativeNVSTMediaStreamSurface: View {
         let remoteCoOpManager = remoteCoOpDirectHostSessionManager
         remoteCoOpDirectHostSessionManager = nil
         remoteCoOpInviteCode = nil
+        remoteCoOpInviteLink = nil
+        remoteCoOpInviteLinkStatus = nil
         remoteCoOpStatusMessage = nil
         isCreatingRemoteCoOpInvite = false
         if let remoteCoOpManager {
@@ -2013,6 +2022,20 @@ struct NativeNVSTMediaStreamSurface: View {
                         }
                     }
                 )
+                if let inviteLink = remoteCoOpInviteLink {
+                    NativeNVSTStreamHUDActionRow(
+                        title: "Copy Invite Link",
+                        subtitle: remoteCoOpInviteLinkStatus ?? "Share PIN \(remoteCoOpInviteCode ?? "") with a guest.",
+                        systemName: "doc.on.doc",
+                        isActive: true,
+                        isDisabled: false,
+                        action: {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(inviteLink.absoluteString, forType: .string)
+                            remoteCoOpInviteLinkStatus = "Invite link copied."
+                        }
+                    )
+                }
                 nativeHUDDetailRow(label: "Slots", value: "\(remoteCoOpPreferences.effectiveReservedGuestSlots)")
                 nativeHUDDetailRow(label: "Quality", value: remoteCoOpPreferences.qualityPreset.label)
                 nativeHUDDetailRow(label: "Latency", value: remoteCoOpPreferences.latencyMode.label)
@@ -2050,11 +2073,15 @@ struct NativeNVSTMediaStreamSurface: View {
             let invite = try await manager.startInvite(applicationID: configuration.applicationID, title: configuration.title)
             remoteCoOpDirectHostSessionManager = manager
             remoteCoOpInviteCode = invite.code
+            remoteCoOpInviteLink = invite.joinURL
+            remoteCoOpInviteLinkStatus = nil
             remoteCoOpStatusMessage = nil
             Log.info(.stream, "Remote Co-Op invite created")
         } catch {
             await manager.stop()
             remoteCoOpInviteCode = nil
+            remoteCoOpInviteLink = nil
+            remoteCoOpInviteLinkStatus = nil
             remoteCoOpStatusMessage = "Invite failed: \(error.localizedDescription)"
             Log.error(.stream, "Failed to create Remote Co-Op invite: \(error.localizedDescription)")
             WebRTCMediaTelemetry.capture("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
@@ -2065,12 +2092,14 @@ struct NativeNVSTMediaStreamSurface: View {
         guard let manager = remoteCoOpDirectHostSessionManager else { return }
         remoteCoOpDirectHostSessionManager = nil
         remoteCoOpInviteCode = nil
+        remoteCoOpInviteLink = nil
+        remoteCoOpInviteLinkStatus = nil
         remoteCoOpStatusMessage = "Invite stopped."
         await manager.stop()
     }
 
     private var nativeRemoteCoOpInviteSubtitle: String {
-        if let remoteCoOpInviteCode { return "PIN \(remoteCoOpInviteCode)" }
+        if let remoteCoOpInviteCode { return "PIN \(remoteCoOpInviteCode) · Copy invite link to share" }
         if let remoteCoOpStatusMessage { return remoteCoOpStatusMessage }
         if isCreatingRemoteCoOpInvite { return "Starting..." }
         if remoteCoOpDirectHostSessionManager != nil { return "Ready" }

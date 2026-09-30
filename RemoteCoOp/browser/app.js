@@ -31,6 +31,7 @@ let socket = null;
 let invite = parseInvite(inviteToken);
 const participantID = createParticipantID();
 let admitted = false;
+let hostApproved = false;
 let sequenceNumber = 0;
 let lastSentState = "";
 let lastSentAt = 0;
@@ -39,6 +40,7 @@ let inputHistory = [];
 let pollHandle = null;
 let pollMode = "stopped";
 let networkConfiguration = null;
+let queuedPeerSignals = [];
 let peerConnection = null;
 let inputChannel = null;
 let statsHandle = 0;
@@ -161,6 +163,9 @@ async function handleMessage(message) {
     if (message.roomID && invite) invite.inviteID = message.roomID;
     updateDiagnostics({ signaling: "network configuration received" });
     configurePeerConnection(message.networkConfiguration);
+    const queuedSignals = queuedPeerSignals;
+    queuedPeerSignals = [];
+    for (const signal of queuedSignals) await handlePeerSignal(signal);
     return;
   }
   if (message.kind === "peerSignal") {
@@ -170,16 +175,29 @@ async function handleMessage(message) {
     return;
   }
   if (message.kind === "participantUpdated" && sameParticipantID(message.participant?.id, participantID)) {
-    admitted = message.participant.connectionState === "connected" && message.participant.inputEnabled === true;
-    if (admitted) {
-      const playerNumber = (message.participant.playerIndex ?? 1) + 1;
+    hostApproved = message.participant.connectionState === "connected" && message.participant.inputEnabled === true;
+    admitted = hostApproved && inputChannel?.readyState === "open";
+    if (hostApproved) {
+      const playerNumber = message.participant.playerIndex ?? 1;
       setState("Approved", `P${playerNumber}`, true, playerNumber);
       updateDiagnostics({ admission: "admitted", playerSlot: `player ${playerNumber}` });
-      startPolling();
+      if (admitted) startPolling();
     } else {
       setState("Waiting", "Host", false);
       updateDiagnostics({ admission: "waiting" });
     }
+    return;
+  }
+  if (message.kind === "guestJoinRejected") {
+    setState("Rejected", message.reason ?? "Invite", false);
+    updateDiagnostics({ admission: `rejected: ${message.reason ?? "invite rejected"}` });
+    disconnect(false);
+    return;
+  }
+  if (message.kind === "hostDisconnected" || message.kind === "hostTimeout") {
+    setState("Disconnected", "Host", false);
+    updateDiagnostics({ admission: "host disconnected" });
+    disconnect(false);
     return;
   }
   if (message.kind === "participantRemoved") {
@@ -402,22 +420,10 @@ function configurePeerConnection(configuration) {
   peerConnection = new RTCPeerConnection(rtcConfiguration);
   configureReceiverLatency(peerConnection.addTransceiver("video", { direction: "recvonly" }).receiver);
   configureReceiverLatency(peerConnection.addTransceiver("audio", { direction: "recvonly" }).receiver);
-  if (networkConfiguration.dataChannelInputEnabled !== false) bindInputChannel(peerConnection.createDataChannel("input", { ordered: false, maxRetransmits: 0 }));
   peerConnection.addEventListener("datachannel", event => bindInputChannel(event.channel));
   peerConnection.addEventListener("icecandidate", event => {
     if (!event.candidate) return;
     updateDiagnostics({ localCandidates: diagnostics.localCandidates + 1 });
-    send({
-      kind: "peerSignal",
-      roomID: inviteRoomID(),
-      participantID,
-      peerSignal: {
-        kind: "iceCandidate",
-        candidate: event.candidate.candidate,
-        sdpMid: event.candidate.sdpMid,
-        sdpMLineIndex: event.candidate.sdpMLineIndex
-      }
-    });
   });
   peerConnection.addEventListener("connectionstatechange", () => updatePeerConnectionState());
   peerConnection.addEventListener("iceconnectionstatechange", () => updatePeerConnectionState());
@@ -431,13 +437,20 @@ function configurePeerConnection(configuration) {
 
 async function handlePeerSignal(signal) {
   if (!signal) return;
-  if (!peerConnection) configurePeerConnection(directDefaultConfiguration());
+  if (!networkConfiguration) {
+    queuedPeerSignals.push(signal);
+    return;
+  }
+  if (!peerConnection) configurePeerConnection(networkConfiguration);
   if (signal.kind === "offer") {
     updateDiagnostics({ signaling: "offer received" });
     await peerConnection.setRemoteDescription({ type: "offer", sdp: signal.sdp });
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
-    send({ kind: "peerSignal", roomID: inviteRoomID(), participantID, peerSignal: { kind: "answer", sdp: answer.sdp } });
+    await waitForICEGathering(peerConnection);
+    const gatheredSDP = peerConnection.localDescription?.sdp;
+    if (!gatheredSDP) throw new Error("Could not finish gathering direct connection details.");
+    send({ kind: "peerSignal", roomID: inviteRoomID(), participantID, peerSignal: { kind: "answer", sdp: gatheredSDP } });
     setNetworkState(networkLabel(), "ICE");
     updateDiagnostics({ signaling: "answer sent" });
     return;
@@ -457,14 +470,36 @@ function bindInputChannel(channel) {
   inputChannel = channel;
   updateDiagnostics({ inputChannel: `${channel.label || "input"} ${channel.readyState}` });
   channel.addEventListener("open", () => {
-    setNetworkState(networkLabel(), "Input data channel connected.");
+    admitted = hostApproved;
+    if (admitted) startPolling();
+    setNetworkState(networkLabel(), admitted ? "Input data channel connected." : "Waiting for host approval.");
     updateDiagnostics({ inputChannel: `${channel.label || "input"} open`, input: "data channel ready" });
   });
   channel.addEventListener("close", () => {
+    admitted = false;
+    stopPolling();
     setNetworkState(networkLabel(), "Fallback");
     updateDiagnostics({ inputChannel: `${channel.label || "input"} closed` });
   });
   channel.addEventListener("error", () => updateDiagnostics({ inputChannel: `${channel.label || "input"} error` }));
+}
+
+function waitForICEGathering(connection) {
+  if (connection.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      connection.removeEventListener("icegatheringstatechange", onStateChange);
+      reject(new Error("ICE gathering timed out. Check the network and try again."));
+    }, 20_000);
+    const onStateChange = () => {
+      if (connection.iceGatheringState !== "complete") return;
+      window.clearTimeout(timeout);
+      connection.removeEventListener("icegatheringstatechange", onStateChange);
+      resolve();
+    };
+    connection.addEventListener("icegatheringstatechange", onStateChange);
+    onStateChange();
+  });
 }
 
 function closePeerConnection() {
@@ -618,6 +653,19 @@ function currentInviteToken() {
   return elements.inviteCode?.value.trim().toUpperCase() ?? "";
 }
 
+function parseInvite(token) {
+  const code = displayInviteToken(token);
+  if (!/^[A-Z0-9]{6}$/.test(code)) return null;
+  return {
+    code,
+    inviteID: code,
+    expiresAtEpochSeconds: Number.POSITIVE_INFINITY,
+    requireHostApproval: true,
+    transportMode: "direct",
+    latencyMode: "lowLatency"
+  };
+}
+
 function normalizeInviteCodeInput() {
   if (!elements.inviteCode) return;
   const normalized = elements.inviteCode.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
@@ -641,6 +689,35 @@ function describeIceServers(servers) {
 function iceServerURLs(server) {
   if (Array.isArray(server.urls)) return server.urls;
   return typeof server.urls === "string" ? [server.urls] : [];
+}
+
+function signalingEndpoint() {
+  const endpoint = new URL("/remote-coop-direct", window.location.href);
+  endpoint.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return endpoint.toString();
+}
+
+function inviteRoomID() {
+  return invite?.inviteID ?? invite?.code;
+}
+
+function disconnect(notifyHost = true) {
+  admitted = false;
+  hostApproved = false;
+  networkConfiguration = null;
+  queuedPeerSignals = [];
+  stopPolling();
+  resetInputHistory();
+  closePeerConnection();
+  if (notifyHost && socket?.readyState === WebSocket.OPEN) {
+    send({ kind: "guestDisconnected", roomID: inviteRoomID(), participantID });
+  }
+  const currentSocket = socket;
+  socket = null;
+  currentSocket?.close();
+  elements.joinCard?.classList.remove("hidden");
+  elements.sessionCard?.classList.add("hidden");
+  elements.joinButton.disabled = false;
 }
 
 function startStatsPolling() {

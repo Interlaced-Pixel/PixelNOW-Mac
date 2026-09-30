@@ -40,6 +40,8 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
     private var nextVideoFrameDeliveryNanoseconds: UInt64 = 0
     private var deliveredVideoFrameCount: UInt64 = 0
     private var droppedVideoFrameCount: UInt64 = 0
+    private var iceGatheringContinuation: CheckedContinuation<Void, Error>?
+    private var iceGatheringTimeoutTask: Task<Void, Never>?
     private var isClosed = false
 
     public init(participantID: UUID,
@@ -78,8 +80,8 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
     }
 
     public func close() async {
-        let state = stateLock.withLock { () -> (RTCPeerConnection?, [RTCDataChannel]) in
-            guard !isClosed else { return (nil, []) }
+        let state = stateLock.withLock { () -> (RTCPeerConnection?, [RTCDataChannel], CheckedContinuation<Void, Error>?, Task<Void, Never>?) in
+            guard !isClosed else { return (nil, [], nil, nil) }
             isClosed = true
             let peerConnection = peerConnection
             let inputChannels = inputChannels
@@ -88,6 +90,8 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
             let audioDevice = audioDevice
             let audioTrack = audioTrack
             let audioSender = audioSender
+            let iceGatheringContinuation = iceGatheringContinuation
+            let iceGatheringTimeoutTask = iceGatheringTimeoutTask
             self.peerConnection = nil
             self.inputChannels = []
             self.videoSource = nil
@@ -98,13 +102,15 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
             self.audioSource = nil
             self.audioTrack = nil
             self.audioSender = nil
+            self.iceGatheringContinuation = nil
+            self.iceGatheringTimeoutTask = nil
             factory = nil
             if let videoSender { _ = peerConnection?.removeTrack(videoSender) }
             if let audioSender { _ = peerConnection?.removeTrack(audioSender) }
             videoTrack?.isEnabled = false
             audioTrack?.isEnabled = false
             audioDevice?.shutdown()
-            return (peerConnection, inputChannels)
+            return (peerConnection, inputChannels, iceGatheringContinuation, iceGatheringTimeoutTask)
         }
         videoQueue.async { [weak self] in
             self?.pendingVideoFrame = nil
@@ -114,6 +120,8 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
             inputChannel.delegate = nil
             inputChannel.close()
         }
+        state.3?.cancel()
+        state.2?.resume()
         state.0?.delegate = nil
         state.0?.close()
     }
@@ -128,13 +136,25 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
 
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
 
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
+        guard newState == .complete else { return }
+        completeICEGathering()
+    }
+
+    private func completeICEGathering() {
+        let state = stateLock.withLock {
+            let continuation = iceGatheringContinuation
+            let timeoutTask = iceGatheringTimeoutTask
+            iceGatheringContinuation = nil
+            iceGatheringTimeoutTask = nil
+            return (continuation, timeoutTask)
+        }
+        state.1?.cancel()
+        state.0?.resume()
+    }
 
     public func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        guard !closed else { return }
-        Task {
-            await callbacks.sendSignal(RemoteCoOpWirePeerSignal(kind: .iceCandidate, candidate: candidate.sdp, sdpMid: candidate.sdpMid, sdpMLineIndex: Int(candidate.sdpMLineIndex)))
-        }
+        _ = candidate
     }
 
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
@@ -342,8 +362,37 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
         let offer = try await createOffer(peerConnection: peerConnection, constraints: constraints)
         WebRTCMediaTelemetry.capture("webrtc.remote_coop.host_peer.offer.created", level: .info, message: "Remote Co-Op WebRTC offer created.", attributes: ["participantID": participantID.uuidString, "sdpBytes": String(offer.sdp.utf8.count)])
         try await setLocalDescription(offer, peerConnection: peerConnection)
+        try await waitForICEGathering(peerConnection)
         WebRTCMediaTelemetry.capture("webrtc.remote_coop.host_peer.offer.local_description", level: .info, message: "Remote Co-Op local offer description set.", attributes: ["participantID": participantID.uuidString])
-        await callbacks.sendSignal(RemoteCoOpWirePeerSignal(kind: .offer, sdp: offer.sdp))
+        let gatheredSDP = stateLock.withLock { peerConnection.localDescription?.sdp } ?? offer.sdp
+        await callbacks.sendSignal(RemoteCoOpWirePeerSignal(kind: .offer, sdp: gatheredSDP))
+    }
+
+    private func waitForICEGathering(_ peerConnection: RTCPeerConnection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let shouldWait = stateLock.withLock { () -> Bool in
+                guard !isClosed, peerConnection.iceGatheringState != .complete else { return false }
+                iceGatheringContinuation = continuation
+                iceGatheringTimeoutTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 20_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    guard let self else { return }
+                    let pendingContinuation = self.stateLock.withLock { () -> CheckedContinuation<Void, Error>? in
+                        let pending = self.iceGatheringContinuation
+                        self.iceGatheringContinuation = nil
+                        self.iceGatheringTimeoutTask = nil
+                        return pending
+                    }
+                    pendingContinuation?.resume(throwing: RemoteCoOpHostPeerError.negotiationFailed("ICE gathering timed out before a complete peer description was ready."))
+                }
+                return true
+            }
+            if !shouldWait {
+                continuation.resume()
+            } else if peerConnection.iceGatheringState == .complete {
+                completeICEGathering()
+            }
+        }
     }
 
     private func createOffer(peerConnection: RTCPeerConnection, constraints: RTCMediaConstraints) async throws -> RTCSessionDescription {
