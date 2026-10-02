@@ -6,7 +6,6 @@ vendor/*
 !vendor/nvidia-gfn/Frameworks/libGsAudioWebRTC.dylib
 !vendor/nvidia-gfn/Frameworks/SDL2.framework/
 !vendor/nvidia-gfn/Frameworks/SDL2.framework/**
-third_party/sentry-native/
 .vscode/settings.json
 tools/vendor-js/node_modules/
 
@@ -108,11 +107,6 @@ Testing/
 .cache/
 .opencode
 .playwright-mcp/
-
-# Local Sentry access config
-.sentryclirc
-.env.sentry
-sentry.properties
 
 # Remote Co-Op local service state and secrets
 RemoteCoOp/panel/state/*

@@ -13,15 +13,9 @@ let package = Package(
     products: [
         .library(name: "PixelNOW", targets: ["PixelNOW"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/getsentry/sentry-cocoa.git", exact: "9.18.0")
-    ],
     targets: [
         .target(
             name: "PixelNOW",
-            dependencies: [
-                .product(name: "Sentry", package: "sentry-cocoa")
-            ],
             path: ".",
             exclude: [
                 "AGENTS.md",

@@ -77,8 +77,6 @@ struct PixelNOWApp: App {
 
     init() {
         AppPreferenceStorage.standard.synchronize()
-        Sentry.clearDiagnosticsLogForNewRun()
-        Sentry.initializeSentry()
         Task.detached(priority: .userInitiated) { NVIDIAFont.prepare() }
         Log.info(.app, "PixelNOW application initializing")
         let container = Self.makeModelContainer()

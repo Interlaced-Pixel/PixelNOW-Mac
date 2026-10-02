@@ -12,7 +12,6 @@
 		7729CE912FE1000000D5C9D5 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE922FE1000000D5C9D5 /* AppIntents.framework */; };
 		A00000000000000000000001 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* Resources */; };
 		A00000000000000000000003 /* PixelNOWApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* PixelNOWApp.swift */; };
-		A00000000000000000000401 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000403 /* Sentry */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -72,7 +71,6 @@
 			files = (
 				7729CE912FE1000000D5C9D5 /* AppIntents.framework in Frameworks */,
 				7729CE862FDEDAB500D5C9D5 /* WebRTC.framework in Frameworks */,
-				A00000000000000000000401 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,7 +127,6 @@
 			);
 			name = PixelNOW;
 			packageProductDependencies = (
-				A00000000000000000000403 /* Sentry */,
 			);
 			productName = PixelNOW;
 			productReference = 7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */;
@@ -160,7 +157,6 @@
 			mainGroup = 7729CE6D2FDEDAB300D5C9D5;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A00000000000000000000402 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7729CE772FDEDAB300D5C9D5 /* Products */;
@@ -450,24 +446,7 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A00000000000000000000402 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
-			requirement = {
-				kind = exactVersion;
-				version = 9.18.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		A00000000000000000000403 /* Sentry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A00000000000000000000402 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
-			productName = Sentry;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7729CE6E2FDEDAB300D5C9D5 /* Project object */;
 }

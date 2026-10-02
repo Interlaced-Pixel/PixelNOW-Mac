@@ -14,35 +14,6 @@ enum Log {
 
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.interlacedpixel.pixelnow"
 
-    private static let logFileURL: URL? = {
-        let fileManager = FileManager.default
-        let projectDir = "/Users/jayian/Projects/PixelNOW"
-        let logsDir = URL(fileURLWithPath: projectDir).appendingPathComponent("logs")
-        if !fileManager.fileExists(atPath: logsDir.path) {
-            try? fileManager.createDirectory(at: logsDir, withIntermediateDirectories: true)
-        }
-        return logsDir.appendingPathComponent("PixelNOW.log")
-    }()
-
-    public static func recentLogText(maxBytes: Int = 512 * 1024) -> String {
-        guard let url = logFileURL,
-              let fileHandle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? fileHandle.close() }
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
-        if fileSize <= maxBytes {
-            guard let data = try? fileHandle.readToEnd() else { return "" }
-            return String(decoding: data, as: UTF8.self)
-        } else {
-            _ = try? fileHandle.seek(toOffset: UInt64(max(0, fileSize - maxBytes)))
-            guard let data = try? fileHandle.readToEnd() else { return "" }
-            var text = String(decoding: data, as: UTF8.self)
-            if let firstNewline = text.firstIndex(of: "\n") {
-                text.removeSubrange(text.startIndex...firstNewline)
-            }
-            return text
-        }
-    }
-
     static func debug(_ category: Category, _ message: String) {
         Logger(subsystem: subsystem, category: category.rawValue).debug("\(sanitizedMessage(message), privacy: .public)")
     }
