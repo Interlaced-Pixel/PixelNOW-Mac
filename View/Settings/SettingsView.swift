@@ -1663,14 +1663,10 @@ private struct SystemCapabilityRow: View {
 private struct AboutSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
     @State private var copiedKey = ""
-    @State private var diagnosticsState = AboutDiagnosticsState.ready
-    @State private var showingDiagnosticsUploadConfirmation = false
     @AppStorage(UpdatePreferences.automaticUpdateChecksEnabledKey) private var automaticUpdateChecksEnabled = UpdatePreferences.defaultAutomaticUpdateChecksEnabled
-    @State private var telemetryDisabled = Sentry.isTelemetryDisabled()
 
     var body: some View {
-        ZStack {
-            VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
             SettingsCard(title: "Product") {
                 HStack(alignment: .top, spacing: 22) {
                     ZStack {
@@ -1703,7 +1699,6 @@ private struct AboutSettingsPage: View {
                         HStack(spacing: 8) {
                             AboutStatusPill(title: "Stream", value: "WebRTC")
                             AboutStatusPill(title: "Route", value: route.summary)
-                            AboutStatusPill(title: "Telemetry", value: telemetryDisabled ? "Off" : "On")
                         }
                     }
                     Spacer(minLength: 0)
@@ -1746,45 +1741,19 @@ private struct AboutSettingsPage: View {
                 }
             }
 
-            SettingsCard(title: "Privacy") {
-                SettingsToggleRow(title: "Disable Telemetry", subtitle: "Disable crash reporting, telemetry metrics, and diagnostic logging.", isOn: telemetryDisabled, action: setTelemetryDisabled)
-            }
-
             SettingsCard(title: "Support Diagnostics") {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        SettingsActionButton(title: diagnosticsButtonTitle) {
-                            showingDiagnosticsUploadConfirmation = true
-                        }
-                        .disabled(diagnosticsState.isWorking)
-                        Text("Upload sanitized runtime logs and copy diagnostics link to clipboard.")
-                            .font(.settingsText(size: 12, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.54))
+                HStack(spacing: 10) {
+                    SettingsActionButton(title: copiedKey == "diagnostics" ? "COPIED" : "COPY DIAGNOSTICS") {
+                        copy(diagnosticsText, key: "diagnostics")
                     }
-                    Text(diagnosticsState.message)
+                    Text("Copy app and system information to the clipboard for support.")
                         .font(.settingsText(size: 12, weight: .medium))
-                        .foregroundStyle(diagnosticsState.isError ? Color(red: 1, green: 0.54, blue: 0.50) : .white.opacity(0.62))
+                        .foregroundStyle(.white.opacity(0.54))
                 }
             }
         }
-            .disabled(showingDiagnosticsUploadConfirmation)
-
-            if showingDiagnosticsUploadConfirmation {
-                DiagnosticsUploadConfirmationDialog(
-                    cancel: { showingDiagnosticsUploadConfirmation = false },
-                    upload: {
-                        showingDiagnosticsUploadConfirmation = false
-                        generateUploadedDiagnostics()
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .zIndex(1)
-            }
-        }
-        .animation(.easeOut(duration: 0.16), value: showingDiagnosticsUploadConfirmation)
         .onAppear {
             viewModel.refreshCatalogImageCacheSummary()
-            telemetryDisabled = Sentry.isTelemetryDisabled()
         }
     }
 
@@ -1815,11 +1784,7 @@ private struct AboutSettingsPage: View {
     }
 
     private var diagnosticsText: String {
-        diagnosticsText(logURL: nil, uploadError: "", inlineLog: "")
-    }
-
-    private func diagnosticsText(logURL: URL?, uploadError: String, inlineLog: String) -> String {
-        var lines = [
+        [
             "PixelNOW Mac Diagnostics",
             "Version: \(SettingsAppMetadata.versionWithBuild)",
             "Bundle: \(bundleIdentifier)",
@@ -1828,53 +1793,8 @@ private struct AboutSettingsPage: View {
             "Membership: \(account.membershipTier)",
             "User ID: \(SettingsFormat.maskedIdentifier(account.userId))",
             "Streaming: WebRTC",
-            "Cloudmatch: \(route.summary)",
-            "Logs: \(logURL?.absoluteString ?? "Not uploaded")"
-        ]
-        if !uploadError.isEmpty {
-            lines.append("Upload Error: \(uploadError)")
-        }
-        if !inlineLog.isEmpty {
-            lines.append(contentsOf: ["", "--- Gathered Diagnostics Logs ---", inlineLog])
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private var diagnosticsButtonTitle: String {
-        switch diagnosticsState {
-        case .ready, .failed: return "GENERATE DIAGNOSTICS"
-        case .preparing, .readingLog, .uploading, .copying: return "WORKING"
-        case .copied: return "COPIED"
-        }
-    }
-
-    private func setTelemetryDisabled(_ disabled: Bool) {
-        telemetryDisabled = disabled
-        Sentry.setTelemetryDisabled(disabled)
-    }
-
-    private func generateUploadedDiagnostics() {
-        guard !diagnosticsState.isWorking else { return }
-        Task { @MainActor in
-            diagnosticsState = .preparing
-            Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "Diagnostics", message: "Preparing user-requested diagnostics upload"))
-            diagnosticsState = .readingLog
-            let logText = Sentry.diagnosticsLogForUpload()
-            diagnosticsState = .uploading
-            do {
-                let logURL = try await Sentry.uploadDiagnosticsLog(logText)
-                diagnosticsState = .copying
-                copy(diagnosticsText(logURL: logURL, uploadError: "", inlineLog: logText), key: "diagnostics")
-                diagnosticsState = .copied(logURL.absoluteString)
-                Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "Diagnostics", message: "Uploaded sanitized diagnostics log url=\(logURL.absoluteString)"))
-            } catch {
-                let message = error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
-                diagnosticsState = .copying
-                copy(diagnosticsText(logURL: nil, uploadError: message, inlineLog: logText), key: "diagnostics")
-                diagnosticsState = .failed(message)
-                Sentry.logErrorMessage(Sentry.formattedLogMessage(level: "error", area: "Diagnostics", message: "Diagnostics upload failed; copied local diagnostics with inline logs error=\(message)"))
-            }
-        }
+            "Cloudmatch: \(route.summary)"
+        ].joined(separator: "\n")
     }
 
     private func copy(_ value: String, key: String) {
@@ -1885,146 +1805,6 @@ private struct AboutSettingsPage: View {
         copiedKey = key
     }
 
-}
-
-private struct DiagnosticsUploadConfirmationDialog: View {
-    let cancel: () -> Void
-    let upload: () -> Void
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.62)
-                .onTapGesture(perform: cancel)
-
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 14) {
-                    ZStack {
-                        Rectangle()
-                            .fill(SettingsTheme.accent.opacity(0.16))
-                        Image(systemName: "doc.text.magnifyingglass")
-                            .font(.settingsText(size: 18, weight: .bold))
-                            .foregroundStyle(SettingsTheme.accent)
-                    }
-                    .frame(width: 44, height: 44)
-                    .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(SettingsTheme.accent.opacity(0.42), lineWidth: 1) }
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Upload diagnostics logs?")
-                            .font(.settingsText(size: 19, weight: .bold))
-                            .foregroundStyle(.white)
-                        Text("PixelNOW will upload the recent sanitized current-run log to paste.c-net.org and copy a diagnostics summary with the public link.")
-                            .font(.settingsText(size: 13, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 10) {
-                    Rectangle()
-                        .fill(SettingsTheme.accent)
-                        .frame(width: 4, height: 42)
-                    Text("IP addresses and location fields are redacted before upload. Only generate this when preparing support diagnostics.")
-                        .font(.settingsText(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(12)
-                .background(Color.white.opacity(0.045))
-                .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.08), lineWidth: 1) }
-
-                HStack(spacing: 10) {
-                    Spacer(minLength: 0)
-                    SettingsDialogButton(title: "CANCEL", tone: .secondary, action: cancel)
-                    SettingsDialogButton(title: "UPLOAD LOGS", tone: .primary, action: upload)
-                }
-            }
-            .padding(22)
-            .frame(width: 430, alignment: .leading)
-            .background(Color(red: 24 / 255, green: 24 / 255, blue: 24 / 255))
-            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.16), lineWidth: 1) }
-            .shadow(color: .black.opacity(0.62), radius: 34, x: 0, y: 18)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct SettingsDialogButton: View {
-    enum Tone {
-        case primary
-        case secondary
-    }
-
-    let title: String
-    let tone: Tone
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.settingsText(size: 12, weight: .bold))
-                .foregroundStyle(tone == .primary ? .black : .white.opacity(0.82))
-                .tracking(0.8)
-                .padding(.horizontal, 14)
-                .frame(minWidth: 104)
-                .frame(height: 34)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(strokeColor, lineWidth: 1)
-                }
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-    }
-
-    private var backgroundColor: Color {
-        switch tone {
-        case .primary: return SettingsTheme.accent.opacity(isHovering ? 0.88 : 1)
-        case .secondary: return Color.white.opacity(isHovering ? 0.10 : 0.06)
-        }
-    }
-
-    private var strokeColor: Color {
-        switch tone {
-        case .primary: return SettingsTheme.accent
-        case .secondary: return Color.white.opacity(0.14)
-        }
-    }
-}
-
-private enum AboutDiagnosticsState: Equatable {
-    case ready
-    case preparing
-    case readingLog
-    case uploading
-    case copying
-    case copied(String)
-    case failed(String)
-
-    var message: String {
-        switch self {
-        case .ready: return "Ready to generate diagnostics. Confirmation is required before logs are uploaded."
-        case .preparing: return "Preparing diagnostics metadata..."
-        case .readingLog: return "Reading sanitized current-run log..."
-        case .uploading: return "Uploading sanitized logs to paste.c-net.org..."
-        case .copying: return "Copying diagnostics to clipboard..."
-        case .copied(let url): return "Diagnostics and logs copied to clipboard. Uploaded link: \(url)"
-        case .failed(let reason): return "Upload failed, but local diagnostics and inline logs were copied: \(reason)"
-        }
-    }
-
-    var isWorking: Bool {
-        switch self {
-        case .preparing, .readingLog, .uploading, .copying: return true
-        case .ready, .copied, .failed: return false
-        }
-    }
-
-    var isError: Bool {
-        if case .failed = self { return true }
-        return false
-    }
 }
 
 private struct AboutStatusPill: View {
