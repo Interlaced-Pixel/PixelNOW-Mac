@@ -12,7 +12,7 @@ enum Log {
         case stream = "WebRTC"
     }
 
-    private static let subsystem = Bundle.main.bundleIdentifier ?? "com.interlaced-pixel.PixelNOW"
+    private static let subsystem = Bundle.main.bundleIdentifier ?? "com.interlacedpixel.pixelnow"
 
     private static let logFileURL: URL? = {
         let fileManager = FileManager.default
@@ -23,23 +23,6 @@ enum Log {
         }
         return logsDir.appendingPathComponent("PixelNOW.log")
     }()
-
-    private static func writeToFile(level: String, category: Category, message: String) {
-        guard let url = logFileURL else { return }
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let logLine = "[\(timestamp)] [\(level.uppercased())] [\(category.rawValue)] \(message)\n"
-        guard let data = logLine.data(using: .utf8) else { return }
-        
-        if FileManager.default.fileExists(atPath: url.path) {
-            if let fileHandle = try? FileHandle(forWritingTo: url) {
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-                fileHandle.closeFile()
-            }
-        } else {
-            try? data.write(to: url)
-        }
-    }
 
     public static func recentLogText(maxBytes: Int = 512 * 1024) -> String {
         guard let url = logFileURL,
@@ -61,42 +44,30 @@ enum Log {
     }
 
     static func debug(_ category: Category, _ message: String) {
-        let sanitized = Sentry.sanitizedLogMessage(message)
-        Logger(subsystem: subsystem, category: category.rawValue).debug("\(sanitized, privacy: .public)")
-        Sentry.logDebugMessage(formattedMessage(category: category, level: "debug", message: message))
-        writeToFile(level: "debug", category: category, message: message)
+        Logger(subsystem: subsystem, category: category.rawValue).debug("\(sanitizedMessage(message), privacy: .public)")
     }
 
     static func info(_ category: Category, _ message: String) {
-        let sanitized = Sentry.sanitizedLogMessage(message)
-        Logger(subsystem: subsystem, category: category.rawValue).info("\(sanitized, privacy: .public)")
-        Sentry.logInfoMessage(formattedMessage(category: category, level: "info", message: message))
-        writeToFile(level: "info", category: category, message: message)
+        Logger(subsystem: subsystem, category: category.rawValue).info("\(sanitizedMessage(message), privacy: .public)")
     }
 
     static func warning(_ category: Category, _ message: String) {
-        let sanitized = Sentry.sanitizedLogMessage(message)
-        Logger(subsystem: subsystem, category: category.rawValue).warning("\(sanitized, privacy: .public)")
-        Sentry.logWarningMessage(formattedMessage(category: category, level: "warning", message: message))
-        writeToFile(level: "warning", category: category, message: message)
+        Logger(subsystem: subsystem, category: category.rawValue).warning("\(sanitizedMessage(message), privacy: .public)")
     }
 
     static func error(_ category: Category, _ message: String) {
-        let sanitized = Sentry.sanitizedLogMessage(message)
-        Logger(subsystem: subsystem, category: category.rawValue).error("\(sanitized, privacy: .public)")
-        Sentry.logErrorMessage(formattedMessage(category: category, level: "error", message: message))
-        writeToFile(level: "error", category: category, message: message)
+        Logger(subsystem: subsystem, category: category.rawValue).error("\(sanitizedMessage(message), privacy: .public)")
     }
 
     static func fatal(_ category: Category, _ message: String) {
-        let sanitized = Sentry.sanitizedLogMessage(message)
-        Logger(subsystem: subsystem, category: category.rawValue).fault("\(sanitized, privacy: .public)")
-        Sentry.logFatalMessage(formattedMessage(category: category, level: "fatal", message: message))
-        writeToFile(level: "fatal", category: category, message: message)
+        Logger(subsystem: subsystem, category: category.rawValue).fault("\(sanitizedMessage(message), privacy: .public)")
     }
 
-    private static func formattedMessage(category: Category, level: String, message: String) -> String {
-        Sentry.formattedLogMessage(level: level, area: category.rawValue, message: message)
+    static func sanitizedMessage(_ message: String) -> String {
+        message
+            .replacingOccurrences(of: #"\b(?:\d{1,3}\.){3}\d{1,3}\b"#, with: "[redacted-ip]", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\b(?:[0-9a-f]{1,4}:){2,}[0-9a-f:]*\b"#, with: "[redacted-ip]", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\bbearer\s+[^\s\"',;]+"#, with: "Bearer [redacted-secret]", options: .regularExpression)
     }
 }
 

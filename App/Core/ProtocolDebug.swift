@@ -56,14 +56,14 @@ enum ProtocolDebugMapper {
         guard loggingEnabled() else { return }
         let payload = sanitizedJSONString(fromJSONObject: object)
         writeCapture(label: label, payload: payload)
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "ProtocolDebug", message: "\(label ?? "payload"): \(payload)"))
+        Log.info(.stream, "\(label ?? "payload"): \(payload)")
     }
 
     static func logJSONData(label: String?, data: Data?) {
         guard loggingEnabled() else { return }
         let payload = sanitizedJSONString(from: data)
         writeCapture(label: label, payload: payload)
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "ProtocolDebug", message: "\(label ?? "payload"): \(payload)"))
+        Log.info(.stream, "\(label ?? "payload"): \(payload)")
     }
 
     private static func environmentFlagEnabled(_ name: String) -> Bool {
@@ -135,9 +135,9 @@ enum ProtocolDebugMapper {
             let filename = captureFilename(label: label, sequence: sequence.next())
             let path = NSString(string: directory).appendingPathComponent(filename)
             try payload.write(toFile: path, atomically: true, encoding: .utf8)
-            Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "ProtocolDebug", message: "Wrote sanitized capture path=\(path)"))
+            Log.info(.stream, "Wrote sanitized capture path=\(path)")
         } catch {
-            Sentry.logErrorMessage(Sentry.formattedLogMessage(level: "error", area: "ProtocolDebug", message: "Failed to write capture directory=\(directory) error=\(error.localizedDescription)"))
+            Log.error(.stream, "Failed to write capture directory=\(directory) error=\(error.localizedDescription)")
         }
     }
 }
