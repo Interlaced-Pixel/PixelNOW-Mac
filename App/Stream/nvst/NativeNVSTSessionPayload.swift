@@ -43,19 +43,6 @@ public struct NativeNVSTSessionPayload: Equatable, Sendable {
         )
     }
 
-    public var telemetryAttributes: [String: String] {
-        [
-            "nativeServerAddress": effectiveServerAddress,
-            "nativeTokenType": tokenType,
-            "nativeHasToken": hasToken ? "true" : "false",
-            "nativeAppId": appID,
-            "nativeSession": sessionIdentifier,
-            "nativeStreamingProfileGuid": streamingProfileGUID,
-            "nativeAudioModeFormat": audioModeFormat,
-            "nativeMissingStartFields": missingStartFields.joined(separator: ","),
-        ]
-    }
-
     private static func object(from json: String) -> [String: Any] {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }

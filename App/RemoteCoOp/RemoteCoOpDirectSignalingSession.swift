@@ -326,9 +326,9 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
         case "hostJoinRejected":
             let error = SignalingError.hostRejected(message.reason ?? "Direct signaling rejected the host.")
             resolveHostRegistration(error: error)
-            WebRTCMediaTelemetry.capture("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
+            WebRTCMediaLog.write("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
         case "error":
-            WebRTCMediaTelemetry.capture("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
+            WebRTCMediaLog.write("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
         default:
             break
         }

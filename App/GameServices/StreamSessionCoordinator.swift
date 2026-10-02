@@ -446,13 +446,6 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
         var settings = settingsByApplyingCloudVariables(baseSettings, variables: cloudVariables)
         let requestedMaxBitrateMbps = int(settings["maxBitrateMbps"])
         let preflight = await runNetworkPreflight(token: configuration.accessToken, requestedMaxBitrateMbps: requestedMaxBitrateMbps)
-        if preflight.serverReportedWarning || !preflight.continueRecommended || !preflight.warningMessage.isEmpty {
-            TelemetryRecorder.record(TelemetryEvent(name: .networkTest, parameters: [
-                "status": "warning",
-                "continued": "true",
-                "message": preflight.warningMessage.isEmpty ? "Network preflight reported a warning. Launch will continue." : preflight.warningMessage,
-            ]))
-        }
         settings["networkTestSessionId"] = preflight.networkTestSessionId
         settings["networkType"] = preflight.networkType
         settings["networkLatencyMs"] = preflight.latencyMs >= 0 ? String(preflight.latencyMs) : "Unknown"
@@ -681,10 +674,8 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
         let service = UDSService(configuration: .production, transport: UDSURLSessionTransport())
         do {
             _ = try await service.fetchEndOfSessionReport(payload: payload, accessToken: accessToken)
-            TelemetryRecorder.record(TelemetryEvent(name: .udsEndOfSessionReport, parameters: ["status": "success", "reason": reason.rawValue]))
         } catch {
-            Sentry.logWarningMessage(Sentry.formattedLogMessage(level: "warning", area: "UDS", message: "End-of-session report failed reason=\(reason.rawValue) error=\(error.localizedDescription)"))
-            TelemetryRecorder.record(TelemetryEvent(name: .udsEndOfSessionReport, parameters: ["status": "failure", "reason": reason.rawValue, "error": error.localizedDescription]))
+            Log.warning(.launch, "End-of-session report failed reason=\(reason.rawValue) error=\(error.localizedDescription)")
         }
     }
 

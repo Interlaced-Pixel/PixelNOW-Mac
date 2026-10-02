@@ -321,7 +321,7 @@ private final class NativeNVSTInputFailureReporter: @unchecked Sendable {
         if suppressedCount > 0 {
             attributes["suppressedCount"] = String(suppressedCount)
         }
-        NativeNVSTMediaTelemetry.capture(
+        NativeNVSTMediaLog.write(
             "nvst.input.send_failed",
             level: isExpectedDuringTeardown ? .debug : .error,
             message: isExpectedDuringTeardown ? "Native NVST input arrived after teardown began." : "Native NVST input send failed.",
@@ -435,7 +435,6 @@ struct NativeNVSTMediaStreamSurface: View {
             }
         }
         .onAppear {
-            NativeNVSTMediaTelemetry.configure(sink: NativeNVSTTelemetrySink())
             startIfNeeded()
         }
         .onDisappear { stopStream() }
@@ -475,7 +474,7 @@ struct NativeNVSTMediaStreamSurface: View {
         beginStreamingPerformanceMode()
         startNetworkPathMonitoring()
         let audioDeviceMonitor = NativeNVSTAudioDeviceMonitor {
-            NativeNVSTMediaTelemetry.capture(
+            NativeNVSTMediaLog.write(
                 "nvst.audio.device_changed",
                 level: .info,
                 message: "Default audio device changed while native NVST was active.",
@@ -512,7 +511,7 @@ struct NativeNVSTMediaStreamSurface: View {
             configuredLeftStickDeadzone: Float(resolved.leftStickDeadzone),
             configuredRightStickDeadzone: Float(resolved.rightStickDeadzone),
             logger: { message in
-                NativeNVSTMediaTelemetry.capture("nvst.core", level: .info, message: message)
+                NativeNVSTMediaLog.write("nvst.core", level: .info, message: message)
                 diagnosticLog.append(message)
             }
         )
@@ -608,7 +607,7 @@ struct NativeNVSTMediaStreamSurface: View {
                     startNativeStatsPolling(path: path)
                     refreshAntiAFKMouseMovementTask()
                     onProgress?(StreamProgress(configuration: configuration.progressConfiguration, step: .connected, message: "Connected over native NVST.", isReady: true))
-                    NativeNVSTMediaTelemetry.capture("nvst.ui.connected", level: .info, message: "Native NVST stream connected.", attributes: ["sessionId": session.id])
+                    NativeNVSTMediaLog.write("nvst.ui.connected", level: .info, message: "Native NVST stream connected.", attributes: ["sessionId": session.id])
                     return true
                 }
                 if !shouldPresentStream {
@@ -856,7 +855,7 @@ struct NativeNVSTMediaStreamSurface: View {
             do {
                 try await path.setMicrophoneEnabled(false)
             } catch {
-                NativeNVSTMediaTelemetry.capture(
+                NativeNVSTMediaLog.write(
                     "nvst.microphone.shutdown.failed",
                     level: .warning,
                     message: Self.message(for: error),
@@ -885,7 +884,7 @@ struct NativeNVSTMediaStreamSurface: View {
                         }
                     }
                     streamControlsVisible = true
-                    NativeNVSTMediaTelemetry.capture("nvst.ui.pause.failed", level: .error, message: failureMessage, attributes: ["applicationID": configuration.applicationID])
+                    NativeNVSTMediaLog.write("nvst.ui.pause.failed", level: .error, message: failureMessage, attributes: ["applicationID": configuration.applicationID])
                 }
                 return false
             }
@@ -1002,7 +1001,7 @@ struct NativeNVSTMediaStreamSurface: View {
             guard let view, isConnected, !unifiedHUDVisible, !streamControlsVisible, !isEnding, !didEnd else { return }
             if suppressInputWhenInactive && view.remoteInputEnabled && !NativeNVSTInputDispatcher.isNeutralizing(event) {
                 guard NSApplication.shared.isActive, view.streamWindowHasInputFocus else {
-                    NativeNVSTMediaTelemetry.capture(
+                    NativeNVSTMediaLog.write(
                         "nvst.input.focus_lost",
                         level: .debug,
                         message: "Native NVST input was withheld because the stream window was not focused.",
@@ -1093,14 +1092,14 @@ struct NativeNVSTMediaStreamSurface: View {
                     }
                     let enabledMessage = microphoneMode == "voice-activity" ? "Voice Activity On" : "Microphone On"
                     showNativeTransientStreamMessage(target ? enabledMessage : "Microphone Muted")
-                    NativeNVSTMediaTelemetry.capture("nvst.ui.microphone.update", level: .info, message: target ? "Native NVST microphone enabled." : "Native NVST microphone muted.", attributes: ["applicationID": configuration.applicationID, "enabled": String(target), "source": source])
+                    NativeNVSTMediaLog.write("nvst.ui.microphone.update", level: .info, message: target ? "Native NVST microphone enabled." : "Native NVST microphone muted.", attributes: ["applicationID": configuration.applicationID, "enabled": String(target), "source": source])
                 } catch {
                     guard !Task.isCancelled, !didEnd else { return }
                     microphoneDesiredEnabled = microphoneEnabled
                     microphonePendingStates.removeAll()
                     let message = Self.message(for: error)
                     showNativeTransientStreamMessage(message)
-                    NativeNVSTMediaTelemetry.capture("nvst.ui.microphone.failed", level: .error, message: message, attributes: ["applicationID": configuration.applicationID, "source": source])
+                    NativeNVSTMediaLog.write("nvst.ui.microphone.failed", level: .error, message: message, attributes: ["applicationID": configuration.applicationID, "source": source])
                 }
             }
         }
@@ -1112,7 +1111,7 @@ struct NativeNVSTMediaStreamSurface: View {
         StreamPreferences.saveAntiAFKMouseMovementEnabled(antiAFKMouseMovementEnabled)
         refreshAntiAFKMouseMovementTask()
         showNativeTransientStreamMessage(antiAFKMouseMovementEnabled ? "Anti-AFK On" : "Anti-AFK Off")
-        NativeNVSTMediaTelemetry.capture("nvst.ui.anti_afk.toggle", level: .info, message: antiAFKMouseMovementEnabled ? "Native NVST Anti-AFK mouse movement enabled." : "Native NVST Anti-AFK mouse movement disabled.", attributes: ["applicationID": configuration.applicationID, "enabled": String(antiAFKMouseMovementEnabled)])
+        NativeNVSTMediaLog.write("nvst.ui.anti_afk.toggle", level: .info, message: antiAFKMouseMovementEnabled ? "Native NVST Anti-AFK mouse movement enabled." : "Native NVST Anti-AFK mouse movement disabled.", attributes: ["applicationID": configuration.applicationID, "enabled": String(antiAFKMouseMovementEnabled)])
     }
 
     private func refreshAntiAFKMouseMovementTask() {
@@ -1196,7 +1195,7 @@ struct NativeNVSTMediaStreamSurface: View {
     private func toggleRecording() {
         if recordingCanStop {
             Task { await path?.stopRecording() }
-            NativeNVSTMediaTelemetry.capture("nvst.ui.recording.stop", level: .info, message: "Stream recording stop requested.", attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.ui.recording.stop", level: .info, message: "Stream recording stop requested.", attributes: ["applicationID": configuration.applicationID])
             return
         }
         guard !recordingIsBusy, isConnected, !isEnding, !didEnd, let path else { return }
@@ -1219,7 +1218,7 @@ struct NativeNVSTMediaStreamSurface: View {
         Task {
             let started = await path.startRecording(configuration: recordingConfiguration)
             if started {
-                NativeNVSTMediaTelemetry.capture("nvst.ui.recording.start", level: .info, message: "Stream recording start requested.", attributes: ["applicationID": configuration.applicationID])
+                NativeNVSTMediaLog.write("nvst.ui.recording.start", level: .info, message: "Stream recording start requested.", attributes: ["applicationID": configuration.applicationID])
             } else {
                 let message = "Recording is unavailable because the native stream is no longer active."
                 recordingStatus = .failed(message)
@@ -1263,17 +1262,17 @@ struct NativeNVSTMediaStreamSurface: View {
         case .idle:
             return
         case .starting:
-            NativeNVSTMediaTelemetry.capture("nvst.ui.recording.starting", level: .info, message: "Stream recording accepted start request.", attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.ui.recording.starting", level: .info, message: "Stream recording accepted start request.", attributes: ["applicationID": configuration.applicationID])
         case .recording:
             guard !previousStatus.isRecording else { return }
-            NativeNVSTMediaTelemetry.capture("nvst.ui.recording.active", level: .info, message: "Stream recording captured its first video frame.", attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.ui.recording.active", level: .info, message: "Stream recording captured its first video frame.", attributes: ["applicationID": configuration.applicationID])
         case .finishing:
             guard previousStatus != .finishing else { return }
-            NativeNVSTMediaTelemetry.capture("nvst.ui.recording.finishing", level: .info, message: "Stream recording is saving.", attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.ui.recording.finishing", level: .info, message: "Stream recording is saving.", attributes: ["applicationID": configuration.applicationID])
         case .finished(let recording):
-            NativeNVSTMediaTelemetry.capture("nvst.ui.recording.finished", level: .info, message: "Stream recording saved.", attributes: ["applicationID": configuration.applicationID, "file": recording.videoURL.lastPathComponent, "durationSeconds": String(format: "%.2f", recording.durationSeconds), "fileSizeBytes": String(recording.fileSizeBytes)])
+            NativeNVSTMediaLog.write("nvst.ui.recording.finished", level: .info, message: "Stream recording saved.", attributes: ["applicationID": configuration.applicationID, "file": recording.videoURL.lastPathComponent, "durationSeconds": String(format: "%.2f", recording.durationSeconds), "fileSizeBytes": String(recording.fileSizeBytes)])
         case .failed(let message):
-            NativeNVSTMediaTelemetry.capture("nvst.ui.recording.failed", level: .warning, message: message, attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.ui.recording.failed", level: .warning, message: message, attributes: ["applicationID": configuration.applicationID])
         }
     }
 
@@ -1298,7 +1297,7 @@ struct NativeNVSTMediaStreamSurface: View {
         nativeView?.remoteInputEnabled = false
         nativeView?.setNativeNVSTVideoVisible(isConnected)
         streamControlsVisible = true
-        NativeNVSTMediaTelemetry.capture("nvst.ui.controls.show", level: .info, message: "Native NVST stream controls shown.", attributes: ["applicationID": configuration.applicationID])
+        NativeNVSTMediaLog.write("nvst.ui.controls.show", level: .info, message: "Native NVST stream controls shown.", attributes: ["applicationID": configuration.applicationID])
     }
 
     private func dismissStreamControls() {
@@ -1310,7 +1309,7 @@ struct NativeNVSTMediaStreamSurface: View {
         nativeView?.setNativeNVSTVideoVisible(isConnected)
         nativeView?.restoreInputFocus()
         completion?(false)
-        NativeNVSTMediaTelemetry.capture("nvst.ui.controls.dismiss", level: .info, message: "Native NVST stream controls dismissed.", attributes: ["applicationID": configuration.applicationID])
+        NativeNVSTMediaLog.write("nvst.ui.controls.dismiss", level: .info, message: "Native NVST stream controls dismissed.", attributes: ["applicationID": configuration.applicationID])
     }
 
     private func setUnifiedHUDVisible(_ visible: Bool) {
@@ -1323,13 +1322,13 @@ struct NativeNVSTMediaStreamSurface: View {
             nativeView?.remoteInputEnabled = true
             nativeView?.restoreInputFocus()
         }
-        NativeNVSTMediaTelemetry.capture("nvst.ui.hud.toggle", level: .info, message: visible ? "Native NVST HUD shown." : "Native NVST HUD hidden.", attributes: ["applicationID": configuration.applicationID, "visible": String(visible)])
+        NativeNVSTMediaLog.write("nvst.ui.hud.toggle", level: .info, message: visible ? "Native NVST HUD shown." : "Native NVST HUD hidden.", attributes: ["applicationID": configuration.applicationID, "visible": String(visible)])
     }
 
     private func toggleNativeStatsHUD() {
         guard isConnected, !isEnding, !didEnd else { return }
         nativeStatsVisible.toggle()
-        NativeNVSTMediaTelemetry.capture("nvst.ui.stats.toggle", level: .info, message: nativeStatsVisible ? "PixelNOW NVST stats shown." : "PixelNOW NVST stats hidden.", attributes: ["applicationID": configuration.applicationID, "visible": String(nativeStatsVisible)])
+        NativeNVSTMediaLog.write("nvst.ui.stats.toggle", level: .info, message: nativeStatsVisible ? "PixelNOW NVST stats shown." : "PixelNOW NVST stats hidden.", attributes: ["applicationID": configuration.applicationID, "visible": String(nativeStatsVisible)])
     }
 
     private func startNativeStatsPolling(path: NativeNVSTStreamingPath) {
@@ -1343,14 +1342,13 @@ struct NativeNVSTMediaStreamSurface: View {
                 }
                 if let snapshot, snapshot.available, isConnected, !isEnding, !didEnd {
                     latestNativeStats = snapshot
-                    recordNativeNetworkTelemetry(snapshot)
                     let decodeBudgetOver = NativeNVSTDecodeBudget.level(for: snapshot) == .over
                     let adjustments = networkGovernor?.evaluate(snapshot, decodeBudgetOver: decodeBudgetOver) ?? []
                     for adjustment in adjustments { await applyNativeNetworkAdjustment(adjustment, path: path) }
                 }
                 if isConnected, !isEnding, !didEnd,
                    let failure = nativeStreamHealth.observe(snapshot: snapshot, rendererReady: nativeView?.nativeNVSTRendererSurfaceReady == true) {
-                    NativeNVSTMediaTelemetry.capture("nvst.stream.health.failed", level: .error, message: failure.message, attributes: ["applicationID": configuration.applicationID])
+                    NativeNVSTMediaLog.write("nvst.stream.health.failed", level: .error, message: failure.message, attributes: ["applicationID": configuration.applicationID])
                     if failure == .streamStalled {
                         let recovered = await path.recoverInPlace(reason: failure.message)
                         if recovered {
@@ -1370,19 +1368,6 @@ struct NativeNVSTMediaStreamSurface: View {
         }
     }
 
-    private func recordNativeNetworkTelemetry(_ snapshot: NativeNVSTPerformanceSnapshot) {
-        let attributes = ["transport": "nvst", "applicationID": configuration.applicationID]
-        if let droppedInputCount = inputDispatcher?.droppedInputCount, droppedInputCount > 0 {
-            NativeNVSTMediaTelemetry.record("nvst.input.dropped", kind: .counter, value: Double(droppedInputCount), unit: "event", attributes: attributes)
-        }
-        if snapshot.latencyMilliseconds >= 0 { NativeNVSTMediaTelemetry.record("nvst.network.latency_ms", kind: .gauge, value: snapshot.latencyMilliseconds, unit: "millisecond", attributes: attributes) }
-        if snapshot.jitterMilliseconds >= 0 { NativeNVSTMediaTelemetry.record("nvst.network.jitter_ms", kind: .gauge, value: snapshot.jitterMilliseconds, unit: "millisecond", attributes: attributes) }
-        if snapshot.bitrateMegabitsPerSecond >= 0 { NativeNVSTMediaTelemetry.record("nvst.network.bitrate_mbps", kind: .gauge, value: snapshot.bitrateMegabitsPerSecond, unit: "megabit/second", attributes: attributes) }
-        if snapshot.bandwidthUtilizationPercent >= 0 { NativeNVSTMediaTelemetry.record("nvst.network.bandwidth_utilization_percent", kind: .gauge, value: snapshot.bandwidthUtilizationPercent, unit: "percent", attributes: attributes) }
-        NativeNVSTMediaTelemetry.record("nvst.network.packet_loss", kind: .gauge, value: Double(snapshot.packetLoss), unit: "packet", attributes: attributes)
-        NativeNVSTMediaTelemetry.record("nvst.network.frame_loss", kind: .gauge, value: Double(snapshot.frameLoss), unit: "frame", attributes: attributes)
-    }
-
     private func startNetworkPathMonitoring() {
         networkPathTask?.cancel()
         let monitor = NativeNVSTNetworkPathMonitor()
@@ -1392,12 +1377,12 @@ struct NativeNVSTMediaStreamSurface: View {
                 if networkPath.isSatisfied {
                     networkPathAvailable = true
                     if isConnected, !unifiedHUDVisible, !streamControlsVisible { nativeView?.remoteInputEnabled = true }
-                    NativeNVSTMediaTelemetry.capture("nvst.network.path.available", level: .info, message: "Native NVST network path is available.", attributes: ["wifi": String(networkPath.usesWiFi), "ethernet": String(networkPath.usesWiredEthernet), "expensive": String(networkPath.isExpensive), "constrained": String(networkPath.isConstrained)])
+                    NativeNVSTMediaLog.write("nvst.network.path.available", level: .info, message: "Native NVST network path is available.", attributes: ["wifi": String(networkPath.usesWiFi), "ethernet": String(networkPath.usesWiredEthernet), "expensive": String(networkPath.isExpensive), "constrained": String(networkPath.isConstrained)])
                 } else {
                     networkPathAvailable = false
                     nativeView?.remoteInputEnabled = false
                     showNativeTransientStreamMessage("Network interrupted - waiting to reconnect")
-                    NativeNVSTMediaTelemetry.capture("nvst.network.path.unavailable", level: .warning, message: "Native NVST network path is unavailable.")
+                    NativeNVSTMediaLog.write("nvst.network.path.unavailable", level: .warning, message: "Native NVST network path is unavailable.")
                 }
             }
         }
@@ -1410,9 +1395,9 @@ struct NativeNVSTMediaStreamSurface: View {
             case .dynamicStreamingMode(let mode): try await path.setDynamicStreamingMode(mode)
             case .l4sEnabled(let enabled): try await path.setL4SEnabled(enabled)
             }
-            NativeNVSTMediaTelemetry.capture("nvst.network.adjustment", level: .info, message: "Applied native NVST network adjustment.", attributes: ["adjustment": String(describing: adjustment)])
+            NativeNVSTMediaLog.write("nvst.network.adjustment", level: .info, message: "Applied native NVST network adjustment.", attributes: ["adjustment": String(describing: adjustment)])
         } catch {
-            NativeNVSTMediaTelemetry.capture("nvst.network.adjustment.failed", level: .warning, message: Self.message(for: error), attributes: ["adjustment": String(describing: adjustment)])
+            NativeNVSTMediaLog.write("nvst.network.adjustment.failed", level: .warning, message: Self.message(for: error), attributes: ["adjustment": String(describing: adjustment)])
         }
     }
 
@@ -1837,7 +1822,7 @@ struct NativeNVSTMediaStreamSurface: View {
     }
 
     private var nativeNetworkWarningText: String {
-        guard latestNativeStats?.available == true else { return "Waiting for native NVST network telemetry." }
+        guard latestNativeStats?.available == true else { return "Waiting for native NVST network statistics." }
         if (latestNativeStats?.packetLoss ?? 0) > 0 { return "Packet loss is active; image quality or input response may degrade." }
         if (latestNativeStats?.latencyMilliseconds ?? 0) >= 120 { return "Latency is high; input may feel delayed." }
         if (latestNativeStats?.jitterMilliseconds ?? 0) >= 35 { return "Network jitter is unstable; gameplay may stutter." }
@@ -2064,7 +2049,7 @@ struct NativeNVSTMediaStreamSurface: View {
                     try await activePath.send(event)
                 } catch {
                     Log.error(.stream, "Remote Co-Op input forwarding failed: \(error.localizedDescription)")
-                    WebRTCMediaTelemetry.capture("remote.coop.input.forward.failed", level: .error, message: error.localizedDescription)
+                    WebRTCMediaLog.write("remote.coop.input.forward.failed", level: .error, message: error.localizedDescription)
                 }
             }
         )
@@ -2084,7 +2069,7 @@ struct NativeNVSTMediaStreamSurface: View {
             remoteCoOpInviteLinkStatus = nil
             remoteCoOpStatusMessage = "Invite failed: \(error.localizedDescription)"
             Log.error(.stream, "Failed to create Remote Co-Op invite: \(error.localizedDescription)")
-            WebRTCMediaTelemetry.capture("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
+            WebRTCMediaLog.write("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
         }
     }
 
@@ -2324,14 +2309,14 @@ struct NativeNVSTMediaStreamSurface: View {
         var options: ProcessInfo.ActivityOptions = [.userInitiated, .latencyCritical, .idleSystemSleepDisabled]
         if preventDisplaySleep { options.insert(.idleDisplaySleepDisabled) }
         streamingPerformanceActivity = ProcessInfo.processInfo.beginActivity(options: options, reason: "PixelNOW active native NVST stream")
-        NativeNVSTMediaTelemetry.capture("nvst.stream.performance_mode.begin", level: .info, message: "Native NVST performance mode enabled.", attributes: ["applicationID": configuration.applicationID, "preventDisplaySleep": String(preventDisplaySleep)])
+        NativeNVSTMediaLog.write("nvst.stream.performance_mode.begin", level: .info, message: "Native NVST performance mode enabled.", attributes: ["applicationID": configuration.applicationID, "preventDisplaySleep": String(preventDisplaySleep)])
     }
 
     private func endStreamingPerformanceMode() {
         guard let streamingPerformanceActivity else { return }
         ProcessInfo.processInfo.endActivity(streamingPerformanceActivity)
         self.streamingPerformanceActivity = nil
-        NativeNVSTMediaTelemetry.capture("nvst.stream.performance_mode.end", level: .info, message: "Native NVST performance mode disabled.", attributes: ["applicationID": configuration.applicationID])
+        NativeNVSTMediaLog.write("nvst.stream.performance_mode.end", level: .info, message: "Native NVST performance mode disabled.", attributes: ["applicationID": configuration.applicationID])
     }
 
     private static func message(for error: Error) -> String {

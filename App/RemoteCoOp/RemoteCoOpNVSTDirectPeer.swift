@@ -61,11 +61,11 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
     }
     
     public func start() async throws {
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.start", level: .info, message: "Starting NVST direct P2P peer.", attributes: ["participantID": participantID.uuidString])
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.start", level: .info, message: "Starting NVST direct P2P peer.", attributes: ["participantID": participantID.uuidString])
         let peerConnection = try makePeerConnection()
         createInputChannel(peerConnection: peerConnection)
         try await createAndSendOffer(peerConnection: peerConnection)
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.started", level: .info, message: "NVST direct P2P peer started.", attributes: ["participantID": participantID.uuidString])
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.started", level: .info, message: "NVST direct P2P peer started.", attributes: ["participantID": participantID.uuidString])
     }
     
     public func apply(_ signal: RemoteCoOpWirePeerSignal) async throws {
@@ -189,7 +189,7 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
         guard let peerConnection = factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
             throw RemoteCoOpHostPeerError.negotiationFailed("Unable to create NVST direct P2P WebRTC peer connection.")
         }
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.connection", level: .info, message: "NVST direct peer connection created.", attributes: ["participantID": participantID.uuidString, "iceServers": String(configuration.iceServers.count), "policy": "all"])
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.connection", level: .info, message: "NVST direct peer connection created.", attributes: ["participantID": participantID.uuidString, "iceServers": String(configuration.iceServers.count), "policy": "all"])
         attachVideoTrack(peerConnection: peerConnection, factory: factory)
         attachAudioTrack(peerConnection: peerConnection, factory: factory)
         stateLock.withLock {
@@ -259,7 +259,7 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
         capturer.delegate?.capturer(capturer, didCapture: relayFrame)
         deliveredVideoFrameCount &+= 1
         nextVideoFrameDeliveryNanoseconds = DispatchTime.now().uptimeNanoseconds &+ videoFrameIntervalNanoseconds
-        captureVideoPacingTelemetryIfNeeded()
+        logVideoPacingIfNeeded()
         if pendingVideoFrame != nil { scheduleVideoFrameDeliveryIfNeeded() }
     }
     
@@ -267,9 +267,9 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
         UInt64(1_000_000_000 / max(1, qualityPreset.fps))
     }
     
-    private func captureVideoPacingTelemetryIfNeeded() {
+    private func logVideoPacingIfNeeded() {
         guard deliveredVideoFrameCount.isMultiple(of: 240), droppedVideoFrameCount > 0 else { return }
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.video.paced", level: .debug, message: "NVST direct P2P video pacing dropped stale frames.", attributes: [
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.video.paced", level: .debug, message: "NVST direct P2P video pacing dropped stale frames.", attributes: [
             "participantID": participantID.uuidString,
             "deliveredFrames": String(deliveredVideoFrameCount),
             "droppedFrames": String(droppedVideoFrameCount),
@@ -325,11 +325,11 @@ public final class RemoteCoOpNVSTDirectPeer: NSObject, RemoteCoOpHostPeer, Remot
     
     private func createAndSendOffer(peerConnection: RTCPeerConnection) async throws {
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.offer.create", level: .info, message: "Creating NVST direct P2P WebRTC offer.", attributes: ["participantID": participantID.uuidString])
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.offer.create", level: .info, message: "Creating NVST direct P2P WebRTC offer.", attributes: ["participantID": participantID.uuidString])
         let offer = try await createOffer(peerConnection: peerConnection, constraints: constraints)
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.offer.created", level: .info, message: "NVST direct P2P WebRTC offer created.", attributes: ["participantID": participantID.uuidString, "sdpBytes": String(offer.sdp.utf8.count)])
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.offer.created", level: .info, message: "NVST direct P2P WebRTC offer created.", attributes: ["participantID": participantID.uuidString, "sdpBytes": String(offer.sdp.utf8.count)])
         try await setLocalDescription(offer, peerConnection: peerConnection)
-        WebRTCMediaTelemetry.capture("webrtc.remote_coop.nvst_direct.offer.local_description", level: .info, message: "NVST direct P2P local offer description set.", attributes: ["participantID": participantID.uuidString])
+        WebRTCMediaLog.write("webrtc.remote_coop.nvst_direct.offer.local_description", level: .info, message: "NVST direct P2P local offer description set.", attributes: ["participantID": participantID.uuidString])
         await callbacks.sendSignal(RemoteCoOpWirePeerSignal(kind: .offer, sdp: offer.sdp))
     }
     

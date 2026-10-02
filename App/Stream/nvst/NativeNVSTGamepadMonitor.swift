@@ -103,14 +103,14 @@ public final class NativeNVSTGamepadMonitor {
     public func start() {
         pollingAllowed = true
         if Self.connectedGamepadCount() > 0 { startPollingTimer() }
-        NativeNVSTMediaTelemetry.capture("webrtc.input.gamepad.monitor.start", level: .info, message: "Gamepad monitor started.", attributes: ["connected": String(Self.connectedGamepadCount())])
+        NativeNVSTMediaLog.write("webrtc.input.gamepad.monitor.start", level: .info, message: "Gamepad monitor started.", attributes: ["connected": String(Self.connectedGamepadCount())])
     }
 
     public func stop() {
         pollingAllowed = false
         stopPollingTimer()
         stopHaptics()
-        NativeNVSTMediaTelemetry.capture("webrtc.input.gamepad.monitor.stop", level: .info, message: "Gamepad monitor stopped.")
+        NativeNVSTMediaLog.write("webrtc.input.gamepad.monitor.stop", level: .info, message: "Gamepad monitor stopped.")
     }
 
     public func playHaptic(_ command: NativeNVSTHapticCommand) {
@@ -175,7 +175,7 @@ public final class NativeNVSTGamepadMonitor {
         if pollingAllowed {
             controllerSlots.slots.isEmpty ? stopPollingTimer() : startPollingTimer()
         }
-        NativeNVSTMediaTelemetry.capture("webrtc.input.gamepad.controllers", level: .info, message: "Detected \(controllerSlots.slots.count) controller(s).", attributes: ["connected": String(controllerSlots.slots.count), "slots": topology.playerIndices.map(String.init).joined(separator: ",")])
+        NativeNVSTMediaLog.write("webrtc.input.gamepad.controllers", level: .info, message: "Detected \(controllerSlots.slots.count) controller(s).", attributes: ["connected": String(controllerSlots.slots.count), "slots": topology.playerIndices.map(String.init).joined(separator: ",")])
     }
 
     private func startPollingTimer() {

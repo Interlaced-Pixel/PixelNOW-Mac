@@ -139,20 +139,6 @@ struct NativeNVSTLaunchPayload: Equatable, Sendable {
     let start: Start
     let missingFields: [String]
 
-    var telemetryAttributes: [String: String] {
-        [
-            "nativePayloadMissingFields": missingFields.joined(separator: ","),
-            "nativePayloadServerType": String(start.serverType),
-            "nativePayloadAppLaunchMode": String(start.appLaunchMode),
-            "nativePayloadHasToken": prepare.hasToken ? "true" : "false",
-            "nativePayloadTokenType": prepare.tokenType,
-            "nativePayloadNetworkSessionId": start.networkSessionId.isEmpty ? "missing" : "present",
-            "nativePayloadAudioModeFormat": start.audioModeFormat,
-            "nativePayloadSupportedControls": String(start.supportedControlsCount),
-            "nativePayloadContentRatings": String(start.contentRatingCount),
-        ]
-    }
-
     init(allocation: NativeNVSTSessionAllocation, streamingProfileJSON: String, clientAppVersion: String) {
         let source = NativeNVSTNormalizedSessionSource(allocation: allocation)
         let rawSession = source.rawSession

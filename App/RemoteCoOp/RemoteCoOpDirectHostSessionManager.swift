@@ -109,7 +109,7 @@ public actor RemoteCoOpDirectHostSessionManager {
         do {
             try await directSignalingSession.start()
         } catch {
-            WebRTCMediaTelemetry.capture("remote.coop.direct.session.start.failed", level: .error, message: error.localizedDescription)
+            WebRTCMediaLog.write("remote.coop.direct.session.start.failed", level: .error, message: error.localizedDescription)
             throw error
         }
     }

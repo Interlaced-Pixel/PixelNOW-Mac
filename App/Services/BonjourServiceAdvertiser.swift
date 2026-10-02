@@ -49,7 +49,7 @@ public actor BonjourServiceAdvertiser {
         service.setTXTRecord(NetService.data(fromTXTRecord: record))
         let delegate = BonjourPublicationDelegate()
         delegate.onFailure = { error in
-            WebRTCMediaTelemetry.capture("remote.coop.bonjour.publish.failed", level: .warning, message: error.localizedDescription)
+            WebRTCMediaLog.write("remote.coop.bonjour.publish.failed", level: .warning, message: error.localizedDescription)
         }
         service.delegate = delegate
         service.publish(options: [.listenForConnections])

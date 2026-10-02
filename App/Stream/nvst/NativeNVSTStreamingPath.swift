@@ -297,26 +297,26 @@ public actor NativeNVSTStreamingPath {
 
     private func startStreaming(configuration: PreparedLaunchConfiguration,
                                 progress: (@Sendable (StreamProgress) async -> Void)?) async throws -> StreamSessionDescriptor {
-        NativeNVSTMediaTelemetry.capture("nvst.path.start", level: .info, message: "Starting native NVST streaming path.", attributes: ["configurationId": configuration.id.uuidString, "applicationID": configuration.applicationID])
+        NativeNVSTMediaLog.write("nvst.path.start", level: .info, message: "Starting native NVST streaming path.", attributes: ["configurationId": configuration.id.uuidString, "applicationID": configuration.applicationID])
 
         try Task.checkCancellation()
         try await publishProgress(configuration: configuration, step: .checkNetworkRoute, message: "Checking native NVST runtime...", progress: progress)
         do {
             _ = try await transport.prepare()
         } catch {
-            NativeNVSTMediaTelemetry.capture("nvst.path.runtime.error", level: .error, message: Self.message(for: error), attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.path.runtime.error", level: .error, message: Self.message(for: error), attributes: ["applicationID": configuration.applicationID])
             throw error
         }
 
         try Task.checkCancellation()
-        NativeNVSTMediaTelemetry.capture("nvst.path.allocate", level: .info, message: "Allocating cloud session...", attributes: ["applicationID": configuration.applicationID])
+        NativeNVSTMediaLog.write("nvst.path.allocate", level: .info, message: "Allocating cloud session...", attributes: ["applicationID": configuration.applicationID])
         try await publishProgress(configuration: configuration, step: .allocateCloudSession, message: "Allocating native NVST cloud session...", progress: progress)
         let allocation: NativeNVSTSessionAllocation
         do {
             allocation = try await sessionProvider.startNativeNVSTSession(configuration: configuration)
         } catch {
             if error is CancellationError || Task.isCancelled { throw error }
-            NativeNVSTMediaTelemetry.capture("nvst.path.session_provider.error", level: .error, message: Self.message(for: error), attributes: ["applicationID": configuration.applicationID])
+            NativeNVSTMediaLog.write("nvst.path.session_provider.error", level: .error, message: Self.message(for: error), attributes: ["applicationID": configuration.applicationID])
             throw error
         }
 
@@ -347,7 +347,7 @@ public actor NativeNVSTStreamingPath {
             }
             try? await sessionProvider.finishSession(allocation.session, reason: releaseReason)
             if error is CancellationError || Task.isCancelled { throw error }
-            NativeNVSTMediaTelemetry.capture("nvst.path.transport.error", level: .error, message: Self.message(for: error), attributes: ["sessionId": allocation.session.id])
+            NativeNVSTMediaLog.write("nvst.path.transport.error", level: .error, message: Self.message(for: error), attributes: ["sessionId": allocation.session.id])
             throw error
         }
 
@@ -360,7 +360,7 @@ public actor NativeNVSTStreamingPath {
         state = .running(allocation.session)
         monitorTransportTermination()
         try await publishProgress(configuration: configuration, step: .connected, message: "Connected over native NVST.", isReady: true, progress: progress)
-        NativeNVSTMediaTelemetry.capture("nvst.path.connected", level: .info, message: "Native NVST streaming path connected.", attributes: ["sessionId": allocation.session.id, "applicationID": allocation.session.applicationID])
+        NativeNVSTMediaLog.write("nvst.path.connected", level: .info, message: "Native NVST streaming path connected.", attributes: ["sessionId": allocation.session.id, "applicationID": allocation.session.applicationID])
         return allocation.session
     }
 
@@ -485,7 +485,7 @@ public actor NativeNVSTStreamingPath {
         startedAt = nil
         recoveryAttempts = 0
         recoveryWindowStartedAt = nil
-        NativeNVSTMediaTelemetry.capture("nvst.path.stop", level: .info, message: message, attributes: ["sessionId": activeSession.id, "reason": reason.rawValue])
+        NativeNVSTMediaLog.write("nvst.path.stop", level: .info, message: message, attributes: ["sessionId": activeSession.id, "reason": reason.rawValue])
         if forApplicationTermination {
             await transport.disconnectForApplicationTermination()
         } else {
@@ -527,7 +527,7 @@ public actor NativeNVSTStreamingPath {
         startedAt = nil
         recoveryAttempts = 0
         recoveryWindowStartedAt = nil
-        NativeNVSTMediaTelemetry.capture("nvst.path.pause", level: .info, message: message, attributes: ["sessionId": activeSession.id])
+        NativeNVSTMediaLog.write("nvst.path.pause", level: .info, message: message, attributes: ["sessionId": activeSession.id])
         do {
             try await transport.pause()
             try? await sessionProvider.finishSession(activeSession, reason: .paused)
@@ -711,20 +711,20 @@ extension NativeNVSTStreamingPath {
         }
 
         // Soft Recovery Phase
-        NativeNVSTMediaTelemetry.capture("nvst.path.recovery.soft", level: .info, message: "Requesting in-stream soft recovery.", attributes: ["sessionId": session.id, "reason": reason])
+        NativeNVSTMediaLog.write("nvst.path.recovery.soft", level: .info, message: "Requesting in-stream soft recovery.", attributes: ["sessionId": session.id, "reason": reason])
         let baselineDecodedFrameCount = await transport.performanceSnapshot()?.decodedFrameCount ?? 0
         await transport.sendRecoveryMode(enabled: true)
 
         try? await Task.sleep(for: .seconds(2))
         await transport.sendRecoveryMode(enabled: false)
         if recoveryCancelledBySeat {
-            NativeNVSTMediaTelemetry.capture("nvst.path.recovery.aborted", level: .info, message: "Recovery aborted: seat terminated the session during soft recovery.", attributes: ["sessionId": session.id])
+            NativeNVSTMediaLog.write("nvst.path.recovery.aborted", level: .info, message: "Recovery aborted: seat terminated the session during soft recovery.", attributes: ["sessionId": session.id])
             return false
         }
         let softRecoverySnapshot = await transport.performanceSnapshot()
         if let softRecoverySnapshot,
            softRecoverySnapshot.decodedFrameCount > baselineDecodedFrameCount {
-            NativeNVSTMediaTelemetry.capture("nvst.path.recovery.soft-succeeded", level: .info, message: "In-stream NVST recovery restored video delivery.", attributes: ["sessionId": session.id])
+            NativeNVSTMediaLog.write("nvst.path.recovery.soft-succeeded", level: .info, message: "In-stream NVST recovery restored video delivery.", attributes: ["sessionId": session.id])
             return true
         }
 
@@ -738,7 +738,7 @@ extension NativeNVSTStreamingPath {
         if recoveryWindowStartedAt == nil { recoveryWindowStartedAt = .now }
         while recoveryAttempts < Self.maximumRecoveryAttempts {
             if recoveryCancelledBySeat {
-                NativeNVSTMediaTelemetry.capture("nvst.path.recovery.aborted", level: .info, message: "Recovery aborted: seat terminated the session.", attributes: ["sessionId": session.id])
+                NativeNVSTMediaLog.write("nvst.path.recovery.aborted", level: .info, message: "Recovery aborted: seat terminated the session.", attributes: ["sessionId": session.id])
                 return false
             }
             let attempt = recoveryAttempts
@@ -748,7 +748,7 @@ extension NativeNVSTStreamingPath {
                 try? await Task.sleep(for: delay)
             }
             guard activeSession?.id == session.id, !Task.isCancelled else { return false }
-            NativeNVSTMediaTelemetry.capture("nvst.path.recovery.attempt", level: .info, message: "Reconnecting native NVST session in place.", attributes: ["sessionId": session.id, "attempt": String(attempt + 1), "reason": reason])
+            NativeNVSTMediaLog.write("nvst.path.recovery.attempt", level: .info, message: "Reconnecting native NVST session in place.", attributes: ["sessionId": session.id, "attempt": String(attempt + 1), "reason": reason])
             if await recover(session: session, configuration: configuration, attempt: attempt + 1) {
                 return true
             }
@@ -772,10 +772,10 @@ extension NativeNVSTStreamingPath {
             }
             activeAllocation = refreshed
             monitorTransportTermination()
-            NativeNVSTMediaTelemetry.capture("nvst.path.recovered", level: .info, message: "Native NVST session recovered.", attributes: ["sessionId": session.id, "attempt": String(attempt)])
+            NativeNVSTMediaLog.write("nvst.path.recovered", level: .info, message: "Native NVST session recovered.", attributes: ["sessionId": session.id, "attempt": String(attempt)])
             return true
         } catch {
-            NativeNVSTMediaTelemetry.capture("nvst.path.recovery.failed", level: .warning, message: Self.message(for: error), attributes: ["sessionId": session.id, "attempt": String(attempt)])
+            NativeNVSTMediaLog.write("nvst.path.recovery.failed", level: .warning, message: Self.message(for: error), attributes: ["sessionId": session.id, "attempt": String(attempt)])
             await transport.resetForRecovery()
         }
         return false
