@@ -21,7 +21,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
 
     func createSession(appId: String, internalTitle: String, settings: [String: Any], completion: @escaping (Bool, [String: Any], String) -> Void) {
         guard let launchAppId = LaunchAppId.resolve(appId) else {
-            Sentry.logWarningMessage(Sentry.formattedLogMessage(level: "warning", area: "SessionManager", message: "Refusing session creation with invalid appId=\(escapedLogString(appId.trimmingCharacters(in: .whitespacesAndNewlines)))"))
+            Log.warning(.launch, "Refusing session creation with invalid appId=\(escapedLogString(appId.trimmingCharacters(in: .whitespacesAndNewlines)))")
             completion(false, [:], "This game does not include a launchable GeForce NOW app id.")
             return
         }
@@ -42,7 +42,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
         let timezoneOffset = -TimeZone.current.secondsFromGMT() * 1000
         let selectedStore = string(effectiveSettings["selectedStore"]).isEmpty ? "unknown" : string(effectiveSettings["selectedStore"])
 
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "SessionManager", message: "Creating cloud session appId=\(launchAppId.stringValue) base=\(baseUrl) transport=\(transportMode) resolution=\(string(effectiveSettings["resolution"])) fps=\(int(effectiveSettings["fps"], fallback: 60)) codec=\(string(effectiveSettings["codec"])) color=\(string(effectiveSettings["colorQuality"])) bitrate=\(int(effectiveSettings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(effectiveSettings["enableL4S"]) ? "on" : "off") profile=\(int(effectiveSettings["streamingQualityProfile"])) networkTestSessionId=\(escapedLogString(string(effectiveSettings["networkTestSessionId"])))"))
+        Log.info(.launch, "Creating cloud session appId=\(launchAppId.stringValue) base=\(baseUrl) transport=\(transportMode) resolution=\(string(effectiveSettings["resolution"])) fps=\(int(effectiveSettings["fps"], fallback: 60)) codec=\(string(effectiveSettings["codec"])) color=\(string(effectiveSettings["colorQuality"])) bitrate=\(int(effectiveSettings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(effectiveSettings["enableL4S"]) ? "on" : "off") profile=\(int(effectiveSettings["streamingQualityProfile"])) networkTestSessionId=\(escapedLogString(string(effectiveSettings["networkTestSessionId"])))")
 
         var metadata = [
             ["key": "SubSessionId", "value": UUID().uuidString.lowercased()],
@@ -111,10 +111,9 @@ final class SessionManager: NSObject, @unchecked Sendable {
         request.setValue("https://play.geforcenow.com", forHTTPHeaderField: "Origin")
 
         nonisolated(unsafe) let createCompletion = completion
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.createSession")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.createSession", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.createSession")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.createSession", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             if let error {
                 createCompletion(false, [:], error.localizedDescription)
@@ -177,15 +176,14 @@ final class SessionManager: NSObject, @unchecked Sendable {
             return
         }
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: currentStreamingBaseUrl(), serverIP: serverIp)
-        guard var request = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
+        guard let request = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, [:], "Invalid poll URL")
             return
         }
         nonisolated(unsafe) let completion = completion
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.pollSession")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.pollSession", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.pollSession")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.pollSession", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             if let error {
                 completion(false, [:], error.localizedDescription)
@@ -219,15 +217,14 @@ final class SessionManager: NSObject, @unchecked Sendable {
         }
         clearPersistedActiveSessionId(sessionId)
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: currentStreamingBaseUrl(), serverIP: serverIp)
-        guard var request = CloudMatchRequestFactory.stopSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
+        guard let request = CloudMatchRequestFactory.stopSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, "Invalid stop session URL")
             return
         }
         nonisolated(unsafe) let completion = completion
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.stopSession")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.stopSession", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.stopSession")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.stopSession", startedAt: networkStart, data: data, response: response, error: error)
             if let error {
                 completion(false, error.localizedDescription)
                 return
@@ -248,15 +245,14 @@ final class SessionManager: NSObject, @unchecked Sendable {
             return
         }
         let base = currentStreamingBaseUrl()
-        guard var request = CloudMatchRequestFactory.activeSessionsRequest(baseURLString: base, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
+        guard let request = CloudMatchRequestFactory.activeSessionsRequest(baseURLString: base, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, [], "Invalid sessions URL")
             return
         }
         nonisolated(unsafe) let completion = completion
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.activeSessions")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.activeSessions", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.activeSessions")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.activeSessions", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             if let error {
                 completion(false, [], error.localizedDescription)
@@ -298,16 +294,15 @@ final class SessionManager: NSObject, @unchecked Sendable {
             completion(false, [:], "Failed to encode ad update request")
             return
         }
-        guard var request = CloudMatchRequestFactory.adUpdateRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: string(session["deviceId"]).isEmpty ? DeviceIdentity.stableCloudmatchDeviceId() : string(session["deviceId"]), body: bodyData) else {
+        guard let request = CloudMatchRequestFactory.adUpdateRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: string(session["deviceId"]).isEmpty ? DeviceIdentity.stableCloudmatchDeviceId() : string(session["deviceId"]), body: bodyData) else {
             completion(false, [:], "Invalid ad update URL")
             return
         }
         nonisolated(unsafe) let completion = completion
         nonisolated(unsafe) let adSession = session
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.reportSessionAd")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.reportSessionAd", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.reportSessionAd")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.reportSessionAd", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             if let error {
                 completion(false, [:], error.localizedDescription)
@@ -341,7 +336,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
 
     func claimSession(sessionId: String, serverIp: String, appId: String, settings: [String: Any], recoveryMode: Bool, completion: @escaping (Bool, [String: Any], String) -> Void) {
         guard let launchAppId = LaunchAppId.resolve(appId) else {
-            Sentry.logWarningMessage(Sentry.formattedLogMessage(level: "warning", area: "ClaimSession", message: "Refusing claim with invalid appId=\(escapedLogString(appId.trimmingCharacters(in: .whitespacesAndNewlines))) sessionId=\(escapedLogString(sessionId))"))
+            Log.warning(.launch, "Refusing claim with invalid appId=\(escapedLogString(appId.trimmingCharacters(in: .whitespacesAndNewlines))) sessionId=\(escapedLogString(sessionId))")
             completion(false, [:], "This game does not include a launchable GeForce NOW app id.")
             return
         }
@@ -358,22 +353,21 @@ final class SessionManager: NSObject, @unchecked Sendable {
         let clientId = UUID().uuidString.lowercased()
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: currentStreamingBaseUrl(), serverIP: serverIp)
         let headers = CloudMatchClientHeaders.streamSession(transportMode: streamTransportMode(settings))
-        guard var validationRequest = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, timeoutInterval: 30, headers: headers) else {
+        guard let validationRequest = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, timeoutInterval: 30, headers: headers) else {
             completion(false, [:], "Invalid validation URL")
             return
         }
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "ClaimSession", message: "Starting claim sessionId=\(sessionId) serverIp=\(serverIp) appId=\(launchAppId.stringValue) transport=\(streamTransportMode(settings)) resolution=\(string(settings["resolution"])) fps=\(int(settings["fps"], fallback: 60)) codec=\(string(settings["codec"])) color=\(string(settings["colorQuality"])) bitrate=\(int(settings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(settings["enableL4S"]) ? "on" : "off") recovery=\(recoveryMode)"))
+        Log.info(.launch, "Starting claim sessionId=\(sessionId) serverIp=\(serverIp) appId=\(launchAppId.stringValue) transport=\(streamTransportMode(settings)) resolution=\(string(settings["resolution"])) fps=\(int(settings["fps"], fallback: 60)) codec=\(string(settings["codec"])) color=\(string(settings["colorQuality"])) bitrate=\(int(settings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(settings["enableL4S"]) ? "on" : "off") recovery=\(recoveryMode)")
         nonisolated(unsafe) let completion = completion
         nonisolated(unsafe) let claimSettings = settings
-        let validationNetworkStart = NetworkLog.start(&validationRequest, operation: "cloudmatch.validateSessionClaim")
-        let tracedValidationRequest = validationRequest
-        URLSession.shared.dataTask(with: tracedValidationRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedValidationRequest, operation: "cloudmatch.validateSessionClaim", startedAt: validationNetworkStart, data: data, response: response, error: error)
+        let validationNetworkStart = NetworkLog.start(validationRequest, operation: "cloudmatch.validateSessionClaim")
+        URLSession.shared.dataTask(with: validationRequest) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.validateSessionClaim", startedAt: validationNetworkStart, data: data, response: response, error: error)
             guard let self else { return }
             var preClaimStatus = 0
             var validatedSession: [String: Any]?
             if let error {
-                Sentry.logWarningMessage(Sentry.formattedLogMessage(level: "warning", area: "ClaimSession", message: "Validation request failed error=\(error.localizedDescription)"))
+                Log.warning(.launch, "Validation request failed error=\(error.localizedDescription)")
             } else if let data {
                 let json = CloudMatchResponseParser.jsonDictionary(data)
                 let session = json?["session"] as? [String: Any]
@@ -491,15 +485,14 @@ final class SessionManager: NSObject, @unchecked Sendable {
         }
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: currentStreamingBaseUrl(), serverIP: serverIp)
         let headers = CloudMatchClientHeaders.streamSession(transportMode: transportMode)
-        guard var request = CloudMatchRequestFactory.claimSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, keyboardLayout: layout, languageCode: language, body: bodyData, headers: headers) else {
+        guard let request = CloudMatchRequestFactory.claimSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, keyboardLayout: layout, languageCode: language, body: bodyData, headers: headers) else {
             completion(false, [:], "Invalid claim URL")
             return
         }
         nonisolated(unsafe) let completion = completion
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.claimSession")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.claimSession", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.claimSession")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.claimSession", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             if let error {
                 completion(false, [:], error.localizedDescription)
@@ -852,7 +845,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
         let queuePosition = int(info["queuePosition"])
         if queuePosition > 0 { summary += " queue=\(queuePosition)" }
         if let adState = info["adState"] as? [String: Any], bool(adState["isAdsRequired"]) { summary += " ads=required" }
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "PollSession", message: summary))
+        Log.info(.launch, summary)
     }
 
     private func storePersistedActiveSessionId(_ sessionId: String) {
@@ -861,7 +854,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
         guard current != sessionId else { return }
         UserDefaults.standard.set(sessionId, forKey: AccountStorageKeys.persistedActiveSessionIdKey())
         UserDefaults.standard.synchronize()
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "SessionManager", message: "Persisted active sessionId=\(sessionId)"))
+        Log.info(.launch, "Persisted active sessionId=\(sessionId)")
     }
 
     private func clearPersistedActiveSessionId(_ sessionId: String) {
@@ -869,7 +862,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
         guard !current.isEmpty, sessionId.isEmpty || current == sessionId else { return }
         UserDefaults.standard.removeObject(forKey: AccountStorageKeys.persistedActiveSessionIdKey())
         UserDefaults.standard.synchronize()
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "SessionManager", message: "Cleared persisted active sessionId=\(current)"))
+        Log.info(.launch, "Cleared persisted active sessionId=\(current)")
     }
 }
 
@@ -902,14 +895,13 @@ private final class PollClaimSessionContext: @unchecked Sendable {
             complete(false, [:], "Timeout polling for session ready")
             return
         }
-        guard var request = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, headers: headers) else {
+        guard let request = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, headers: headers) else {
             complete(false, [:], "Invalid poll claim URL")
             return
         }
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.pollClaimSession")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.pollClaimSession", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.pollClaimSession")
+        URLSession.shared.dataTask(with: request) { [self] data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.pollClaimSession", startedAt: networkStart, data: data, response: response, error: error)
             manager.pollClaimSessionRequestFinished(context: self, attempt: attempt, data: data, error: error)
         }.resume()
     }

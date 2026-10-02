@@ -252,14 +252,14 @@ final class Sentry {
         request.setValue("text/plain", forHTTPHeaderField: "Accept")
         request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.httpBody = data
-        let networkStart = NetworkLog.start(&request, operation: "diagnostics.upload")
+        let networkStart = NetworkLog.start(request, operation: "diagnostics.upload")
         let responseData: Data
         let response: URLResponse
         do {
             (responseData, response) = try await session.data(for: request)
-            NetworkLog.finish(request, operation: "diagnostics.upload", startedAt: networkStart, data: responseData, response: response, error: nil)
+            NetworkLog.finish(operation: "diagnostics.upload", startedAt: networkStart, data: responseData, response: response, error: nil)
         } catch {
-            NetworkLog.finish(request, operation: "diagnostics.upload", startedAt: networkStart, data: nil, response: nil, error: error)
+            NetworkLog.finish(operation: "diagnostics.upload", startedAt: networkStart, data: nil, response: nil, error: error)
             throw error
         }
         guard let http = response as? HTTPURLResponse else { throw SentryDiagnosticsUploadError.invalidResponse }

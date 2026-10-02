@@ -43,7 +43,6 @@ public final class AuthService: @unchecked Sendable {
 
     private static let uuidLock = NSLock()
     nonisolated(unsafe) private static var cachedUUID = ""
-    private let telemetry: JarvisTelemetry = JarvisSentryTelemetry.shared
     private let jarvisAuthService: JarvisAuthService<JarvisURLSessionTransport>
     private let starfleetService: StarfleetService<StarfleetURLSessionTransport>
     private let statusObservationTask: Task<Void, Never>
@@ -53,7 +52,6 @@ public final class AuthService: @unchecked Sendable {
             configuration: Self.jarvisConfiguration,
             retryPolicy: .gfnPC,
             transport: JarvisURLSessionTransport(),
-            telemetry: JarvisSentryTelemetry.shared,
             sessionStore: PersistedJarvisSessionStore.shared,
             persistenceMode: .manual
         )
@@ -61,8 +59,7 @@ public final class AuthService: @unchecked Sendable {
             configuration: .gfnPC,
             refreshPolicy: .gfnPC,
             retryPolicy: .gfnPC,
-            transport: StarfleetURLSessionTransport(),
-            telemetry: StarfleetSentryTelemetry.shared
+            transport: StarfleetURLSessionTransport()
         )
         self.jarvisAuthService = jarvisService
         self.starfleetService = starfleetService
@@ -96,7 +93,6 @@ public final class AuthService: @unchecked Sendable {
         let redirectUri = "http://localhost:\(port)"
         let selectedProviderIdpId = providerIdpId.isEmpty ? Self.defaultIdpId : providerIdpId
         let locale = Foundation.Locale.current.identifier.replacingOccurrences(of: "-", with: "_")
-        telemetry.recordBreadcrumb("Jarvis OAuth login starting", attributes: ["provider_idp_id": selectedProviderIdpId])
 
         Task { [weak self] in
             guard let self else { return }
@@ -126,7 +122,6 @@ public final class AuthService: @unchecked Sendable {
                                 )
                             } catch {
                                 _ = await self.jarvisAuthService.finishLogin(success: false)
-                                self.telemetry.recordError(error, operation: .getLoginToken, attributes: ["phase": "callback"])
                                 DispatchQueue.main.async { completion(false, AuthSession(), error.localizedDescription) }
                             }
                         }
@@ -134,19 +129,16 @@ public final class AuthService: @unchecked Sendable {
                         Task { [weak self] in
                             guard let self else { return }
                             _ = await self.jarvisAuthService.finishLogin(success: false)
-                            self.telemetry.recordError(error, operation: .getLoginToken, attributes: ["phase": "callback"])
                             DispatchQueue.main.async { completion(false, AuthSession(), error.localizedDescription) }
                         }
                     }
                 } readyHandler: {
                     DispatchQueue.main.async {
-                        self.telemetry.recordBreadcrumb("Jarvis OAuth browser opened", attributes: ["provider_idp_id": selectedProviderIdpId])
                         NSWorkspace.shared.open(loginRequest.url)
                     }
                 }
             } catch {
                 _ = await self.jarvisAuthService.finishLogin(success: false)
-                self.telemetry.recordError(error, operation: .getLoginToken, attributes: ["phase": "authorization_url"])
                 DispatchQueue.main.async { completion(false, AuthSession(), error.localizedDescription) }
             }
         }
@@ -268,11 +260,10 @@ public final class AuthService: @unchecked Sendable {
             completion(false, "Invalid logout URL")
             return
         }
-        var request = URLRequest(url: url, timeoutInterval: 10)
-        let networkStart = NetworkLog.start(&request, operation: "auth.serverLogout")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "auth.serverLogout", startedAt: networkStart, data: data, response: response, error: error)
+        let request = URLRequest(url: url, timeoutInterval: 10)
+        let networkStart = NetworkLog.start(request, operation: "auth.serverLogout")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "auth.serverLogout", startedAt: networkStart, data: data, response: response, error: error)
             DispatchQueue.main.async {
                 self.clearSession()
                 if let error {

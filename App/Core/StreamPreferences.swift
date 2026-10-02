@@ -943,14 +943,13 @@ public enum StreamPreferences {
             DispatchQueue.main.async { completion(cached) }
             return
         }
-        guard var request = cloudVariablesRequest(token: token, locale: currentCloudVariablesLocale(), userId: userId, idpId: idpId) else {
+        guard let request = cloudVariablesRequest(token: token, locale: currentCloudVariablesLocale(), userId: userId, idpId: idpId) else {
             DispatchQueue.main.async { completion(cached) }
             return
         }
-        let networkStart = NetworkLog.start(&request, operation: "stream.cloudVariables")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "stream.cloudVariables", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "stream.cloudVariables")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "stream.cloudVariables", startedAt: networkStart, data: data, response: response, error: error)
             var result = cached
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if error == nil, let data, (200..<300).contains(status), let json = String(data: data, encoding: .utf8) {
@@ -1026,10 +1025,9 @@ public enum StreamPreferences {
         let baseUrl = providerStreamingBaseUrl.isEmpty ? defaultStreamingBaseUrl : providerStreamingBaseUrl
         var request = serverInfoRequest(baseUrl: baseUrl, token: token)
         request.timeoutInterval = 4
-        let networkStart = NetworkLog.start(&request, operation: "stream.fetchRegions")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "stream.fetchRegions", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "stream.fetchRegions")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "stream.fetchRegions", startedAt: networkStart, data: data, response: response, error: error)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard error == nil, let data, status == 200, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 DispatchQueue.main.async { completion(loadCachedRegions()) }
@@ -1632,9 +1630,8 @@ public enum StreamPreferences {
                 let service = NetworkTestService(configuration: NetworkTestConfiguration(baseURLString: baseURLString, timeoutInterval: 8), transport: NetworkTestURLSessionTransport())
                 let networkTest = try await service.startSession(accessToken: token)
                 result = mergeNetworkTest(networkTest, into: result, requestedMaxBitrateMbps: requestedMaxBitrateMbps)
-                TelemetryRecorder.record(TelemetryEvent(name: .networkTest, parameters: ["status": networkTest.rawStatus.isEmpty ? "completed" : networkTest.rawStatus, "continued": "true"]))
             } catch {
-                TelemetryRecorder.record(TelemetryEvent(name: .networkTestException, parameters: ["error": error.localizedDescription, "continued": "true"]))
+                Log.warning(.launch, "Network preflight failed: \(error.localizedDescription)")
             }
             await MainActor.run { completion(result) }
         }
@@ -1730,10 +1727,9 @@ public enum StreamPreferences {
         let region = state.region(at: index)
         var request = serverInfoRequest(baseUrl: region.url, token: token)
         request.timeoutInterval = 4
-        let networkStart = NetworkLog.start(&request, operation: "stream.measureRegion")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "stream.measureRegion", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "stream.measureRegion")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "stream.measureRegion", startedAt: networkStart, data: data, response: response, error: error)
             var updatedBest = bestLatencyMs
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if error == nil, status >= 200, status < 500 {

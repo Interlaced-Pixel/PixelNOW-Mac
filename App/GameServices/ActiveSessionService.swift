@@ -46,14 +46,13 @@ enum ActiveSessionService {
             return
         }
         let base = normalizedBaseURL(streamingBaseUrl)
-        guard var request = CloudMatchRequestFactory.activeSessionsRequest(baseURLString: base, accessToken: accessToken, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
+        guard let request = CloudMatchRequestFactory.activeSessionsRequest(baseURLString: base, accessToken: accessToken, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, [], "Invalid sessions URL")
             return
         }
-        let networkStart = NetworkLog.start(&request, operation: "activeSession.fetch")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "activeSession.fetch", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "activeSession.fetch")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "activeSession.fetch", startedAt: networkStart, data: data, response: response, error: error)
             if let error {
                 completion(false, [], error.localizedDescription)
                 return
@@ -90,14 +89,13 @@ enum ActiveSessionService {
         }
         clearPersistedActiveSessionId(sessionId)
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: streamingBaseUrl, serverIP: serverIp)
-        guard var request = CloudMatchRequestFactory.stopSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: accessToken, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
+        guard let request = CloudMatchRequestFactory.stopSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: accessToken, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, "Invalid stop session URL")
             return
         }
-        let networkStart = NetworkLog.start(&request, operation: "activeSession.stop")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "activeSession.stop", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "activeSession.stop")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "activeSession.stop", startedAt: networkStart, data: data, response: response, error: error)
             if let error {
                 completion(false, error.localizedDescription)
                 return

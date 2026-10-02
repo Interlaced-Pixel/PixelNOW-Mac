@@ -93,10 +93,9 @@ final class GameService: @unchecked Sendable {
         var request = URLRequest(url: url, timeoutInterval: 10)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(Self.gfnUserAgent, forHTTPHeaderField: "User-Agent")
-        let networkStart = NetworkLog.start(&request, operation: "provider.serviceUrls")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "provider.serviceUrls", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "provider.serviceUrls")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "provider.serviceUrls", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard error == nil, let data, statusCode == 200 else {
@@ -603,10 +602,9 @@ final class GameService: @unchecked Sendable {
             request.setValue("GFNJWT \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             Self.applyClientHeaders(to: &request, includeBrowserHeaders: false)
-            let networkStart = NetworkLog.start(&request, operation: "mes.subscriptions")
-            let tracedRequest = request
-            URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-                NetworkLog.finish(tracedRequest, operation: "mes.subscriptions", startedAt: networkStart, data: data, response: response, error: error)
+            let networkStart = NetworkLog.start(request, operation: "mes.subscriptions")
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                NetworkLog.finish(operation: "mes.subscriptions", startedAt: networkStart, data: data, response: response, error: error)
                 Self.workQueue.async {
                     if let error {
                         self.dispatchSubscription(completion, false, SubscriptionInfo(), error.localizedDescription)
@@ -936,10 +934,9 @@ final class GameService: @unchecked Sendable {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let networkStart = NetworkLog.start(&request, operation: "als.sync")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "als.sync", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "als.sync")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "als.sync", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             if let error {
                 self.dispatchOwnership(completion, false, error.localizedDescription)
@@ -987,10 +984,9 @@ final class GameService: @unchecked Sendable {
         var request = URLRequest(url: url, timeoutInterval: Self.accountLinkingRequestTimeoutSeconds)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-        let networkStart = NetworkLog.start(&request, operation: "als.loginUrl")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "als.loginUrl", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "als.loginUrl")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "als.loginUrl", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard error == nil, statusCode == 200, let data else {
@@ -1072,10 +1068,8 @@ final class GameService: @unchecked Sendable {
             Self.graphQLFlightCallbacks[flightKey] = [completion]
             Self.graphQLFlightLock.unlock()
         }
-        var requestWithTrace = request
-        let networkStart = NetworkLog.graphQLStart(&requestWithTrace, operationName: operationName, queryHash: queryHash, variables: variables)
-        let tracedRequest = requestWithTrace
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
+        let networkStart = NetworkLog.graphQLStart(request, operationName: operationName, queryHash: queryHash, variables: variables)
+        URLSession.shared.dataTask(with: request) { data, response, error in
             var payload: NSDictionary?
             var message = ""
             if let error {
@@ -1093,7 +1087,7 @@ final class GameService: @unchecked Sendable {
                     message = "No data in GraphQL response"
                 }
             }
-            NetworkLog.graphQLFinish(tracedRequest, operationName: operationName, queryHash: queryHash, startedAt: networkStart, data: data, response: response, error: error, responseMessage: message)
+            NetworkLog.graphQLFinish(operationName: operationName, queryHash: queryHash, startedAt: networkStart, data: data, response: response, error: error, responseMessage: message)
             guard let flightKey else {
                 self.dispatchGraphQL(completion, payload, message)
                 return
@@ -1876,10 +1870,9 @@ final class GameService: @unchecked Sendable {
         request.setValue("GFNJWT \(token)", forHTTPHeaderField: "Authorization")
         Self.applyClientHeaders(to: &request, includeBrowserHeaders: false)
         request.setValue(GFNClientMetadata.nativeWindowsUserAgent, forHTTPHeaderField: "User-Agent")
-        let networkStart = NetworkLog.start(&request, operation: "cloudmatch.serverInfo")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "cloudmatch.serverInfo", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "cloudmatch.serverInfo")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            NetworkLog.finish(operation: "cloudmatch.serverInfo", startedAt: networkStart, data: data, response: response, error: error)
             guard error == nil, let data, (response as? HTTPURLResponse)?.statusCode == 200 else {
                 finish("GFN-PC")
                 return
@@ -2364,10 +2357,9 @@ final class GameService: @unchecked Sendable {
         }
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
-        let networkStart = NetworkLog.start(&request, operation: "static.publicGames")
-        let tracedRequest = request
-        URLSession.shared.dataTask(with: tracedRequest) { [weak self] data, response, error in
-            NetworkLog.finish(tracedRequest, operation: "static.publicGames", startedAt: networkStart, data: data, response: response, error: error)
+        let networkStart = NetworkLog.start(request, operation: "static.publicGames")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            NetworkLog.finish(operation: "static.publicGames", startedAt: networkStart, data: data, response: response, error: error)
             guard let self else { return }
             Self.workQueue.async {
                 guard error == nil,

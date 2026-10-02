@@ -104,14 +104,14 @@ actor GitHubUpdater {
         request.setValue("PixelNOW-Updater", forHTTPHeaderField: "User-Agent")
 
         logInfo("Checking GitHub release metadata repository=\(owner)/\(repository) currentVersion=\(currentVersion)")
-        let networkStart = NetworkLog.start(&request, operation: "updater.releaseMetadata")
+        let networkStart = NetworkLog.start(request, operation: "updater.releaseMetadata")
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
-            NetworkLog.finish(request, operation: "updater.releaseMetadata", startedAt: networkStart, data: data, response: response, error: nil)
+            NetworkLog.finish(operation: "updater.releaseMetadata", startedAt: networkStart, data: data, response: response, error: nil)
         } catch {
-            NetworkLog.finish(request, operation: "updater.releaseMetadata", startedAt: networkStart, data: nil, response: nil, error: error)
+            NetworkLog.finish(operation: "updater.releaseMetadata", startedAt: networkStart, data: nil, response: nil, error: error)
             throw error
         }
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode), !data.isEmpty else {
@@ -147,9 +147,9 @@ actor GitHubUpdater {
             detail: "Connecting to GitHub..."
         ))
 
-        var request = URLRequest(url: downloadURL)
+        let request = URLRequest(url: downloadURL)
         logInfo("Downloading update archive version=\(release.version) asset=\(release.assetName)")
-        let networkStart = NetworkLog.start(&request, operation: "updater.archiveDownload")
+        let networkStart = NetworkLog.start(request, operation: "updater.archiveDownload")
         let archiveURL: URL
         do {
             archiveURL = try await downloadArchiveWithProgress(request: request) { bytesWritten, totalBytesExpected in
@@ -174,9 +174,9 @@ actor GitHubUpdater {
                     detail: detail
                 ))
             }
-            NetworkLog.finish(request, operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: responseArchivePlaceholder(url: archiveURL), error: nil)
+            NetworkLog.finish(operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: responseArchivePlaceholder(url: archiveURL), error: nil)
         } catch {
-            NetworkLog.finish(request, operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: nil, error: error)
+            NetworkLog.finish(operation: "updater.archiveDownload", startedAt: networkStart, data: nil, response: nil, error: error)
             throw error
         }
 
@@ -313,11 +313,11 @@ actor GitHubUpdater {
     }
 
     private func logInfo(_ message: String) {
-        Sentry.logInfoMessage(Sentry.formattedLogMessage(level: "info", area: "Update", message: message))
+        Log.info(.app, message)
     }
 
     private func logError(_ message: String) {
-        Sentry.logErrorMessage(Sentry.formattedLogMessage(level: "error", area: "Update", message: message))
+        Log.error(.app, message)
     }
 
     private func release(from json: [String: Any]) throws -> GitHubRelease {
