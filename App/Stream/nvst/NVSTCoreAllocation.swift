@@ -46,7 +46,7 @@ extension NVSTCoreTransport {
                 profile.maximumBitrateKbps = cap
             }
             if profile.bitrateKbps == nil {
-                for key in ["maxBitrateKbps", "bitrateKbps"] {
+                for key in ["initialBitrateKbps", "bitrateKbps"] {
                     guard let kbps = (negotiated[key] as? NSNumber)?.intValue, kbps > 0 else { continue }
                     profile.bitrateKbps = kbps
                     break

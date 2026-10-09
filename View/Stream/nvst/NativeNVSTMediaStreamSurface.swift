@@ -400,7 +400,6 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var remoteCoOpInviteLinkStatus: String?
     @State private var remoteCoOpStatusMessage: String?
     @State private var isCreatingRemoteCoOpInvite = false
-    @State private var networkGovernor: NativeNVSTNetworkGovernor?
     @State private var networkPathTask: Task<Void, Never>?
     @State private var networkPathAvailable = true
     @State private var nativeFailure: FailurePresentation?
@@ -469,7 +468,6 @@ struct NativeNVSTMediaStreamSurface: View {
         microphonePendingStates.removeAll()
         let initialMicrophoneEnabled = microphoneConfiguration.initiallyEnabled && profile.streamMicrophoneEnabled
         antiAFKMouseMovementEnabled = profile.antiAFKMouseMovementEnabled
-        networkGovernor = NativeNVSTNetworkGovernor(maximumBitrateKbps: UInt32(max(1, resolved.maxBitrateMbps) * 1_000), l4sEnabled: resolved.enableL4S)
         nativeStreamHealth = NativeNVSTStreamHealthMonitor()
         lastAcceptedStreamInputAt = Date()
         beginStreamingPerformanceMode()
@@ -766,7 +764,6 @@ struct NativeNVSTMediaStreamSurface: View {
         latestNativeStats = nil
         nativeStreamHealth = NativeNVSTStreamHealthMonitor()
         sessionLimit = nil
-        networkGovernor = nil
         networkPathTask?.cancel()
         networkPathTask = nil
         networkPathAvailable = true
@@ -932,7 +929,6 @@ struct NativeNVSTMediaStreamSurface: View {
         latestNativeStats = nil
         nativeStreamHealth = NativeNVSTStreamHealthMonitor()
         sessionLimit = nil
-        networkGovernor = nil
         networkPathTask?.cancel()
         networkPathTask = nil
         networkPathAvailable = true
@@ -1348,9 +1344,6 @@ struct NativeNVSTMediaStreamSurface: View {
                 }
                 if let snapshot, snapshot.available, isConnected, !isEnding, !didEnd {
                     latestNativeStats = snapshot
-                    let decodeBudgetOver = NativeNVSTDecodeBudget.level(for: snapshot) == .over
-                    let adjustments = networkGovernor?.evaluate(snapshot, decodeBudgetOver: decodeBudgetOver) ?? []
-                    for adjustment in adjustments { await applyNativeNetworkAdjustment(adjustment, path: path) }
                 }
                 if isConnected, !isEnding, !didEnd,
                    let failure = nativeStreamHealth.observe(snapshot: snapshot, rendererReady: nativeView?.nativeNVSTRendererSurfaceReady == true) {
@@ -1375,7 +1368,6 @@ struct NativeNVSTMediaStreamSurface: View {
     }
 
     private func startNetworkPathMonitoring() {
-        networkGovernor = nil
         networkPathTask?.cancel()
         let monitor = NativeNVSTNetworkPathMonitor()
         networkPathTask = Task { @MainActor in
@@ -1392,19 +1384,6 @@ struct NativeNVSTMediaStreamSurface: View {
                     NativeNVSTMediaLog.write("nvst.network.path.unavailable", level: .warning, message: "Native NVST network path is unavailable.")
                 }
             }
-        }
-    }
-
-    private func applyNativeNetworkAdjustment(_ adjustment: NativeNVSTNetworkAdjustment, path: NativeNVSTStreamingPath) async {
-        do {
-            switch adjustment {
-            case .maximumBitrateKbps(let bitrate): try await path.setMaximumBitrateKbps(bitrate)
-            case .dynamicStreamingMode(let mode): try await path.setDynamicStreamingMode(mode)
-            case .l4sEnabled(let enabled): try await path.setL4SEnabled(enabled)
-            }
-            NativeNVSTMediaLog.write("nvst.network.adjustment", level: .info, message: "Applied native NVST network adjustment.", attributes: ["adjustment": String(describing: adjustment)])
-        } catch {
-            NativeNVSTMediaLog.write("nvst.network.adjustment.failed", level: .warning, message: Self.message(for: error), attributes: ["adjustment": String(describing: adjustment)])
         }
     }
 
