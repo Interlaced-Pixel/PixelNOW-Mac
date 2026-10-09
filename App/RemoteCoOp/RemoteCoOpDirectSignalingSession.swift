@@ -49,6 +49,7 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
     private enum SignalingError: LocalizedError {
         case invalidServerURL(String)
         case connectionFailed(String)
+        case connectionTimedOut
         case hostRejected(String)
         case registrationTimedOut
 
@@ -58,6 +59,8 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
                 return "Invalid Remote Co-Op signaling URL: \(value)"
             case .connectionFailed(let message):
                 return "Could not connect to the Remote Co-Op signaling service: \(message)"
+            case .connectionTimedOut:
+                return "The Remote Co-Op signaling service did not respond in time."
             case .hostRejected(let message):
                 return "The Remote Co-Op signaling service rejected this invite: \(message)"
             case .registrationTimedOut:
@@ -74,10 +77,14 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
     private let serverURLString: String
     private let urlSession: URLSession
     private let lock = NSLock()
+    private static let connectionTimeoutNanoseconds: UInt64 = 10_000_000_000
+    private static let signalingMessageTimeoutNanoseconds: UInt64 = 10_000_000_000
+    private static let registrationTimeoutNanoseconds: UInt64 = 8_000_000_000
     private var eventContinuations: [UUID: AsyncStream<RemoteCoOpSignalingEvent>.Continuation] = [:]
     private var webSocketTask: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var hostRegistrationTimeoutTask: Task<Void, Never>?
     private var roomID: String?
     private var invite: RemoteCoOpInvite?
     private var networkConfiguration: RemoteCoOpNetworkConfiguration?
@@ -157,13 +164,16 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             self.receiveTask = nil
             let heartbeatTask = heartbeatTask
             self.heartbeatTask = nil
+            let hostRegistrationTimeoutTask = hostRegistrationTimeoutTask
+            self.hostRegistrationTimeoutTask = nil
             roomID = nil
             invite = nil
             networkConfiguration = nil
-            return (continuations, socket, receiveTask, heartbeatTask)
+            return (continuations, socket, receiveTask, heartbeatTask, hostRegistrationTimeoutTask)
         }
         state.2?.cancel()
         state.3?.cancel()
+        state.4?.cancel()
         state.1?.cancel(with: .normalClosure, reason: nil)
         for continuation in state.0 { continuation.finish() }
     }
@@ -182,12 +192,17 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             try await Self.waitUntilConnected(task)
         } catch {
             task.cancel(with: .goingAway, reason: nil)
+            if let signalingError = error as? SignalingError {
+                throw signalingError
+            }
             throw SignalingError.connectionFailed(error.localizedDescription)
         }
         lock.withLock {
             isClosed = false
             hostRegistrationResolved = false
             hostRegistrationError = nil
+            hostRegistrationTimeoutTask?.cancel()
+            hostRegistrationTimeoutTask = nil
             networkConfiguration = nil
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = task
@@ -196,16 +211,78 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
         startHeartbeatLoop()
     }
 
+    private final class ConnectionContinuationGate: @unchecked Sendable {
+        private let continuation: CheckedContinuation<Void, Error>
+        private let lock = NSLock()
+        private var isResolved = false
+        private var timeoutTask: Task<Void, Never>?
+
+        init(continuation: CheckedContinuation<Void, Error>) {
+            self.continuation = continuation
+        }
+
+        func install(timeoutTask: Task<Void, Never>) {
+            let shouldCancel = lock.withLock {
+                guard !isResolved else { return true }
+                self.timeoutTask = timeoutTask
+                return false
+            }
+            if shouldCancel { timeoutTask.cancel() }
+        }
+
+        func resolve(error: Error?) {
+            let result = lock.withLock { () -> (Bool, Task<Void, Never>?) in
+                guard !isResolved else { return (false, nil) }
+                isResolved = true
+                let timeoutTask = self.timeoutTask
+                self.timeoutTask = nil
+                return (true, timeoutTask)
+            }
+            guard result.0 else { return }
+            result.1?.cancel()
+            if let error { continuation.resume(throwing: error) }
+            else { continuation.resume() }
+        }
+    }
+
     private static func waitUntilConnected(_ task: URLSessionWebSocketTask) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            task.sendPing { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let gate = ConnectionContinuationGate(continuation: continuation)
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(nanoseconds: Self.connectionTimeoutNanoseconds)
+                        gate.resolve(error: SignalingError.connectionTimedOut)
+                    } catch {}
+                }
+                gate.install(timeoutTask: timeoutTask)
+                task.sendPing { error in
+                    gate.resolve(error: error)
                 }
             }
-        }
+        }, onCancel: {
+            task.cancel(with: .goingAway, reason: nil)
+        })
+    }
+
+    private static func send(_ data: Data, using task: URLSessionWebSocketTask) async throws {
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let gate = ConnectionContinuationGate(continuation: continuation)
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(nanoseconds: Self.signalingMessageTimeoutNanoseconds)
+                        gate.resolve(error: SignalingError.connectionTimedOut)
+                    } catch {}
+                }
+                gate.install(timeoutTask: timeoutTask)
+                task.send(.data(data)) { error in
+                    gate.resolve(error: error)
+                }
+            }
+        }, onCancel: {
+            task.cancel(with: .goingAway, reason: nil)
+        })
     }
 
     public func waitUntilHostRegistered() async throws {
@@ -213,6 +290,13 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             let result = lock.withLock { () -> HostRegistrationWaitResult in
                 if hostRegistrationResolved { return .completed(hostRegistrationError) }
                 hostRegistrationWaiter = continuation
+                hostRegistrationTimeoutTask?.cancel()
+                hostRegistrationTimeoutTask = Task { [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: Self.registrationTimeoutNanoseconds)
+                        self?.resolveHostRegistration(error: .registrationTimedOut)
+                    } catch {}
+                }
                 return .waiting
             }
             switch result {
@@ -220,23 +304,23 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume() }
             case .waiting:
-                Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(8))
-                    self?.resolveHostRegistration(error: .registrationTimedOut)
-                }
+                break
             }
         }
     }
 
     private func resolveHostRegistration(error: SignalingError?) {
-        let result = lock.withLock { () -> (Bool, CheckedContinuation<Void, Error>?) in
-            guard !hostRegistrationResolved else { return (false, nil) }
+        let result = lock.withLock { () -> (Bool, CheckedContinuation<Void, Error>?, Task<Void, Never>?) in
+            guard !hostRegistrationResolved else { return (false, nil, nil) }
             hostRegistrationResolved = true
             hostRegistrationError = error
             let waiter = hostRegistrationWaiter
             hostRegistrationWaiter = nil
-            return (true, waiter)
+            let timeoutTask = hostRegistrationTimeoutTask
+            hostRegistrationTimeoutTask = nil
+            return (true, waiter, timeoutTask)
         }
+        result.2?.cancel()
         guard result.0, let waiter = result.1 else { return }
         if let error { waiter.resume(throwing: error) }
         else { waiter.resume() }
@@ -338,8 +422,9 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
         guard let task = lock.withLock({ webSocketTask }) else { return }
         do {
             let data = try JSONEncoder().encode(message)
-            try await task.send(.data(data))
+            try await Self.send(data, using: task)
         } catch {
+            WebRTCMediaLog.write("remote.coop.direct.signaling.send.failed", level: .warning, message: error.localizedDescription)
             await handleDisconnect(task: task)
         }
     }
