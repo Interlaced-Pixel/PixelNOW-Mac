@@ -12,6 +12,8 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         case blockBufferFailed(OSStatus)
         case sampleBufferFailed(OSStatus)
         case decodeFailed(OSStatus)
+        case emptySample
+        case missingOutput
 
         public var errorDescription: String? {
             switch self {
@@ -22,6 +24,8 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
             case .blockBufferFailed(let status): "NVST decoder could not wrap the access unit (OSStatus \(status))."
             case .sampleBufferFailed(let status): "NVST decoder could not build a sample buffer (OSStatus \(status))."
             case .decodeFailed(let status): "NVST decoder rejected a frame (OSStatus \(status))."
+            case .emptySample: "NVST access unit contains no decodable sample."
+            case .missingOutput: "NVST decoder completed without an image."
             }
         }
     }
@@ -29,6 +33,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
     public static let clockRate: Int32 = 90_000
 
     private let stateLock = NSLock()
+    private let operationLock = NSLock()
     let statsLock = NSLock()
     let codec: NVSTVideoCodec
     private var parameterSets = NvstElementaryStream.ParameterSets()
@@ -40,7 +45,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
     private var lastFailureStatus: OSStatus = noErr
     private var loggedFailures = 0
     private var loggedAccepted = 0
-    private var lastLoggedFailureAt: Date?
+    private var lastLoggedFailureAt: UInt64?
     private var suppressedFailureCount = 0
     static let maxLoggedAccepted = 6
 
@@ -58,12 +63,29 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
 
     public func prewarm(parameterSets sets: NvstElementaryStream.ParameterSets) {
         guard sets.isComplete else { return }
+        operationLock.lock()
+        defer { operationLock.unlock() }
         _ = try? prepareSession(for: sets)
     }
 
     private var hasSeenKeyframe = false
+    private var generation: UInt64 = 0
 
-    public var onDecodeFailure: (@Sendable (UInt32, String) -> Void)?
+    private final class DecodeOperation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var completed = false
+
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !completed else { return false }
+            completed = true
+            return true
+        }
+    }
+
+    public var onDecodeFailure: (@Sendable (UInt32) -> Void)?
+    public var onDecoderLog: (@Sendable (String) -> Void)?
 
     static func accessUnitShape(_ bytes: Data, codec: NVSTVideoCodec) -> String {
         let buffer = [UInt8](bytes)
@@ -83,9 +105,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         return "bytes=\(bytes.count) nals=[\(described.joined(separator: ", "))]"
     }
 
-    public var onPixelBuffer: (@Sendable (CVPixelBuffer, CMTime, Bool) -> Void)?
-
-    public var onDecodeCompleted: (@Sendable (Bool) -> Void)?
+    public var onPixelBuffer: (@Sendable (CVPixelBuffer, CMTime, Bool, NvstVideoFrameLifecycle) -> Void)?
 
     public init(codec: NVSTVideoCodec) throws {
         guard codec == .h264 || codec == .hevc || codec == .av1 else {
@@ -128,21 +148,27 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
     }
 
     public func invalidate() {
+        operationLock.lock()
+        defer { operationLock.unlock() }
         stateLock.lock()
         let expiring = session
         session = nil
         formatDescription = nil
         parameterSets = NvstElementaryStream.ParameterSets()
+        hasSeenKeyframe = false
+        generation &+= 1
         stateLock.unlock()
         Self.tearDown(expiring)
     }
 
-    public func decode(_ unit: NvstAccessUnit) throws {
+    public func decode(_ unit: NvstAccessUnit, lifecycle: NvstVideoFrameLifecycle, completion: @escaping @Sendable (Bool, UInt64) -> Void) throws {
+        operationLock.lock()
+        defer { operationLock.unlock() }
         let decodeStart = DispatchTime.now().uptimeNanoseconds
 
         stateLock.lock()
+        let decodeGeneration = generation
         let awaitingFirstKeyframe = !hasSeenKeyframe
-        if unit.isKeyframe { hasSeenKeyframe = true }
         stateLock.unlock()
         guard !awaitingFirstKeyframe || unit.isKeyframe else { throw DecoderError.missingParameterSets }
 
@@ -152,13 +178,17 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
 
         let buildStart = DispatchTime.now().uptimeNanoseconds
         let sample = prepared.sample
-        guard !sample.isEmpty else { return }
+        guard !sample.isEmpty else { throw DecoderError.emptySample }
         let sampleBuffer = try makeSampleBuffer(
             sample: sample,
             formatDescription: description,
-            presentationTime: CMTime(value: CMTimeValue(unit.rtpTimestamp), timescale: Self.clockRate)
+            presentationTime: unit.captureTimestampMicroseconds.map { CMTime(value: $0, timescale: 1_000_000) }
+                ?? CMTime(value: CMTimeValue(unit.rtpTimestamp), timescale: Self.clockRate)
         )
         let submitStart = DispatchTime.now().uptimeNanoseconds
+        lifecycle.notePredecodeCompleted(at: submitStart)
+        lifecycle.noteDecodeStarted(at: submitStart)
+        let operation = DecodeOperation()
 
         var flagsOut = VTDecodeInfoFlags()
         let isKeyframe = unit.isKeyframe
@@ -166,37 +196,60 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         let bytes = unit.bytes
         let codec = codec
         let shape: @Sendable () -> String = { Self.accessUnitShape(bytes, codec: codec) }
-        let logFailure = onDecodeFailure
+        let logFailure = onDecoderLog
         let frameIndex = unit.frameIndex
         let status = VTDecompressionSessionDecodeFrame(
             session,
             sampleBuffer: sampleBuffer,
 
-            flags: [._EnableAsynchronousDecompression],
+            flags: [],
             infoFlagsOut: &flagsOut,
             outputHandler: { [weak self] status, _, imageBuffer, presentationTime, _ in
-                guard let self else { return }
+                guard let self, operation.claim() else { return }
+                stateLock.lock()
+                let isCurrent = generation == decodeGeneration
+                stateLock.unlock()
+                guard isCurrent else {
+                    completion(false, DispatchTime.now().uptimeNanoseconds)
+                    return
+                }
+                if status == noErr, imageBuffer != nil, isKeyframe {
+                    stateLock.lock()
+                    hasSeenKeyframe = true
+                    stateLock.unlock()
+                }
                 handleDecodedFrame(status: status,
                                    imageBuffer: imageBuffer,
                                    presentationTime: presentationTime,
                                    frameIndex: frameIndex,
                                    isKeyframe: isKeyframe,
                                    shape: shape,
-                                   logFailure: logFailure)
+                                   logFailure: logFailure,
+                                   lifecycle: lifecycle, completion: completion)
             }
         )
         noteStageTimings(prepare: decodeStart, build: buildStart, submit: submitStart)
         guard status == noErr else {
             statsLock.lock()
-            failedFrames &+= 1
+            if operation.claim() { failedFrames &+= 1 }
             statsLock.unlock()
 
             stateLock.lock()
             let broken = self.session
             self.session = nil
+            hasSeenKeyframe = false
+            generation &+= 1
             stateLock.unlock()
             Self.tearDown(broken)
             throw DecoderError.decodeFailed(status)
+        }
+        if operation.claim() {
+            statsLock.lock()
+            failedFrames &+= 1
+            statsLock.unlock()
+            onDecodeFailure?(frameIndex)
+            completion(false, DispatchTime.now().uptimeNanoseconds)
+            throw DecoderError.missingOutput
         }
     }
 
@@ -264,13 +317,15 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
                                     frameIndex: UInt32,
                                     isKeyframe: Bool,
                                     shape: @escaping @Sendable () -> String,
-                                    logFailure: ((UInt32, String) -> Void)?) {
+                                    logFailure: ((String) -> Void)?,
+                                    lifecycle: NvstVideoFrameLifecycle,
+                                    completion: @Sendable (Bool, UInt64) -> Void) {
         guard status == noErr, let imageBuffer else {
             statsLock.lock()
             failedFrames &+= 1
             if firstFailureStatus == noErr { firstFailureStatus = status }
             lastFailureStatus = status
-            let now = Date()
+            let now = DispatchTime.now().uptimeNanoseconds
             let shouldReport: Bool
             let suppressed: Int
             if loggedFailures < 25 {
@@ -278,7 +333,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
                 shouldReport = true
                 suppressed = 0
                 lastLoggedFailureAt = now
-            } else if let last = lastLoggedFailureAt, now.timeIntervalSince(last) >= 1.0 {
+            } else if let last = lastLoggedFailureAt, now >= last, now - last >= 1_000_000_000 {
                 shouldReport = true
                 suppressed = suppressedFailureCount
                 suppressedFailureCount = 0
@@ -290,15 +345,17 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
             }
             statsLock.unlock()
 
+            onDecodeFailure?(frameIndex)
+
             if shouldReport {
                 let suppressedNote = suppressed > 0 ? " (+\(suppressed) suppressed in past 1s)" : ""
                 let statusStr = Self.describeOSStatus(status)
-                logFailure?(frameIndex, "NVST decode rejected OSStatus \(statusStr) frame=\(frameIndex) keyframe=\(isKeyframe)\(suppressedNote) \(shape())")
+                logFailure?("NVST decode rejected OSStatus \(statusStr) frame=\(frameIndex) keyframe=\(isKeyframe)\(suppressedNote) \(shape())")
             }
-            onDecodeCompleted?(false)
+            completion(false, DispatchTime.now().uptimeNanoseconds)
             return
         }
-        onDecodeCompleted?(true)
+        completion(true, DispatchTime.now().uptimeNanoseconds)
         statsLock.lock()
         decodedFrames &+= 1
 
@@ -310,9 +367,13 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         statsLock.unlock()
 
         if shouldReportAccepted {
-            logFailure?(0, "NVST decode accepted frame=\(frameIndex) keyframe=\(isKeyframe) \(shape())")
+            logFailure?("NVST decode accepted frame=\(frameIndex) keyframe=\(isKeyframe) \(shape())")
         }
-        handler?(imageBuffer, presentationTime, isKeyframe)
+        if let handler {
+            handler(imageBuffer, presentationTime, isKeyframe, lifecycle)
+        } else {
+            lifecycle.discard(decoded: true)
+        }
     }
 
     public struct StageTimings: Sendable, Equatable {
@@ -393,7 +454,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
                 chosenFormat = candidate
                 break
             }
-            onDecodeFailure?(0, "NVST decoder declined output \(Self.pixelFormatName(candidate)) for \(bitstream.summary) (OSStatus \(status)); trying the next format")
+            onDecoderLog?("NVST decoder declined output \(Self.pixelFormatName(candidate)) for \(bitstream.summary) (OSStatus \(status)); trying the next format")
         }
         guard status == noErr, let created else { throw DecoderError.sessionCreationFailed(status) }
         statsLock.lock()
@@ -410,7 +471,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         statsLock.lock()
         usesHardwareDecoder = isHardware
         statsLock.unlock()
-        onDecodeFailure?(0, "NVST decoder session created codec=\(codec.rawValue) hardware=\(isHardware) bitstream=\(bitstream.summary) output=\(Self.pixelFormatName(chosenFormat))")
+        onDecoderLog?("NVST decoder session created codec=\(codec.rawValue) hardware=\(isHardware) bitstream=\(bitstream.summary) output=\(Self.pixelFormatName(chosenFormat))")
 
         statsLock.lock()
         sessionsCreated &+= 1

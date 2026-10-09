@@ -1,18 +1,19 @@
 import CoreGraphics
 import CoreMedia
 import CoreVideo
+import CoreWLAN
+import SystemConfiguration
 import Foundation
 import GameController
 
 extension NVSTCoreTransport {
 
     func startVideo(handoff: NVSTVideoHandoff, mediaReceiver: any NativeNVSTMediaReceiver) async throws {
+        try handoff.feedbackConfiguration.validate()
         let videoLogger = self.logger
         let decoder = try NvstVideoToolboxDecoder(codec: handoff.codec)
-        decoder.onDecodeFailure = { [weak self] frameIndex, message in
-            videoLogger?("NVST \(message)")
-            guard frameIndex != 0 else { return }
-
+        decoder.onDecoderLog = { message in videoLogger?("NVST \(message)") }
+        decoder.onDecodeFailure = { [weak self] frameIndex in
             Task { await self?.invalidateFrame(frameIndex) }
         }
         let sink = pixelBufferSink
@@ -21,10 +22,15 @@ extension NVSTCoreTransport {
 
         let coOpVideoRelay = self.remoteCoOpVideoRelay
 
-        decoder.onPixelBuffer = { pixelBuffer, presentationTime, isKeyframe in
+        decoder.onPixelBuffer = { [weak self] pixelBuffer, presentationTime, isKeyframe, lifecycle in
+            Task { await self?.didDecodeFrame(lifecycle.unit) }
             recorder.appendNativePixelBuffer(pixelBuffer)
             coOpVideoRelay.renderPixelBuffer(pixelBuffer, presentationTime: presentationTime)
-            sink?(pixelBuffer, presentationTime, isKeyframe)
+            if let sink {
+                sink(pixelBuffer, presentationTime, isKeyframe, lifecycle)
+            } else {
+                lifecycle.discard(decoded: true)
+            }
         }
         self.decoder = decoder
         lastHandoff = handoff
@@ -37,7 +43,10 @@ extension NVSTCoreTransport {
             existingDescriptor: descriptor
         )
         let qosManager = NvstQosManager()
-        let streamProcessor = NvstStreamProcessor(qosManager: qosManager)
+        qosManager.configureFramePacing(handoff.framePacingConfiguration)
+        qosManager.configureRetransmission(handoff.retransmissionConfiguration)
+        let streamProcessor = NvstStreamProcessor(qosManager: qosManager,
+            bandwidthConfiguration: handoff.bandwidthConfiguration)
         receiver.streamProcessor = streamProcessor
         self.qosManager = qosManager
         self.streamProcessor = streamProcessor
@@ -56,13 +65,18 @@ extension NVSTCoreTransport {
         let pipeline = makeVideoPipeline(handoff: handoff, decoder: decoder, receiver: receiver, mediaContinuation: mediaContinuation, qosManager: qosManager)
         if let bundle {
             pipeline.attach(bundle: bundle)
+            receiver.setRetransmissionWriter { [weak bundle] command in
+                bundle?.sendPartiallyReliableControl(command) ?? false
+            }
         }
         videoPipeline = pipeline
+        pipeline.configurePresentation(presentationConfiguration)
+        logger?("NVST feedback selected qos=\(handoff.feedbackConfiguration.qosVersion) processing=\(handoff.feedbackConfiguration.processingVersion) frameStats=\(handoff.feedbackConfiguration.frameStatsVersion)")
         receiver.onAccessUnit = { [weak pipeline] unit in pipeline?.submit(unit) }
-        receiver.onRecoveryNeeded = { [weak self, weak receiver] brokenFrameIndex in
-            if brokenFrameIndex == nil {
-                receiver?.requestKeyframe()
-            }
+        receiver.onFrameStatistics = { [weak pipeline] frameIndex, statistics in
+            pipeline?.submitFrameStatistics(frameIndex: frameIndex, statistics: statistics)
+        }
+        receiver.onRecoveryNeeded = { [weak self] brokenFrameIndex in
             Task { await self?.recoverBrokenReferenceChain(frameIndex: brokenFrameIndex) }
         }
         receiver.onDiagnostic = { message in logger?("NVST \(message)") }
@@ -94,13 +108,13 @@ extension NVSTCoreTransport {
                                    mediaContinuation: AsyncStream<NativeNVSTVideoFrame>.Continuation,
                                    qosManager: NvstQosManager? = nil) -> NvstVideoPipeline {
 
-        let displayRefreshRate = StreamPreferences.loadDeviceCapabilities().maxDisplayRefreshRate
-        let displayVsyncMicroseconds = displayRefreshRate > 0 ? UInt32(1_000_000 / displayRefreshRate) : 16000
         return NvstVideoPipeline(
             decoder: decoder,
             clock: clock,
             frameTimeMicroseconds: sessionFrameTimeMicroseconds,
             displayVsyncMicroseconds: displayVsyncMicroseconds,
+            feedbackConfiguration: handoff.feedbackConfiguration,
+            framePacingConfiguration: handoff.framePacingConfiguration,
             logger: logger,
 
             mediaSink: { unit in
@@ -116,8 +130,7 @@ extension NVSTCoreTransport {
                     payload: unit.bytes
                 ))
             },
-            onKeyframeNeeded: { [weak self, weak receiver] in
-                receiver?.requestKeyframe()
+            onKeyframeNeeded: { [weak self] in
                 Task { await self?.requestKeyframeOverControlChannel() }
             },
             onFatalDecodeError: { [weak self] message in
@@ -170,6 +183,9 @@ extension NVSTCoreTransport {
                 _ = bundle?.sendPartiallyReliableControl(command)
             }
             self.bundle = bundle
+            receiver?.setRetransmissionWriter { [weak bundle] command in
+                bundle?.sendPartiallyReliableControl(command) ?? false
+            }
             activeBundleHolder.set(bundle)
             if let configuredGameVolume {
                 bundle.setRemoteAudioVolume(configuredGameVolume)
@@ -294,6 +310,7 @@ extension NVSTCoreTransport {
             Task {
                 guard await self?.bundleGeneration == generation else { return }
                 await self?.announceClientState()
+                await self?.announceRetransmissionState()
                 if self?.configuredL4SEnabled == true {
                     try? await self?.setL4SEnabled(true)
                 }
@@ -350,138 +367,81 @@ extension NVSTCoreTransport {
 
     func startQosFeedback() {
         guard !isTornDown, qosFeedbackTask == nil else { return }
-        logger?("NVST QoS feedback started (\(String(format: "%.0f", 1 / NvstQosReport.interval))/s)")
+        let milliseconds = lastHandoff?.qosFeedbackIntervalMilliseconds ?? 50
+        let interval = Double(milliseconds == 0 ? 50 : milliseconds) / 1000
+        logger?("NVST QoS feedback interval=\(milliseconds)ms")
         qosFeedbackTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.sendQosReport()
                 await self.sendRtpStatsIfNeeded()
                 await self.sendControlChannelStatsIfNeeded()
-                try? await Task.sleep(for: .seconds(NvstQosReport.interval))
+                try? await Task.sleep(for: .seconds(interval))
             }
         }
     }
 
     func sendQosReport() {
-        guard let bundle, let receiver else { return }
-        let counters = receiver.feedbackCounters
-        let bytes = UInt32(truncatingIfNeeded: counters.bytesReceived)
-        let now = Date()
-
-        qosSequence += 1
-
-        let capabilityKbps = UInt16(clamping: max(Int(NvstQosReport.defaultLinkCapabilityKbps),
-                                                  configuredMaxBitrateKbps ?? 0))
-
-        let jitterMicroseconds = UInt32(clamping: Int(Double(receiver.stats.lastJitter) * 1_000_000
-            / Double(NvstVideoToolboxDecoder.clockRate)))
-
-        let delayTrend = jitterMicroseconds >= lastQosDelayMicroseconds
-            ? jitterMicroseconds - lastQosDelayMicroseconds
-            : lastQosDelayMicroseconds - jitterMicroseconds
-        lastQosDelayMicroseconds = jitterMicroseconds
-
-        let deltaBytes = counters.bytesReceived >= lastQosBytesReceived
-            ? counters.bytesReceived - lastQosBytesReceived
-            : 0
-        let previousBytes = UInt32(truncatingIfNeeded: lastQosBytesReceived)
-        lastQosBytesReceived = counters.bytesReceived
-
-        let report = NvstQosReport(
-            sequence: qosSequence,
-            framesReceived: UInt32(truncatingIfNeeded: counters.framesEmitted),
-            bytesReceived: bytes,
-            linkCapabilityKbps: capabilityKbps,
-            rtpTimestamp: counters.lastRtpTimestamp,
-
-            previousBytesReceived: previousBytes,
-            delayMicroseconds: jitterMicroseconds,
-            delayTrendMicroseconds: delayTrend,
-            intervalBits: UInt32(clamping: deltaBytes * 8),
-            isWarmedUp: sessionStartedAt.map { now.timeIntervalSince($0) >= NvstQosReport.warmUpSeconds } ?? false
-        )
-
-        qosManager?.obtainFeedback(buffer: report.payload, rtpStats: receiver.stats)
-        qosManager?.queueSendEcnFeedbackEvent()
-
-        if bundle.sendPartiallyReliableControl(report.command) {
-            qosReportsSent += 1
-        } else {
-            qosReportFailures += 1
-            if qosReportFailures == 1 { logger?("NVST QoS report write failed") }
-        }
-
-        applyGovernorAdjustments(bundle: bundle, receiver: receiver)
-    }
-
-    private func applyGovernorAdjustments(bundle: NvstWebRtcBundle, receiver: NVSTWireReceiver) {
-        guard networkGovernor != nil else { return }
+        guard let bundle, let receiver, let streamProcessor, let qosManager else { return }
+        videoPipeline?.retryFrameStatistics()
+        retryPendingIdrIfNeeded()
+        retryPendingInvalidationIfNeeded()
         let stats = receiver.stats
-        let counters = receiver.feedbackCounters
-        let now = Date()
-        let elapsed = max(0.001, lastSnapshotAt.map { now.timeIntervalSince($0) } ?? 1)
-        let framesSinceLast = counters.framesEmitted &- lastSnapshotFrames
-        let bytesSinceLast = counters.bytesReceived &- lastSnapshotBytes
-        let instantFps = Double(framesSinceLast) / elapsed
-        let instantMbps = Double(bytesSinceLast) * 8 / elapsed / 1_000_000
-        let lossPercent: Double
-        let totalPackets = UInt64(stats.authenticatedPackets)
-        let totalLost = UInt64(stats.lastCumulativeLost)
-        let packetsDelta = totalPackets >= lastSnapshotPackets ? totalPackets - lastSnapshotPackets : 0
-        let lostDelta = totalLost >= lastSnapshotLost ? totalLost - lastSnapshotLost : 0
-        lossPercent = packetsDelta + lostDelta > 0 ? Double(lostDelta) * 100 / Double(packetsDelta + lostDelta) : 0
-        let jitterMs = Double(stats.lastJitter) * 1000 / Double(NvstVideoToolboxDecoder.clockRate)
-        let video = videoPipeline?.snapshot
-        let decodeMs = (video?.framesHandled ?? 0) > 0
-            ? (video?.total.decode ?? 0) / Double(video?.framesHandled ?? 1)
-            : -1
-        let decodeBudgetOver = NativeNVSTDecodeBudget.level(
-            decodeMilliseconds: decodeMs,
-            framesPerSecond: Double(negotiatedFps ?? 0)
-        ) == .over
-
-        let snapshot = NativeNVSTPerformanceSnapshot(
-            available: counters.framesEmitted > 0,
-            gameFramesPerSecond: latestSeatStats?.gameFramesPerSecond ?? -1,
-            streamFramesPerSecond: instantFps,
-            latencyMilliseconds: bundle.roundTripMilliseconds,
-            jitterMilliseconds: jitterMs,
-            frameLoss: stats.abandonedFrames,
-            totalFrameLoss: stats.abandonedFrames,
-            packetLoss: UInt64(stats.lastCumulativeLost),
-            totalPacketLoss: stats.droppedPackets,
-            packetLossPercent: lossPercent,
-            decodeMilliseconds: decodeMs,
-            bitrateMegabitsPerSecond: instantMbps,
-            bandwidthUtilizationPercent: 0,
-            resolution: negotiatedResolution ?? "",
-            codec: negotiatedCodec ?? "",
-            serverLocation: sessionServerLocation ?? "",
-            negotiatedFramesPerSecond: Double(negotiatedFps ?? 0)
-        )
-
-        let adjustments = networkGovernor!.evaluate(snapshot, decodeBudgetOver: decodeBudgetOver)
-        for adjustment in adjustments {
-            switch adjustment {
-            case .maximumBitrateKbps(let kbps):
-                let command = NvstStreamingCommand.maxBitrateChange(maxBitrateKbps: kbps, streamIndex: 0)
-                let sent = bundle.sendControl(command)
-                logger?("NVST governor: bitrate → \(kbps) kbps sent=\(sent)")
-            case .dynamicStreamingMode(let mode):
-                var writer = NvstByteWriter(capacity: 8)
-                writer.u32LE(0)
-                writer.u32LE(UInt32(mode.rawValue))
-                let command = NvstStreamingCommand(code: .qosPreferenceChange, payload: writer.data)
-                let sent = bundle.sendControl(command)
-                logger?("NVST governor: mode → \(mode) sent=\(sent)")
-            case .l4sEnabled(let enabled):
-                var writer = NvstByteWriter(capacity: 8)
-                writer.u32LE(0)
-                writer.u32LE(enabled ? 1 : 0)
-                let command = NvstStreamingCommand(code: .l4sStateChange, payload: writer.data)
-                let sent = bundle.sendControl(command)
-                logger?("NVST governor: L4S → \(enabled) sent=\(sent)")
+        let now = DispatchTime.now().uptimeNanoseconds
+        if lastNetworkLinkObservation.map({ now >= $0 && now - $0 < 1_000_000_000 }) != true {
+            lastNetworkLinkObservation = now
+            let interface = CWWiFiClient.shared().interface()
+            let routing = SCDynamicStoreCopyValue(nil, "State:/Network/Global/IPv4" as CFString) as? NSDictionary
+            let routedInterface = routing?.object(forKey: "PrimaryInterface") as? String
+            let usesWireless = routedInterface != nil && routedInterface == interface?.interfaceName
+            let speed = usesWireless && interface?.powerOn() == true ? interface?.transmitRate() ?? 0 : 0
+            let available = speed.isFinite && speed > 0
+            videoPipeline?.updateNetworkLink(
+                signalStrength: available ? Int32(clamping: interface?.rssiValue() ?? 0) : 0,
+                networkSpeedKbps: available ? UInt32(min(Double(UInt32.max), speed * 1000)) : 0)
+        }
+        bundle.refreshTransportStatistics()
+        let rtt = bundle.roundTripMilliseconds
+        if rtt.isFinite, rtt >= 0 { qosManager.updateRttEma(rttMs: rtt) }
+        announceRetransmissionState()
+        let network = streamProcessor.networkEstimate(forFeedback: true)
+        qosManager.obtainFeedback(network: network, rtpStats: stats)
+        let capacity = qosManager.processingCapacity
+        let report = NvstQosReport(version: lastHandoff?.feedbackConfiguration.qosVersion ?? 5,
+            sequence: qosSequence,
+            lastFrameIndex: network.frameIndex,
+            estimatedServerRtpTime: network.estimatedServerRtpTime,
+            oneWayDelayMicroseconds: UInt32(clamping: Int(network.oneWayDelayMilliseconds * 1000)),
+            jitterMicroseconds: network.jitterMicroseconds,
+            packetLossBasisPoints: network.packetLossBasisPoints,
+            bandwidthUtilizationPercent: network.utilizationPercent,
+            maximumDecodeFramesPerSecond: capacity.decodeFramesPerSecond,
+            maximumRenderFramesPerSecond: capacity.renderFramesPerSecond,
+            clientRtpTime: UInt32(truncatingIfNeeded: clock.elapsedMicroseconds() * 90 / 1000),
+            lossyFrames: network.lossyFrames,
+            slowBandwidthKbps: network.slowBandwidthKbps,
+            estimatedServerRtpTimeV2: network.estimatedServerRtpTimeV2,
+            fastBandwidthKbps: network.bandwidthKbps,
+            totalReceivedPackets: stats.authenticatedPackets,
+            receiverDroppedPackets: UInt32(truncatingIfNeeded: stats.finalizedLossPackets),
+            decodeQueueMilliseconds: qosManager.decodeQueueDelayMilliseconds,
+            controlRoundTripMilliseconds: rtt.isFinite && rtt >= 0
+                ? UInt16(min(Double(UInt16.max), rtt)) : 0)
+        if lastHandoff?.qosFeedbackIntervalMilliseconds != 0 {
+            if bundle.sendPartiallyReliableControl(report.command) {
+                streamProcessor.didSendFeedback(network)
+                qosSequence &+= 1
+                qosReportsSent += 1
+            } else {
+                qosReportFailures += 1
+                if qosReportFailures == 1 { logger?("NVST QoS report write failed") }
             }
+        }
+        if lastHandoff?.feedbackConfiguration.processingVersion == 5,
+           let processing = qosManager.processingReport(displayVsyncMicroseconds: videoPipeline?.displayVsyncMicroseconds ?? 0) {
+            let accepted = bundle.sendPartiallyReliableControl(processing.command)
+            videoPipeline?.noteProcessingReport(accepted: accepted)
+            if accepted { qosManager.didSendProcessingReport(processing) }
         }
     }
 
@@ -602,8 +562,7 @@ extension NVSTCoreTransport {
     }
 
     func sessionElapsedMicroseconds() -> UInt64 {
-        guard let start = sessionStartedAt else { return 0 }
-        return UInt64(max(0, Date().timeIntervalSince(start)) * 1_000_000)
+        clock.elapsedMicroseconds()
     }
 
     static func sessionServerLocation(for allocation: NativeNVSTSessionAllocation) -> String? {
@@ -668,91 +627,100 @@ extension NVSTCoreTransport {
     }
 
     func invalidateFrame(_ frameIndex: UInt32) {
-        let now = Date()
-        if let last = lastInvalidationAt, now.timeIntervalSince(last) < Self.invalidationCoalesceInterval {
-            pendingInvalidationFirst = min(pendingInvalidationFirst ?? frameIndex, frameIndex)
-            pendingInvalidationLast = max(pendingInvalidationLast ?? frameIndex, frameIndex)
-            scheduleInvalidationFlush(after: Self.invalidationCoalesceInterval - now.timeIntervalSince(last))
-            return
-        }
-        sendInvalidation(first: frameIndex, last: frameIndex, at: now)
+        let index = extendedRecoveryFrameIndex(frameIndex)
+        pendingInvalidationFirst = min(pendingInvalidationFirst ?? index, index)
+        pendingInvalidationLast = max(pendingInvalidationLast ?? index, index)
+        retryPendingInvalidationIfNeeded()
     }
 
-    private func scheduleInvalidationFlush(after delay: TimeInterval) {
+    private func scheduleInvalidationFlush(after delay: UInt64) {
         guard invalidationFlushTask == nil else { return }
         invalidationFlushTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(max(1, Int(delay * 1000))))
+            do { try await Task.sleep(nanoseconds: max(1_000_000, delay)) }
+            catch { return }
             await self?.flushPendingInvalidation()
         }
     }
 
     private func flushPendingInvalidation() {
         invalidationFlushTask = nil
-        guard let first = pendingInvalidationFirst, let last = pendingInvalidationLast else { return }
-        sendInvalidation(first: first, last: last, at: Date())
+        retryPendingInvalidationIfNeeded()
     }
 
-    private func sendInvalidation(first: UInt32, last: UInt32, at now: Date) {
-        pendingInvalidationFirst = nil
-        pendingInvalidationLast = nil
-        lastInvalidationAt = now
-        guard let bundle else { return }
-        guard bundle.sendControl(.frameInvalidationRange(first: UInt64(first), last: UInt64(last))) else {
-            logger?("NVST frame invalidation write failed")
+    private func retryPendingInvalidationIfNeeded() {
+        guard !isTornDown, let first = pendingInvalidationFirst, let last = pendingInvalidationLast else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        if let sentAt = lastInvalidationAt, now >= sentAt, now - sentAt <= Self.recoveryRetryNanoseconds {
+            scheduleInvalidationFlush(after: Self.recoveryRetryNanoseconds - (now - sentAt) + 1)
             return
         }
-        invalidationsSent += 1
+        guard let bundle, bundle.isControlChannelOpen else {
+            scheduleInvalidationFlush(after: Self.recoveryRetryNanoseconds)
+            return
+        }
+        if bundle.sendControl(.frameInvalidationRange(first: first, last: last)) {
+            lastInvalidationAt = now
+            invalidationsSent += 1
+        } else {
+            logger?("NVST frame invalidation write failed")
+        }
+        scheduleInvalidationFlush(after: Self.recoveryRetryNanoseconds + 1)
     }
 
-    static let invalidationCoalesceInterval: TimeInterval = 0.04
+    static let recoveryRetryNanoseconds: UInt64 = 100_000_000
+
+    private func extendedRecoveryFrameIndex(_ index: UInt32) -> UInt64 {
+        guard let previous = lastRecoveryFrameIndex else {
+            lastRecoveryFrameIndex = UInt64(index)
+            return UInt64(index)
+        }
+        let difference = Int64(Int32(bitPattern: index &- UInt32(truncatingIfNeeded: previous)))
+        let extended = difference >= 0 ? previous &+ UInt64(difference)
+            : previous - min(previous, UInt64(-difference))
+        lastRecoveryFrameIndex = max(previous, extended)
+        return extended
+    }
 
     func requestKeyframeOverControlChannel() {
-        guard let bundle else { return }
-        let now = Date()
-        if let last = lastIdrRequestAt, now.timeIntervalSince(last) < Self.idrRequestInterval { return }
-        lastIdrRequestAt = now
+        guard !isWaitingForIdr else { return }
+        sendIdrRequest()
+    }
+
+    func didDecodeFrame(_ unit: NvstAccessUnit) {
+        let index = extendedRecoveryFrameIndex(unit.frameIndex)
+        if unit.isKeyframe { isWaitingForIdr = false }
+        let repairedReference = unit.isKeyframe || unit.frameType == 4 || (unit.frameType == 5 && !isWaitingForIdr)
+        guard repairedReference, index >= (pendingInvalidationLast ?? 0) else { return }
+        pendingInvalidationFirst = nil
+        pendingInvalidationLast = nil
+        invalidationFlushTask?.cancel()
+        invalidationFlushTask = nil
+    }
+
+    private func retryPendingIdrIfNeeded() {
+        guard isWaitingForIdr else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard let last = lastIdrRequestAt, now >= last,
+              now - last > Self.recoveryRetryNanoseconds else { return }
+        sendIdrRequest()
+    }
+
+    private func sendIdrRequest() {
+        guard let bundle, bundle.isControlChannelOpen else {
+            receiver?.requestKeyframe()
+            return
+        }
         guard bundle.sendControl(.idrRequest()) else {
             logger?("NVST IDR request write failed")
             return
         }
+        lastIdrRequestAt = DispatchTime.now().uptimeNanoseconds
+        isWaitingForIdr = true
         idrRequestsSent += 1
     }
 
     func requestInitialKeyframe() {
-        guard let bundle, bundle.isControlChannelOpen else { return }
-        lastIdrRequestAt = Date()
-        if bundle.sendControl(.idrRequest()) {
-            idrRequestsSent += 1
-            logger?("NVST initial IDR request sent")
-        } else {
-            logger?("NVST initial IDR request write failed")
-        }
-
-        initialKeyframeTask?.cancel()
-        initialKeyframeTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled, let self else { return }
-                let frames = await self.receiver?.stats.framesEmitted ?? 0
-                if frames > 0 { return }
-                guard await !self.isTornDown else { return }
-                await self.sendInitialIdrRetry()
-            }
-        }
-    }
-
-    func sendInitialIdrRetry() {
-        guard let bundle, bundle.isControlChannelOpen else { return }
-        lastIdrRequestAt = Date()
-        if bundle.sendControl(.idrRequest()) {
-            idrRequestsSent += 1
-            logger?("NVST initial IDR request retry sent (#\(idrRequestsSent))")
-            if idrRequestsSent == 10 {
-                logger?("[error] NVST video stream timeout: No video frames received after 10s. The video port hole punch may have failed or UDP is blocked by a firewall.")
-            }
-        } else {
-            logger?("NVST initial IDR request retry write failed")
-        }
+        requestKeyframeOverControlChannel()
     }
 
     func activateInputIfNegotiated() {
@@ -761,9 +729,6 @@ extension NVSTCoreTransport {
         }
     }
 
-    static let maximumInitialBitrateKbps = 150_000
-
-    static let idrRequestInterval: TimeInterval = 0.5
 
     func announceClientState() {
         guard let bundle, !didAnnounceClientState else { return }
@@ -792,7 +757,6 @@ extension NVSTCoreTransport {
         }
 
         var sent: [String] = []
-        sent.append("enableOff=\(bundle.sendControl(NvstInputActivation.enableInput(counter: 1, isEnabled: false)))")
 
         if connectedGamepadIndices.isEmpty { connectedGamepadIndices = [0] }
         let activationBitmap = NvstGamepadEvent.connectedBitmap(for: connectedGamepadIndices)
@@ -805,13 +769,27 @@ extension NVSTCoreTransport {
         startCursorCaptureWatchdog()
         sent.append("window=\(bundle.sendControl(.windowStateChange()))")
         sent.append("system=\(bundle.sendControl(.systemStateChange()))")
-        sent.append("enableOn=\(bundle.sendControl(NvstInputActivation.enableInput(counter: UInt32((videoPipeline?.snapshot.frameAcksSent ?? 0) + 1))))")
 
         sent.append("haptics=\((try? sendFramedRemoteInput(NvstRemoteInput.hapticsState(enabled: true))) != nil)")
         logger?("NVST input activation sent (\(sent.joined(separator: " ")))")
 
         // Advertise connected Sony controllers for HID passthrough.
         sendHidChangeEventsForConnectedControllers()
+    }
+
+    private func announceRetransmissionState() {
+        guard let bundle, let receiver, let qosManager, bundle.isControlChannelOpen else { return }
+        let frame = max(1, qosManager.snapshot().lastFrameNumber)
+        let enabled = qosManager.isRetransmissionFeasible(currentlyEnabled: receiver.isRetransmissionEnabled)
+        receiver.updateRetransmissionState(frameNumber: frame, enabled: enabled,
+            roundTripMilliseconds: bundle.roundTripMilliseconds) { [logger] command in
+            let accepted = bundle.sendControl(command)
+            logger?("NVST NACK activation frame=\(frame) enabled=\(enabled) accepted=\(accepted)")
+            return accepted
+        }
+        if let request = qosManager.presentationRequestForRetransmission(enabled: receiver.isRetransmissionEnabled) {
+            videoPipeline?.requestPresentation(request)
+        }
     }
 
     func sendControlKeepAlive() {

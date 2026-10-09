@@ -218,6 +218,7 @@ extension NVSTCoreTransport {
             throw NativeNVSTError.transportFailed(
                 "Failed to send maximum bitrate change (\(bitrateKbps) kbps) over control channel")
         }
+        appliedMaximumBitrateKbps = bitrateKbps
         logger?("NVST sent maximum bitrate change: \(bitrateKbps) kbps")
     }
 
@@ -242,13 +243,13 @@ extension NVSTCoreTransport {
     }
 
     public func performanceSnapshot() async -> NativeNVSTPerformanceSnapshot? {
-        guard let receiver, let started = sessionStartedAt else { return nil }
-        let counters = receiver.feedbackCounters
-        let now = Date()
-        let elapsed = max(0.001, now.timeIntervalSince(started))
-
-        let interval = lastSnapshotAt.map { max(0.001, now.timeIntervalSince($0)) } ?? elapsed
         let audioJitterBufferMilliseconds = await sampleAudioJitterBufferMilliseconds()
+        guard !isTornDown, let receiver, sessionStartedAt != nil else { return nil }
+        let counters = receiver.feedbackCounters
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = max(0.001, Double(clock.elapsedMicroseconds()) / 1_000_000)
+
+        let interval = lastSnapshotAt.map { max(0.001, Double(now - min(now, $0)) / 1_000_000_000) } ?? elapsed
         let framesSinceLast = counters.framesEmitted &- lastSnapshotFrames
         let bytesSinceLast = counters.bytesReceived &- lastSnapshotBytes
         let instantFps = Double(framesSinceLast) / interval
@@ -263,9 +264,7 @@ extension NVSTCoreTransport {
         bundle?.refreshTransportStatistics()
         let roundTrip = bundle?.roundTripMilliseconds ?? -1
         let video = videoPipeline?.snapshot
-        let decodeMilliseconds = (video?.framesHandled ?? 0) > 0
-            ? (video?.total.decode ?? 0) / Double(video?.framesHandled ?? 1)
-            : -1
+        let decodeMilliseconds = video?.recentDecodeMilliseconds ?? -1
 
         let seatStats = latestSeatStats
 
@@ -298,7 +297,7 @@ extension NVSTCoreTransport {
             decoderIsHardware: decoder?.isHardwareAccelerated ?? true,
             bitstreamFormat: decoder?.bitstreamFormat?.summary ?? "",
             decoderOutputFormat: decoder?.outputPixelFormatName ?? "",
-            targetBitrateMegabitsPerSecond: configuredMaxBitrateKbps.map { Double($0) / 1000 } ?? -1,
+            targetBitrateMegabitsPerSecond: appliedMaximumBitrateKbps.map { Double($0) / 1000 } ?? -1,
             serverGPU: sessionGPUType ?? "",
             audioJitterBufferMilliseconds: audioJitterBufferMilliseconds,
             audioOutputLatencyMilliseconds: bundle?.audioOutputLatencySeconds.map { $0 * 1000 } ?? -1

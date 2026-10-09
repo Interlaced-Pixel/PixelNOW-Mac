@@ -410,6 +410,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var recordingNotificationTask: Task<Void, Never>?
     @State private var capturePointerEvents = false
     @State private var streamUpscalingMode = 0
+    @State private var videoPresentationMode = PixelNOWVideoPresentationMode.balanced
     @State private var streamUpscalingSharpness = 10
     @State private var streamUpscalingDenoise = 0
     private let nativeInputFailureReporter = NativeNVSTInputFailureReporter()
@@ -484,6 +485,7 @@ struct NativeNVSTMediaStreamSurface: View {
         audioDeviceMonitor.start()
         nativeAudioDeviceMonitor = audioDeviceMonitor
         let renderer = nativeView.attachNVSTCoreRenderer(targetFps: Int32(max(30, resolved.fps)))
+        renderer.setPresentationMode(videoPresentationMode)
         renderer.setVideoEnhancement(
             mode: resolved.upscalingMode,
             sharpness: resolved.upscalingSharpness,
@@ -496,8 +498,8 @@ struct NativeNVSTMediaStreamSurface: View {
         let coreSink = renderer.frameSink
         let diagnosticLog = NvstDiagnosticLog()
         let transport = NVSTCoreTransport(
-            pixelBufferSink: { pixelBuffer, presentationTime, isKeyframe in
-                coreSink.render(pixelBuffer: pixelBuffer, presentationTime: presentationTime, isKeyframe: isKeyframe)
+            pixelBufferSink: { pixelBuffer, presentationTime, isKeyframe, lifecycle in
+                coreSink.render(pixelBuffer: pixelBuffer, presentationTime: presentationTime, isKeyframe: isKeyframe, lifecycle: lifecycle)
             },
             configuredFps: resolved.fps,
             configuredMaxBitrateKbps: resolved.maxBitrateMbps * 1_000,
@@ -518,7 +520,11 @@ struct NativeNVSTMediaStreamSurface: View {
         renderer.setEnhancedFrameSink { [weak transport] pixelBuffer, _ in
             transport?.appendEnhancedPixelBuffer(pixelBuffer)
         }
+        renderer.setDisplayTimingHandler { [weak transport] microseconds in
+            Task { await transport?.updateDisplayInterval(microseconds: microseconds) }
+        }
         Task { [weak nativeView] in
+            await transport.configurePresentation(videoPresentationMode.djbConfiguration)
             await transport.setRemoteCursorVisibilityHandler { [weak nativeView] isVisible in
                 nativeView?.applyServerCursorVisibility(isVisible)
             }
@@ -1369,6 +1375,7 @@ struct NativeNVSTMediaStreamSurface: View {
     }
 
     private func startNetworkPathMonitoring() {
+        networkGovernor = nil
         networkPathTask?.cancel()
         let monitor = NativeNVSTNetworkPathMonitor()
         networkPathTask = Task { @MainActor in
@@ -2095,6 +2102,20 @@ struct NativeNVSTMediaStreamSurface: View {
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
         return NativeNVSTStreamHUDSection(label: "VIDEO") {
             VStack(alignment: .leading, spacing: 10) {
+                Picker("Presentation", selection: Binding(
+                    get: { videoPresentationMode },
+                    set: { mode in
+                        videoPresentationMode = mode
+                        nativeView?.currentNVSTCoreRenderer?.setPresentationMode(mode)
+                        if let transport = path?.transport as? NVSTCoreTransport {
+                            Task { await transport.configurePresentation(mode.djbConfiguration) }
+                        }
+                    }
+                )) {
+                    Text("Balanced").tag(PixelNOWVideoPresentationMode.balanced)
+                    Text("Smooth").tag(PixelNOWVideoPresentationMode.smooth)
+                    Text("Lowest Latency").tag(PixelNOWVideoPresentationMode.lowestLatency)
+                }
                 Picker("MetalFX Upscaling", selection: Binding(
                     get: { streamUpscalingMode },
                     set: { newValue in

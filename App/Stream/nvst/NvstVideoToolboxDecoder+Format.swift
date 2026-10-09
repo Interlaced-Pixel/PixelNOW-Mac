@@ -172,7 +172,7 @@ extension NvstVideoToolboxDecoder {
         // the VUI's bitstream restriction), and that decides how long a decoded frame waits inside
         // VideoToolbox before this app sees it.
         let hex = sets.ordered.map { data in data.map { String(format: "%02x", $0) }.joined() }.joined(separator: " ")
-        onDecodeFailure?(0, "NVST parameter sets \(format.summary): \(hex)")
+        onDecoderLog?("NVST parameter sets \(format.summary): \(hex)")
         return description
     }
 
@@ -423,7 +423,7 @@ extension NvstVideoToolboxDecoder {
         currentBitstreamFormat = format
         statsLock.unlock()
         let hex = sequenceHeaderOBU.map { String(format: "%02x", $0) }.joined()
-        onDecodeFailure?(0, "NVST AV1 sequence header \(format.summary): \(hex)")
+        onDecoderLog?("NVST AV1 sequence header \(format.summary): \(hex)")
         return description
     }
 }

@@ -108,7 +108,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         ProcessInfo.processInfo.environment["PIXELNOW_NVST_WEBRTC_BUNDLE"] != "0"
     }
 
-    public typealias PixelBufferSink = @Sendable (CVPixelBuffer, CMTime, Bool) -> Void
+    public typealias PixelBufferSink = @Sendable (CVPixelBuffer, CMTime, Bool, NvstVideoFrameLifecycle) -> Void
 
     let pixelBufferSink: PixelBufferSink?
 
@@ -129,6 +129,18 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var decoder: NvstVideoToolboxDecoder?
 
     var videoPipeline: NvstVideoPipeline?
+    var displayVsyncMicroseconds: UInt32 = 0
+    var presentationConfiguration = NvstClientDJBConfig()
+
+    public func configurePresentation(_ configuration: NvstClientDJBConfig) {
+        presentationConfiguration = configuration
+        videoPipeline?.configurePresentation(configuration)
+    }
+
+    public func updateDisplayInterval(microseconds: UInt32) {
+        displayVsyncMicroseconds = microseconds
+        videoPipeline?.updateDisplayInterval(microseconds: microseconds)
+    }
 
     nonisolated let clock = NvstSessionClock()
 
@@ -141,8 +153,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     private var heartbeatTask: Task<Void, Never>?
     var controlKeepAliveTask: Task<Void, Never>?
     var qosFeedbackTask: Task<Void, Never>?
-    var initialKeyframeTask: Task<Void, Never>?
     var qosSequence: UInt32 = 0
+    var lastNetworkLinkObservation: UInt64?
     var lastQosBytesReceived: UInt64 = 0
     var lastQosDelayMicroseconds: UInt32 = 0
     /// Incremented each time installBundleHandlers is called.  Every callback closure
@@ -243,11 +255,13 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     var controlStatsReportsSent = 0
     var lastRtpStatsFrame: UInt64 = 0
     var controlStatsLastSentAt: Date?
-    var lastIdrRequestAt: Date?
+    var lastIdrRequestAt: UInt64?
+    var isWaitingForIdr = false
     var idrRequestsSent = 0
-    var lastInvalidationAt: Date?
-    var pendingInvalidationFirst: UInt32?
-    var pendingInvalidationLast: UInt32?
+    var lastInvalidationAt: UInt64?
+    var pendingInvalidationFirst: UInt64?
+    var pendingInvalidationLast: UInt64?
+    var lastRecoveryFrameIndex: UInt64?
     var invalidationFlushTask: Task<Void, Never>?
     var invalidationsSent = 0
     var inputEventsSent = 0
@@ -357,16 +371,11 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         negotiatedFps = profile.fps
         negotiatedResolution = profile.resolution
         negotiatedCodec = profile.codec
+        appliedMaximumBitrateKbps = profile.maximumBitrateKbps.map { UInt32(clamping: $0) }
 
         logger?("NVST profile fps=\(profile.fps.map(String.init) ?? "nil") resolution=\(profile.resolution ?? "nil")"
                 + " codec=\(profile.codec ?? "nil") audioChannels=\(audioChannels) pacingTargetUs=\(sessionFrameTimeMicroseconds) maxKbps=\(profile.maximumBitrateKbps.map(String.init) ?? "nil") initKbps=\(profile.bitrateKbps.map(String.init) ?? "nil")")
 
-        if let maxKbps = profile.maximumBitrateKbps, maxKbps > 0 {
-            networkGovernor = NativeNVSTNetworkGovernor(
-                maximumBitrateKbps: UInt32(maxKbps),
-                l4sEnabled: configuredL4SEnabled
-            )
-        }
 
         let stream = AsyncStream<NativeNVSTTransportTermination>.makeStream()
         terminationStream = stream.stream
@@ -441,17 +450,15 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
                        configuredMaxBitrateKbps.map { String(format: "%.0f", Double($0) / 1000) } ?? "-",
                        decoder?.outputPixelFormatName ?? "-",
                        decoder?.bitstreamFormat?.summary ?? "-"))
-        logger?(String(format: "NVST SESSION SUMMARY peakStreamFps=%.1f peakStreamMbps=%.1f negFps=%@ | verdict fps%@60 bitrate%@24Mbps (fps cap lifted via announce maxFPS; bitrate bounded by initialBitrateKbps since the seat never ramps up — low-complexity scenes read low, that is content not a cap)",
+        logger?(String(format: "NVST SESSION SUMMARY peakStreamFps=%.1f peakStreamMbps=%.1f negFps=%@ effectiveMaxKbps=%@",
                        peakIntervalFps, peakIntervalMbps,
                        negotiatedFps.map(String.init) ?? "nil",
-                       peakIntervalFps > 60.5 ? ">" : "<=",
-                       peakIntervalMbps > 24 ? ">" : "<="))
+                       appliedMaximumBitrateKbps.map(String.init) ?? "unknown"))
         let video = videoPipeline?.snapshot ?? NvstVideoPipeline.Counters()
         logger?("NVST counters auth=\(stats.authenticatedPackets) fec=\(stats.fecPackets) dropped=\(stats.droppedPackets) rtpLoss=\(stats.finalizedLossPackets) frames=\(stats.framesEmitted) keyframes=\(stats.keyframesEmitted) recoveries=\(stats.recoveries) sofFlagged=\(stats.startOfFrameFlagged) sofOk=\(stats.startOfFrameAccepted) abandoned=\(stats.abandonedFrames) rrFail=\(stats.receiverReportFailures)\(stats.lastReceiverReportFailure.map { " rrErr=\($0)" } ?? "") multiBlock=\(stats.multiBlockPackets) maxBlock=\(stats.highestFecLastBlock) decoded=\(decoder?.decodedFrameCount ?? 0) decodeFailed=\(decoder?.failedFrameCount ?? 0) decodeErr=\(decoder?.failureStatusSummary ?? "-") noParamSets=\(video.missingParameterSetFrames) idrOut=\(idrRequestsSent) invalidOut=\(invalidationsSent) inputOut=\(inputEventsSent) padOut=\(gamepadPacketsSent) padFail=\(gamepadSendFailures) padDropped=\(gamepadPacketsDroppedForUnannouncedPad) padReg=\(didRegisterGamepad) textTyped=\(textCharactersTyped) textDroppedBytes=\(textBytesDropped) inputReady=\(bundle?.isInputReady == true) rrOut=\(stats.receiverReportsSent) frac=\(stats.lastFractionLost) lost=\(stats.lastCumulativeLost) jitter=\(stats.lastJitter) seqSpan=\(stats.sequenceSpan) negFps=\(negotiatedFps.map(String.init) ?? "nil") mediaSeconds=\(String(format: "%.2f", Double(stats.lastRtpTimestamp &- (stats.firstRtpTimestamp ?? 0)) / Double(NvstVideoToolboxDecoder.clockRate))) fidxChanges=\(stats.frameIndexChanges) maxFrame=\(stats.maxFrameBytesPerSecond.map { String($0) }.joined(separator: ",")) bytesPerSec=\(stats.frameBytesPerSecond.map { String($0 / 1000) }.joined(separator: ",")) fpsPerSec=\(stats.framesPerSecond.map(String.init).joined(separator: ",")) paceOut=\(video.pacingReportsSent) paceFail=\(video.pacingReportFailures) ackOut=\(video.frameAcksSent) ackFail=\(video.frameAckFailures) qosOut=\(qosReportsSent) qosFail=\(qosReportFailures) rtpStatsOut=\(rtpStatsReportsSent) ccStatsOut=\(controlStatsReportsSent) ssrc=\(stats.boundSSRC.map { String(format: "0x%08x", $0) } ?? "-")")
 
-        logger?(String(format: "NVST frame stages slow=%d frames=%llu resyncs=%d skipped=%d abandoned=%d lastLatency=%.1fms inputSendTotal=%.0fms inputSendPeak=%.1fms",
-                       video.slowFrames, video.framesHandled, video.latencyResyncs,
-                       video.framesSkippedForLatency, video.abandonedResyncs,
+        logger?(String(format: "NVST frame stages slow=%d frames=%llu lastLatency=%.1fms inputSendTotal=%.0fms inputSendPeak=%.1fms",
+                       video.slowFrames, video.framesHandled,
                        video.lastDecodeLatencyMilliseconds,
                        inputSendTotalMs, inputSendPeakMs)
                 + " \(video.timingSummary)"
@@ -567,17 +574,15 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     }
 
     public func sendRecoveryMode(enabled: Bool) async {
-        guard let sender = feedbackSender else { return }
         if enabled {
-            sender.requestKeyframe()
-            try? sender.sendKeyframeRequestNow()
+            requestKeyframeOverControlChannel()
         }
     }
 
     var inputSendTotalMs = 0.0
     var inputSendPeakMs = 0.0
-    var networkGovernor: NativeNVSTNetworkGovernor?
-    var lastSnapshotAt: Date?
+    var appliedMaximumBitrateKbps: UInt32?
+    var lastSnapshotAt: UInt64?
     var lastSnapshotFrames: UInt64 = 0
     var lastSnapshotBytes: UInt64 = 0
     var lastSnapshotPackets: UInt64 = 0
@@ -645,12 +650,14 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         if let configuredMaxBitrateKbps, configuredMaxBitrateKbps > 0 {
             profile.maximumBitrateKbps = configuredMaxBitrateKbps
 
-            profile.bitrateKbps = min(configuredMaxBitrateKbps, Self.maximumInitialBitrateKbps)
         }
 
         if let override = ProcessInfo.processInfo.environment["PIXELNOW_NVST_INITIAL_KBPS"].flatMap(Int.init),
            override > 0 {
             profile.bitrateKbps = override
+        }
+        if let initial = profile.bitrateKbps, let maximum = profile.maximumBitrateKbps {
+            profile.bitrateKbps = min(initial, maximum)
         }
         return profile
     }
@@ -702,7 +709,6 @@ extension NVSTCoreTransport {
         cancelCursorCaptureWatchdog()
         heartbeatTask?.cancel()
         heartbeatTask = nil
-        networkGovernor = nil
         invalidationFlushTask?.cancel()
         invalidationFlushTask = nil
         pendingInvalidationFirst = nil
@@ -728,6 +734,7 @@ extension NVSTCoreTransport {
         lastAudioJitterSample = nil
         latestSeatStats = nil
         qosSequence = 0
+        lastNetworkLinkObservation = nil
         lastQosBytesReceived = 0
         lastQosDelayMicroseconds = 0
         qosReportsSent = 0
@@ -737,6 +744,8 @@ extension NVSTCoreTransport {
         lastRtpStatsFrame = 0
         controlStatsLastSentAt = nil
         lastIdrRequestAt = nil
+        isWaitingForIdr = false
+        lastRecoveryFrameIndex = nil
         idrRequestsSent = 0
         lastInvalidationAt = nil
         invalidationsSent = 0
@@ -757,8 +766,6 @@ extension NVSTCoreTransport {
         controlKeepAliveTask = nil
         qosFeedbackTask?.cancel()
         qosFeedbackTask = nil
-        initialKeyframeTask?.cancel()
-        initialKeyframeTask = nil
         logCountersSync()
         bundle?.refreshTransportStatistics()
         feedbackSender?.flush()
