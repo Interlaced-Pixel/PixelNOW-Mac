@@ -1,20 +1,18 @@
 import CoreMedia
 import Foundation
 
-/// Session-relative time, shared by the transport actor and the video pipeline that runs off it.
-///
-/// NVST timestamps are session-scale, not epoch-scale — a seat that sanity-checks them against its
-/// own session time discards an epoch value — so both sides have to read the same origin.
 public final class NvstSessionClock: @unchecked Sendable {
     let lock = NSLock()
     var startedAt: Date?
+    private var originNanoseconds: UInt64?
 
     public init() {}
-
-    /// Starts the clock. Later calls are ignored, so the origin cannot drift mid-session.
     public func start(at date: Date = Date()) {
         lock.lock()
-        if startedAt == nil { startedAt = date }
+        if startedAt == nil {
+            startedAt = date
+            originNanoseconds = DispatchTime.now().uptimeNanoseconds
+        }
         lock.unlock()
     }
 
@@ -24,9 +22,21 @@ public final class NvstSessionClock: @unchecked Sendable {
         return startedAt
     }
 
-    public func elapsedMicroseconds(now: Date = Date()) -> UInt64 {
-        guard let start = startDate else { return 0 }
-        return UInt64(max(0, now.timeIntervalSince(start)) * 1_000_000)
+    public func elapsedMicroseconds() -> UInt64 {
+        lock.lock()
+        let origin = originNanoseconds
+        lock.unlock()
+        guard let origin else { return 0 }
+        let now = DispatchTime.now().uptimeNanoseconds
+        return now >= origin ? (now - origin) / 1_000 : 0
+    }
+
+    public func milliseconds(at timestamp: UInt64) -> Double {
+        lock.lock()
+        let origin = originNanoseconds
+        lock.unlock()
+        guard let origin else { return 0 }
+        return timestamp >= origin ? Double(timestamp - origin) / 1_000_000 : 0
     }
 }
 
@@ -425,7 +435,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     /// open up against.
     private func sendFrameAck(unit: NvstAccessUnit, decodedAt: UInt64, timings: inout StageTimings) {
         let now = Date()
-        let nowMicroseconds = clock.elapsedMicroseconds(now: now)
+        let nowMicroseconds = clock.elapsedMicroseconds()
         // The ack bookkeeping moves under the same lock as the channel reference: decode
         // completion callbacks are not guaranteed to arrive serialized, and the frame number and
         // inter-frame baseline are a read-modify-write pair that must not interleave.
@@ -464,7 +474,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
             // Session-relative, not epoch. Only the delta matters to the pacer, and the remote-input
             // path already showed this seat rejecting an epoch-scale timestamp where it expected a
             // session one; the capture's own value is ~20000, which is session scale.
-            clientTimeMilliseconds: Double(clock.elapsedMicroseconds(now: now)) / 1000,
+            clientTimeMilliseconds: Double(clock.elapsedMicroseconds()) / 1000,
             frameBytes: UInt32(truncatingIfNeeded: unit.bytes.count),
             interFrameMicroseconds: pacedInterFrame,
             stageMilliseconds: [ackLatency],
