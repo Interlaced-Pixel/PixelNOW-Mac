@@ -340,33 +340,31 @@ extension NvstWebRtcBundle {
     }
 
     /// Round-trip time to the seat, in milliseconds, or -1 before the first sample.
-    ///
-    /// This is the same measurement the WebRTC transport's HUD shows — libwebrtc's own ICE
-    /// candidate-pair RTT — so the two transports' latency numbers mean the same thing. Media rides
-    /// its own raw-SRTP socket rather than this association, but both go to the same seat, so the
-    /// bundle's RTT is the honest reading of the path.
     public var roundTripMilliseconds: Double {
         lock.lock()
         defer { lock.unlock() }
         return lastRoundTripMilliseconds
     }
 
-    /// Asks libwebrtc for a fresh statistics report. Returns immediately; the sample lands in
-    /// `roundTripMilliseconds` when the report arrives.
     public func refreshTransportStatistics() {
         lock.lock()
-        let connection = peerConnection
-        let inFlight = statisticsRequestInFlight
-        if !inFlight { statisticsRequestInFlight = true }
+        guard let connection = peerConnection, !statisticsRequestInFlight else {
+            lock.unlock()
+            return
+        }
+        statisticsRequestInFlight = true
         lock.unlock()
-        guard let connection, !inFlight else { return }
-        connection.statistics { [weak self] report in
-            guard let self else { return }
+        connection.statistics { [weak self, weak connection] report in
+            guard let self, let connection else { return }
             let sample = Self.roundTripMilliseconds(in: report)
             let micBytes = Self.outboundAudioSentBytes(in: report)
             let micSeatPackets = Self.remoteInboundAudioPacketsReceived(in: report)
             let micCodec = Self.outboundAudioCodec(in: report)
             lock.lock()
+            guard peerConnection === connection else {
+                lock.unlock()
+                return
+            }
             statisticsRequestInFlight = false
             if let sample { lastRoundTripMilliseconds = sample }
             if let micBytes { microphoneSentDataBytes = micBytes }
@@ -469,6 +467,9 @@ extension NvstWebRtcBundle {
         lock.withLock {
             self.factory = factory
             self.peerConnection = connection
+            lastRoundTripMilliseconds = -1
+            statisticsRequestInFlight = false
+            didDescribeStatistics = false
         }
     }
 
@@ -495,6 +496,9 @@ extension NvstWebRtcBundle {
         negotiatedInputProtocolVersion = nil
         openCustomChannels = [:]
         peerConnection = nil
+        lastRoundTripMilliseconds = -1
+        statisticsRequestInFlight = false
+        didDescribeStatistics = false
         factory = nil
         // Released with the factory so the CoreAudio units are torn down when the session ends,
         // not whenever the bundle happens to be deallocated.
