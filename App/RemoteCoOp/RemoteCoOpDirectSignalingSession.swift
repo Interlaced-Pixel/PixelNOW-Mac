@@ -276,7 +276,7 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
                     } catch {}
                 }
                 gate.install(timeoutTask: timeoutTask)
-                task.send(.data(data)) { error in
+                task.send(.string(String(decoding: data, as: UTF8.self))) { error in
                     gate.resolve(error: error)
                 }
             }
