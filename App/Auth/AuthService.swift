@@ -757,7 +757,7 @@ public final class AuthService: @unchecked Sendable {
 
     private func loadPropertyListDictionary(path: String) -> NSDictionary? {
         guard FileManager.default.fileExists(atPath: path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-        return try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? NSDictionary
+        return try? PropertyListSerialization.propertyList(from: data, options: 0, format: nil) as? NSDictionary
     }
 
     private func sessionIdentity(from session: AuthSession) -> String? {

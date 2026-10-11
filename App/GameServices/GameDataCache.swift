@@ -268,7 +268,7 @@ final class GameDataCache: NSObject, @unchecked Sendable {
 
     private func readCacheDictionary(path: String, requireFreshness: Bool, maxAgeSeconds: TimeInterval) -> NSDictionary? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-        guard let dictionary = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? NSDictionary else {
+        guard let dictionary = try? PropertyListSerialization.propertyList(from: data, options: 0, format: nil) as? NSDictionary else {
             return nil
         }
         if requireFreshness && !cacheDictionaryIsFresh(dictionary, maxAgeSeconds: maxAgeSeconds) {

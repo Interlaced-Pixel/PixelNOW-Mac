@@ -190,7 +190,7 @@ public final class NvstVideoToolboxDecoder: @unchecked Sendable {
         lifecycle.noteDecodeStarted(at: submitStart)
         let operation = DecodeOperation()
 
-        var flagsOut = VTDecodeInfoFlags()
+        var flagsOut: UInt32 = 0
         let isKeyframe = unit.isKeyframe
 
         let bytes = unit.bytes

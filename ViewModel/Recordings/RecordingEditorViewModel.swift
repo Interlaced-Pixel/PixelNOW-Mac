@@ -939,11 +939,15 @@ final class RecordingEditorViewModel: ObservableObject {
         guard let analysis = audioAnalysis, analysis.segmentID == selectedSegmentID,
               let index = selectedSegmentIndex else { return }
         let segment = segments[index]
-        let removedRanges = analysis.result.silenceRanges
-            .filter { selectedSilenceRangeIDs.contains($0.id) }
-            .map { RecordingEditorAudioRange(startSeconds: max(segment.startSeconds, $0.startSeconds), endSeconds: min(segment.endSeconds, $0.endSeconds)) }
-            .filter { $0.endSeconds - $0.startSeconds > 0.05 }
-            .sorted { $0.startSeconds < $1.startSeconds }
+        var removedRanges: [RecordingEditorAudioRange] = []
+        for range in analysis.result.silenceRanges where selectedSilenceRangeIDs.contains(range.id) {
+            let start = max(segment.startSeconds, range.startSeconds)
+            let end = min(segment.endSeconds, range.endSeconds)
+            if end - start > 0.05 {
+                removedRanges.append(RecordingEditorAudioRange(startSeconds: start, endSeconds: end))
+            }
+        }
+        removedRanges.sort { $0.startSeconds < $1.startSeconds }
         guard !removedRanges.isEmpty else { return }
         recordUndo()
         var keptRanges: [RecordingEditorTimeRange] = []

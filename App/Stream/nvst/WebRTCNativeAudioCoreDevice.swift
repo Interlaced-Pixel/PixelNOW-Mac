@@ -202,7 +202,7 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         }
     }
 
-    func renderPlayout(actionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>?, timestamp: UnsafePointer<AudioTimeStamp>?, busNumber: Int, frameCount: UInt32, outputData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus {
+    func renderPlayout(actionFlags: UnsafeMutablePointer<UInt32>?, timestamp: UnsafePointer<AudioTimeStamp>?, busNumber: Int, frameCount: UInt32, outputData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus {
         guard let delegate, let actionFlags, let timestamp, let outputData else {
             clearAudioBufferList(outputData)
             return noErr
@@ -218,7 +218,7 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         return status
     }
 
-    func captureRecording(actionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>?, timestamp: UnsafePointer<AudioTimeStamp>?, busNumber: Int, frameCount: UInt32) -> OSStatus {
+    func captureRecording(actionFlags: UnsafeMutablePointer<UInt32>?, timestamp: UnsafePointer<AudioTimeStamp>?, busNumber: Int, frameCount: UInt32) -> OSStatus {
         guard let delegate, let recordingUnit, let actionFlags, let timestamp else { return noErr }
         let format = streamFormat(sampleRate: deviceInputSampleRate, channels: UInt32(inputNumberOfChannels))
         let requiredSamples = Int(frameCount) * Int(format.mChannelsPerFrame)

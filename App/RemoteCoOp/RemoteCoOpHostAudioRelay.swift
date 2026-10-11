@@ -216,7 +216,7 @@ final class RemoteCoOpHostAudioDevice: NSObject, RTCAudioDevice, @unchecked Send
         guard let state else { return }
         frame.samples.withUnsafeBytes { bytes in
             guard let baseAddress = bytes.baseAddress else { return }
-            var actionFlags = AudioUnitRenderActionFlags()
+            var actionFlags: UInt32 = 0
             var timestamp = AudioTimeStamp()
             timestamp.mSampleTime = Double(state.1)
             timestamp.mHostTime = mach_absolute_time()
