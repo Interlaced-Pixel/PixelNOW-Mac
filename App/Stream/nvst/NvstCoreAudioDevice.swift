@@ -1,18 +1,17 @@
 import CoreAudio
 import AudioUnit
 import Foundation
-@preconcurrency import WebRTC
 
 private let coreAudioPlayoutCallback: AURenderCallback = { refCon, actionFlags, timestamp, busNumber, frameCount, outputData in
-    let device = Unmanaged<PixelNOWCoreAudioRTCDevice>.fromOpaque(refCon).takeUnretainedValue()
+    let device = Unmanaged<NvstCoreAudioDevice>.fromOpaque(refCon).takeUnretainedValue()
     return device.renderPlayout(actionFlags: actionFlags, timestamp: timestamp, busNumber: Int(busNumber), frameCount: frameCount, outputData: outputData)
 }
 
 private let coreAudioRecordingCallback: AURenderCallback = { refCon, actionFlags, timestamp, busNumber, frameCount, _ in
-    let device = Unmanaged<PixelNOWCoreAudioRTCDevice>.fromOpaque(refCon).takeUnretainedValue()
+    let device = Unmanaged<NvstCoreAudioDevice>.fromOpaque(refCon).takeUnretainedValue()
     return device.captureRecording(actionFlags: actionFlags, timestamp: timestamp, busNumber: Int(busNumber), frameCount: frameCount)
 }
-enum LibWebRTCAudio {
+enum NvstAudioHardware {
     static func defaultAudioDevice(_ selector: AudioObjectPropertySelector) -> AudioDeviceID {
         var device = AudioDeviceID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -71,31 +70,34 @@ enum LibWebRTCAudio {
     }
 }
 
-protocol PixelNOWCoreAudioRTCDeviceOwner: AnyObject {
+protocol NvstCoreAudioDeviceOwner: AnyObject {
     func handleGameAudioFrame(_ audioBufferList: UnsafeRawPointer?, frameCount: UInt32, sampleRate: Double, channels: UInt32)
     func handleMicrophoneAudioFrame(_ audioBufferList: UnsafeRawPointer?, frameCount: UInt32, sampleRate: Double, channels: UInt32)
     func handleCapturedMicrophoneLevel(_ level: Double)
-    func isMicrophoneCaptureEnabled() -> Bool
+    func microphoneSamplesAvailable()
+    func handleAudioDeviceFailure(_ message: String)
+    func handleRenderReference(_ samples: UnsafePointer<Int16>, frames: Int, channels: Int)
 }
 
-final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sendable {
-    weak var owner: (any PixelNOWCoreAudioRTCDeviceOwner)?
+final class NvstCoreAudioDevice: NSObject, @unchecked Sendable {
+    weak var owner: (any NvstCoreAudioDeviceOwner)?
 
-    let audioQueue = DispatchQueue(label: "com.interlacedpixel.pixelnow.webrtc.coreaudio")
+    let audioQueue = DispatchQueue(label: "com.interlacedpixel.pixelnow.nvst.coreaudio")
+    private let audioQueueKey = DispatchSpecificKey<UInt8>()
     private var playoutUnit: AudioUnit?
     private var recordingUnit: AudioUnit?
     var outputDevice = AudioDeviceID(kAudioObjectUnknown)
     private var inputDevice = AudioDeviceID(kAudioObjectUnknown)
-    private var recordingScratch = [Int16]()
+    private var recordingScratch = [Int16](repeating: 0, count: 4096)
     private let preferredInputDeviceId: String
     let monitorsDefaultDeviceChanges: Bool
 
     var selfDeviceChangeGeneration: UInt64 = 0
-    private weak var delegate: RTCAudioDeviceDelegate?
+    private let playout: NvstPcmBuffer
+    private let capture: NvstPcmBuffer
+    private let requestedChannels: Int
     private var lastMicrophoneLevelReportNanoseconds: UInt64 = 0
 
-    var isPlayoutMuted = false
-    var playoutVolume = 1.0
 
     private(set) var deviceInputSampleRate = 48_000.0
     private(set) var inputIOBufferDuration: TimeInterval = 0.01
@@ -105,77 +107,49 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
     private(set) var outputIOBufferDuration: TimeInterval = 0.01
     private(set) var outputNumberOfChannels = 2
     private(set) var outputLatency: TimeInterval = 0
-    private(set) var isInitialized = false
     private(set) var isPlayoutInitialized = false
     private(set) var isPlaying = false
     private(set) var isRecordingInitialized = false
     private(set) var isRecording = false
 
-    var hasUsableOutputDevice: Bool {
-        audioQueue.sync { outputDevice != AudioDeviceID(kAudioObjectUnknown) }
-    }
 
-    init(owner: (any PixelNOWCoreAudioRTCDeviceOwner)?, preferredInputDeviceId: String = "", monitorsDefaultDeviceChanges: Bool = false) {
+    init(owner: (any NvstCoreAudioDeviceOwner)?, playout: NvstPcmBuffer, capture: NvstPcmBuffer,
+         channels: Int, preferredInputDeviceId: String = "") {
         self.owner = owner
+        self.playout = playout
+        self.capture = capture
+        requestedChannels = channels
         self.preferredInputDeviceId = preferredInputDeviceId
-        self.monitorsDefaultDeviceChanges = monitorsDefaultDeviceChanges
+        monitorsDefaultDeviceChanges = true
         super.init()
+        audioQueue.setSpecific(key: audioQueueKey, value: 1)
         updateDeviceParameters()
-        if monitorsDefaultDeviceChanges { startSelfDeviceMonitoring() }
+        startSelfDeviceMonitoring()
     }
 
-    deinit {
-        stopSelfDeviceMonitoring()
-        _ = terminateDevice()
-    }
+    deinit { stopSelfDeviceMonitoring(); stop() }
 
-    func initialize(with delegate: RTCAudioDeviceDelegate) -> Bool {
-        audioQueue.sync {
-            self.delegate = delegate
-            isInitialized = true
-            updateDeviceParameters()
+    func start(microphone: Bool) throws {
+        try audioQueue.sync {
+            guard startPlayoutLocked() else { throw NvstBundle.BundleError.transport("Could not start CoreAudio playout") }
+            if microphone && !startRecordingLocked() {
+                stopPlayoutLocked()
+                throw NvstBundle.BundleError.transport("Could not start CoreAudio microphone capture")
+            }
         }
-        return true
     }
 
-    func terminateDevice() -> Bool {
-        audioQueue.sync {
-            stopPlayoutLocked()
-            stopRecordingLocked()
-            disposePlayoutUnitLocked()
-            disposeRecordingUnitLocked()
-            delegate = nil
-            isInitialized = false
-            isPlayoutInitialized = false
-            isRecordingInitialized = false
-        }
-        return true
+    func stop() {
+        if DispatchQueue.getSpecific(key: audioQueueKey) != nil { stopLocked() }
+        else { audioQueue.sync { stopLocked() } }
     }
 
-    func initializePlayout() -> Bool {
-        audioQueue.sync { initializePlayoutLocked() }
-    }
-
-    func startPlayout() -> Bool {
-        audioQueue.sync { startPlayoutLocked() }
-    }
-
-    func stopPlayout() -> Bool {
-        audioQueue.sync { stopPlayoutLocked() }
-        return true
-    }
-
-    func initializeRecording() -> Bool {
-        audioQueue.sync { initializeRecordingLocked() }
-    }
-
-    func startRecording() -> Bool {
-        audioQueue.sync { startRecordingLocked() }
-    }
-
-    func stopRecording() -> Bool {
-        audioQueue.sync { stopRecordingLocked() }
-        return true
+    private func stopLocked() {
+        selfDeviceChangeGeneration &+= 1
+        stopPlayoutLocked()
+        stopRecordingLocked()
+        disposePlayoutUnitLocked()
+        disposeRecordingUnitLocked()
     }
 
     @objc func handleDefaultDeviceChange() {
@@ -188,60 +162,45 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
             disposePlayoutUnitLocked()
             disposeRecordingUnitLocked()
             updateDeviceParameters()
-            if let delegate {
-                delegate.dispatchAsync {
-                    delegate.notifyAudioOutputInterrupted()
-                    delegate.notifyAudioInputInterrupted()
-                    delegate.notifyAudioOutputParametersChange()
-                    delegate.notifyAudioInputParametersChange()
-                }
-            }
-            if restartPlayout { _ = startPlayoutLocked() }
-            if restartRecording { _ = startRecordingLocked() }
-            NativeNVSTMediaLog.write("webrtc.native.audio.hot_swap", level: .debug, message: "CoreAudio RTC device hot-swapped.", attributes: ["inputDevice": String(inputDevice), "outputDevice": String(outputDevice), "playout": String(isPlaying), "recording": String(isRecording)])
+            if restartPlayout && !startPlayoutLocked() { owner?.handleAudioDeviceFailure("Could not restart CoreAudio playout after device change") }
+            if restartRecording && !startRecordingLocked() { owner?.handleAudioDeviceFailure("Could not restart CoreAudio capture after device change") }
+            NativeNVSTMediaLog.write("nvst.native.audio.hot_swap", level: .debug, message: "CoreAudio device hot-swapped.", attributes: ["inputDevice": String(inputDevice), "outputDevice": String(outputDevice), "playout": String(isPlaying), "recording": String(isRecording)])
         }
     }
 
     func renderPlayout(actionFlags: UnsafeMutablePointer<UInt32>?, timestamp: UnsafePointer<AudioTimeStamp>?, busNumber: Int, frameCount: UInt32, outputData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus {
-        guard let delegate, let actionFlags, let timestamp, let outputData else {
-            clearAudioBufferList(outputData)
-            return noErr
+        guard let outputData else { return kAudio_ParamError }
+        playout.render(outputData, frames: Int(frameCount), channels: outputNumberOfChannels)
+        owner?.handleGameAudioFrame(UnsafeRawPointer(outputData), frameCount: frameCount, sampleRate: 48_000, channels: UInt32(outputNumberOfChannels))
+        playout.applyGain(outputData)
+        for buffer in UnsafeMutableAudioBufferListPointer(outputData) {
+            if let data = buffer.mData {
+                let samples = data.bindMemory(to: Int16.self, capacity: Int(buffer.mDataByteSize) / 2)
+                owner?.handleRenderReference(samples, frames: Int(frameCount), channels: outputNumberOfChannels)
+            }
         }
-        let status = delegate.getPlayoutData(actionFlags, timestamp, busNumber, frameCount, outputData)
-        if status != noErr { clearAudioBufferList(outputData) }
-        if status == noErr {
-            owner?.handleGameAudioFrame(UnsafeRawPointer(outputData), frameCount: frameCount, sampleRate: deviceOutputSampleRate, channels: UInt32(outputNumberOfChannels))
-
-            applyPlayoutVolume(to: outputData)
-            if isPlayoutMuted { clearAudioBufferList(outputData) }
-        }
-        return status
+        return noErr
     }
 
     func captureRecording(actionFlags: UnsafeMutablePointer<UInt32>?, timestamp: UnsafePointer<AudioTimeStamp>?, busNumber: Int, frameCount: UInt32) -> OSStatus {
-        guard let delegate, let recordingUnit, let actionFlags, let timestamp else { return noErr }
-        let format = streamFormat(sampleRate: deviceInputSampleRate, channels: UInt32(inputNumberOfChannels))
-        let requiredSamples = Int(frameCount) * Int(format.mChannelsPerFrame)
-        let requiredBytes = requiredSamples * MemoryLayout<Int16>.size
-        if recordingScratch.count < requiredSamples { recordingScratch = [Int16](unsafeUninitializedCapacity: requiredSamples) { buffer, initializedCount in initializedCount = requiredSamples } }
-        return recordingScratch.withUnsafeMutableBufferPointer { scratchBuffer in
-            guard let baseAddress = scratchBuffer.baseAddress else { return noErr }
-            var inputData = AudioBufferList(
-                mNumberBuffers: 1,
-                mBuffers: AudioBuffer(mNumberChannels: UInt32(inputNumberOfChannels), mDataByteSize: UInt32(requiredBytes), mData: baseAddress)
-            )
-            let renderStatus = AudioUnitRender(recordingUnit, actionFlags, timestamp, 1, frameCount, &inputData)
-            guard renderStatus == noErr else { return renderStatus }
-            guard owner?.isMicrophoneCaptureEnabled() == true else {
-                clearAudioBufferList(&inputData)
-                reportMicrophoneLevelIfNeeded(inputData: &inputData)
-                return delegate.deliverRecordedData(actionFlags, timestamp, busNumber, frameCount, &inputData, nil, nil)
+        guard let recordingUnit, let actionFlags, let timestamp, frameCount <= 4096 else { return kAudio_ParamError }
+        return recordingScratch.withUnsafeMutableBufferPointer { samples in
+            guard let address = samples.baseAddress else { return kAudio_ParamError }
+            var inputData = AudioBufferList(mNumberBuffers: 1,
+                mBuffers: AudioBuffer(mNumberChannels: 1, mDataByteSize: frameCount * 2, mData: address))
+            let status = AudioUnitRender(recordingUnit, actionFlags, timestamp, 1, frameCount, &inputData)
+            guard status == noErr else {
+                owner?.handleAudioDeviceFailure("CoreAudio capture failed (status \(status))")
+                return status
             }
+            guard inputData.mBuffers.mDataByteSize >= frameCount * 2 else { return kAudio_ParamError }
+            capture.writeCapture(address, frames: Int(frameCount), channels: 1)
+            owner?.microphoneSamplesAvailable()
             reportMicrophoneLevelIfNeeded(inputData: &inputData)
-            withUnsafePointer(to: &inputData) { pointer in
-                owner?.handleMicrophoneAudioFrame(UnsafeRawPointer(pointer), frameCount: frameCount, sampleRate: deviceInputSampleRate, channels: UInt32(inputNumberOfChannels))
+            withUnsafePointer(to: &inputData) {
+                owner?.handleMicrophoneAudioFrame(UnsafeRawPointer($0), frameCount: frameCount, sampleRate: 48_000, channels: 1)
             }
-            return delegate.deliverRecordedData(actionFlags, timestamp, busNumber, frameCount, &inputData, nil, nil)
+            return noErr
         }
     }
 
@@ -274,7 +233,7 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         guard initializePlayoutLocked(), let playoutUnit else { return false }
         let status = AudioOutputUnitStart(playoutUnit)
         isPlaying = status == noErr
-        if status != noErr { NativeNVSTMediaLog.write("webrtc.native.audio.playout_start.error", level: .warning, message: "CoreAudio playout start failed.", attributes: ["status": String(status)]) }
+        if status != noErr { NativeNVSTMediaLog.write("nvst.native.audio.playout_start.error", level: .warning, message: "CoreAudio playout start failed.", attributes: ["status": String(status)]) }
         return isPlaying
     }
 
@@ -282,7 +241,7 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         guard initializeRecordingLocked(), let recordingUnit else { return false }
         let status = AudioOutputUnitStart(recordingUnit)
         isRecording = status == noErr
-        if status != noErr { NativeNVSTMediaLog.write("webrtc.native.audio.recording_start.error", level: .warning, message: "CoreAudio recording start failed.", attributes: ["status": String(status)]) }
+        if status != noErr { NativeNVSTMediaLog.write("nvst.native.audio.recording_start.error", level: .warning, message: "CoreAudio recording start failed.", attributes: ["status": String(status)]) }
         return isRecording
     }
 
@@ -296,6 +255,16 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         isRecording = false
     }
 
+    private func setProperty<T: BitwiseCopyable>(_ unit: AudioUnit, _ property: AudioUnitPropertyID,
+                                scope: AudioUnitScope, element: AudioUnitElement, value: inout T) -> Bool {
+        let status = AudioUnitSetProperty(unit, property, scope, element, &value, UInt32(MemoryLayout<T>.size))
+        if status != noErr {
+            NativeNVSTMediaLog.write("nvst.audio.configure.failed", level: .warning, message: "CoreAudio property rejected.",
+                attributes: ["property": String(property), "scope": String(scope), "element": String(element), "status": String(status)])
+        }
+        return status == noErr
+    }
+
     private func initializePlayoutLocked() -> Bool {
         if isPlayoutInitialized, playoutUnit != nil { return true }
         updateDeviceParameters()
@@ -303,19 +272,28 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         playoutUnit = unit
         var enable: UInt32 = 1
         var disable: UInt32 = 0
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &enable, UInt32(MemoryLayout<UInt32>.size))
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &disable, UInt32(MemoryLayout<UInt32>.size))
         var device = outputDevice
-        var status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout<AudioDeviceID>.size))
-        if status != noErr { NativeNVSTMediaLog.write("webrtc.native.audio.output_device.error", level: .warning, message: "CoreAudio set output device failed.", attributes: ["status": String(status), "device": String(outputDevice)]) }
-        applyOutputBufferFrameSize(unit: unit, device: outputDevice)
-        var format = streamFormat(sampleRate: deviceOutputSampleRate, channels: UInt32(outputNumberOfChannels))
-        AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+        var maximumFrames: UInt32 = 4096
+        var format = streamFormat(sampleRate: 48_000, channels: UInt32(outputNumberOfChannels))
         var callback = AURenderCallbackStruct(inputProc: coreAudioPlayoutCallback, inputProcRefCon: Unmanaged.passUnretained(self).toOpaque())
-        AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size))
-        status = AudioUnitInitialize(unit)
+        var layout = AudioChannelLayout()
+        layout.mChannelLayoutTag = outputNumberOfChannels == 8 ? kAudioChannelLayoutTag_MPEG_7_1_C :
+            outputNumberOfChannels == 6 ? kAudioChannelLayoutTag_MPEG_5_1_A :
+            outputNumberOfChannels == 2 ? kAudioChannelLayoutTag_Stereo : kAudioChannelLayoutTag_Mono
+        guard setProperty(unit, kAudioOutputUnitProperty_EnableIO, scope: kAudioUnitScope_Output, element: 0, value: &enable),
+              setProperty(unit, kAudioOutputUnitProperty_EnableIO, scope: kAudioUnitScope_Input, element: 1, value: &disable),
+              setProperty(unit, kAudioOutputUnitProperty_CurrentDevice, scope: kAudioUnitScope_Global, element: 0, value: &device),
+              setProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, scope: kAudioUnitScope_Global, element: 0, value: &maximumFrames),
+              setProperty(unit, kAudioUnitProperty_StreamFormat, scope: kAudioUnitScope_Input, element: 0, value: &format),
+              setProperty(unit, kAudioUnitProperty_AudioChannelLayout, scope: kAudioUnitScope_Input, element: 0, value: &layout),
+              setProperty(unit, kAudioUnitProperty_SetRenderCallback, scope: kAudioUnitScope_Input, element: 0, value: &callback) else {
+            disposePlayoutUnitLocked()
+            return false
+        }
+        applyOutputBufferFrameSize(unit: unit, device: outputDevice)
+        let status = AudioUnitInitialize(unit)
         guard status == noErr else {
-            NativeNVSTMediaLog.write("webrtc.native.audio.playout_initialize.error", level: .warning, message: "CoreAudio playout initialize failed.", attributes: ["status": String(status)])
+            NativeNVSTMediaLog.write("nvst.audio.playout.initialize.failed", level: .warning, message: "CoreAudio initialization failed.", attributes: ["status": String(status)])
             disposePlayoutUnitLocked()
             return false
         }
@@ -330,18 +308,22 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         recordingUnit = unit
         var enable: UInt32 = 1
         var disable: UInt32 = 0
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &disable, UInt32(MemoryLayout<UInt32>.size))
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &enable, UInt32(MemoryLayout<UInt32>.size))
         var device = inputDevice
-        var status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout<AudioDeviceID>.size))
-        if status != noErr { NativeNVSTMediaLog.write("webrtc.native.audio.input_device.error", level: .warning, message: "CoreAudio set input device failed.", attributes: ["status": String(status), "device": String(inputDevice)]) }
-        var format = streamFormat(sampleRate: deviceInputSampleRate, channels: UInt32(inputNumberOfChannels))
-        AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &format, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+        var maximumFrames: UInt32 = 4096
+        var format = streamFormat(sampleRate: 48_000, channels: 1)
         var callback = AURenderCallbackStruct(inputProc: coreAudioRecordingCallback, inputProcRefCon: Unmanaged.passUnretained(self).toOpaque())
-        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0, &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size))
-        status = AudioUnitInitialize(unit)
+        guard setProperty(unit, kAudioOutputUnitProperty_EnableIO, scope: kAudioUnitScope_Output, element: 0, value: &disable),
+              setProperty(unit, kAudioOutputUnitProperty_EnableIO, scope: kAudioUnitScope_Input, element: 1, value: &enable),
+              setProperty(unit, kAudioOutputUnitProperty_CurrentDevice, scope: kAudioUnitScope_Global, element: 0, value: &device),
+              setProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, scope: kAudioUnitScope_Global, element: 0, value: &maximumFrames),
+              setProperty(unit, kAudioUnitProperty_StreamFormat, scope: kAudioUnitScope_Output, element: 1, value: &format),
+              setProperty(unit, kAudioOutputUnitProperty_SetInputCallback, scope: kAudioUnitScope_Global, element: 0, value: &callback) else {
+            disposeRecordingUnitLocked()
+            return false
+        }
+        let status = AudioUnitInitialize(unit)
         guard status == noErr else {
-            NativeNVSTMediaLog.write("webrtc.native.audio.recording_initialize.error", level: .warning, message: "CoreAudio recording initialize failed.", attributes: ["status": String(status)])
+            NativeNVSTMediaLog.write("nvst.audio.capture.initialize.failed", level: .warning, message: "CoreAudio initialization failed.", attributes: ["status": String(status)])
             disposeRecordingUnitLocked()
             return false
         }
@@ -367,14 +349,15 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         if AudioObjectGetPropertyData(device, &address, 0, nil, &actualSize, &actual) == noErr, actual > 0 {
             outputIOBufferDuration = Double(actual) / deviceOutputSampleRate
         }
-        NativeNVSTMediaLog.write("webrtc.native.audio.output_buffer", level: .info, message: "CoreAudio output buffer frame size applied.", attributes: [
+        NativeNVSTMediaLog.write("nvst.native.audio.output_buffer", level: .info, message: "CoreAudio output buffer frame size applied.", attributes: [
             "requested": String(requested), "actual": String(actual), "status": String(status),
             "range": hasRange ? "\(Int(range.mMinimum))-\(Int(range.mMaximum))" : "unknown",
             "deviceLatencyMs": String(format: "%.1f", outputLatency * 1000),
         ])
     }
 
-    var outputPathLatencySeconds: TimeInterval { outputLatency + outputIOBufferDuration }
+    var outputPathLatencySeconds: TimeInterval { audioQueue.sync { outputLatency + outputIOBufferDuration } }
+    var echoPathLatencySeconds: TimeInterval { audioQueue.sync { outputLatency + outputIOBufferDuration + inputLatency + inputIOBufferDuration } }
 
     private func createHALOutputUnit() -> AudioUnit? {
         var description = AudioComponentDescription(componentType: kAudioUnitType_Output, componentSubType: kAudioUnitSubType_HALOutput, componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0)
@@ -382,7 +365,7 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         var unit: AudioUnit?
         let status = AudioComponentInstanceNew(component, &unit)
         guard status == noErr else {
-            NativeNVSTMediaLog.write("webrtc.native.audio.hal_unit.error", level: .warning, message: "CoreAudio HAL unit creation failed.", attributes: ["status": String(status)])
+            NativeNVSTMediaLog.write("nvst.native.audio.hal_unit.error", level: .warning, message: "CoreAudio HAL unit creation failed.", attributes: ["status": String(status)])
             return nil
         }
         return unit
@@ -405,18 +388,15 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
     }
 
     private func updateDeviceParameters() {
-        inputDevice = LibWebRTCAudio.preferredInputDevice(preferredInputDeviceId)
-        outputDevice = LibWebRTCAudio.defaultAudioDevice(kAudioHardwarePropertyDefaultOutputDevice)
-        let preferredInputSampleRate = delegate?.preferredInputSampleRate ?? 0
-        let preferredOutputSampleRate = delegate?.preferredOutputSampleRate ?? 0
-        deviceInputSampleRate = nominalSampleRate(for: inputDevice, fallback: preferredInputSampleRate > 0 ? preferredInputSampleRate : 48_000)
-        deviceOutputSampleRate = nominalSampleRate(for: outputDevice, fallback: preferredOutputSampleRate > 0 ? preferredOutputSampleRate : 48_000)
-        inputNumberOfChannels = max(1, min(2, channelCount(for: inputDevice, scope: kAudioDevicePropertyScopeInput, fallback: 1)))
-        outputNumberOfChannels = max(1, min(2, channelCount(for: outputDevice, scope: kAudioDevicePropertyScopeOutput, fallback: 2)))
-        let preferredInputBufferDuration = delegate?.preferredInputIOBufferDuration ?? 0
-        let preferredOutputBufferDuration = delegate?.preferredOutputIOBufferDuration ?? 0
-        inputIOBufferDuration = preferredInputBufferDuration > 0 ? preferredInputBufferDuration : 0.01
-        outputIOBufferDuration = preferredOutputBufferDuration > 0 ? preferredOutputBufferDuration : 0.01
+        inputDevice = NvstAudioHardware.preferredInputDevice(preferredInputDeviceId)
+        outputDevice = NvstAudioHardware.defaultAudioDevice(kAudioHardwarePropertyDefaultOutputDevice)
+        deviceInputSampleRate = nominalSampleRate(for: inputDevice, fallback: 48_000)
+        deviceOutputSampleRate = nominalSampleRate(for: outputDevice, fallback: 48_000)
+        inputNumberOfChannels = 1
+        let available = channelCount(for: outputDevice, scope: kAudioDevicePropertyScopeOutput, fallback: 2)
+        outputNumberOfChannels = requestedChannels >= 8 && available >= 8 ? 8 : requestedChannels >= 6 && available >= 6 ? 6 : min(max(available, 1), 2)
+        inputIOBufferDuration = 0.01
+        outputIOBufferDuration = 0.005
         inputLatency = latency(for: inputDevice, scope: kAudioDevicePropertyScopeInput)
         outputLatency = latency(for: outputDevice, scope: kAudioDevicePropertyScopeOutput)
     }
@@ -471,24 +451,4 @@ final class PixelNOWCoreAudioRTCDevice: NSObject, RTCAudioDevice, @unchecked Sen
         )
     }
 
-    private func clearAudioBufferList(_ bufferList: UnsafeMutablePointer<AudioBufferList>?) {
-        guard let bufferList else { return }
-        for buffer in UnsafeMutableAudioBufferListPointer(bufferList) where buffer.mData != nil && buffer.mDataByteSize > 0 {
-            memset(buffer.mData, 0, Int(buffer.mDataByteSize))
-        }
-    }
-
-    private func applyPlayoutVolume(to bufferList: UnsafeMutablePointer<AudioBufferList>?) {
-        guard let bufferList, playoutVolume < 1 else { return }
-        let gain = min(max(playoutVolume, 0), 1)
-        for buffer in UnsafeMutableAudioBufferListPointer(bufferList) {
-            guard let data = buffer.mData, buffer.mDataByteSize >= 2 else { continue }
-            let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size
-            let samples = data.bindMemory(to: Int16.self, capacity: sampleCount)
-            for index in 0..<sampleCount {
-                let scaled = (Double(samples[index]) * gain).rounded()
-                samples[index] = Int16(min(max(scaled, Double(Int16.min)), Double(Int16.max)))
-            }
-        }
-    }
 }

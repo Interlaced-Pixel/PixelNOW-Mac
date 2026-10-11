@@ -167,7 +167,7 @@ extension NVSTCoreTransport {
         sendFramedRemoteInputNow(packet, bundle: bundle)
     }
 
-    private nonisolated func sendFramedRemoteInputNow(_ packet: Data, bundle: NvstWebRtcBundle) {
+    private nonisolated func sendFramedRemoteInputNow(_ packet: Data, bundle: NvstBundle) {
         let sequence = inputState.nextSequence()
         let elapsed = clock.elapsedMicroseconds()
         let framed = NvstRemoteInput.framed(packet,
@@ -366,7 +366,7 @@ extension NVSTCoreTransport {
         }
     }
 
-    func sendGamepadRegistration(bitmap: UInt16, bundle: NvstWebRtcBundle, reason: String) {
+    func sendGamepadRegistration(bitmap: UInt16, bundle: NvstBundle, reason: String) {
         let registered = bundle.sendControl(NvstInputActivation.deviceDescriptor(
             timestampMicroseconds: sessionElapsedMicroseconds(),
             connectedBitmap: bitmap))

@@ -20,12 +20,10 @@ extension NVSTCoreTransport {
 
         let recorder = self.recorder
 
-        let coOpVideoRelay = self.remoteCoOpVideoRelay
 
         decoder.onPixelBuffer = { [weak self] pixelBuffer, presentationTime, isKeyframe, lifecycle in
             Task { await self?.didDecodeFrame(lifecycle.unit) }
             recorder.appendNativePixelBuffer(pixelBuffer)
-            coOpVideoRelay.renderPixelBuffer(pixelBuffer, presentationTime: presentationTime)
             if let sink {
                 sink(pixelBuffer, presentationTime, isKeyframe, lifecycle)
             } else {
@@ -140,29 +138,25 @@ extension NVSTCoreTransport {
         )
     }
 
-    private func resolvedMicrophoneSetup(microphoneOfferedOnBundle: Bool) -> NvstWebRtcBundle.MicrophoneSetup? {
+    private func resolvedMicrophoneSetup(microphoneOfferedOnBundle: Bool) -> NvstBundle.MicrophoneSetup? {
         let logger = self.logger
         guard let configuration = microphoneConfiguration, configuration.captureRequested else { return nil }
         if !microphoneOfferedOnBundle {
-            logger?("NVST seat did not offer bundle microphone carriage; the mic stays on its (not yet recovered) legacy transport")
+            logger?("NVST seat did not offer bundle microphone carriage")
             return nil
         }
-        return NvstWebRtcBundle.MicrophoneSetup(volume: configuration.volume,
+        return NvstBundle.MicrophoneSetup(volume: configuration.volume,
                                                 deviceId: configuration.deviceId,
                                                 initiallyEnabled: configuration.initiallyEnabled)
     }
 
-    func bringUpBundle(handoff: NVSTVideoHandoff, microphoneOfferedOnBundle: Bool) async -> NvstBundleReservation? {
+    func bringUpBundle(handoff: NVSTVideoHandoff, microphoneOfferedOnBundle: Bool) async throws -> NvstBundleReservation {
         let logger = self.logger
         self.microphoneOfferedOnBundle = microphoneOfferedOnBundle
-        guard Self.usesWebRtcBundle else {
-            logger?("NVST bundle disabled; punching the bundle socket with bare STUN only")
-            startBundleProbe(handoff: handoff)
-            scheduleVideoHolePunch()
-            return nil
-        }
         let microphoneSetup = resolvedMicrophoneSetup(microphoneOfferedOnBundle: microphoneOfferedOnBundle)
-        let bundle = NvstWebRtcBundle(handoff: handoff, logger: logger)
+        guard let descriptor = reserver?.takeBundleDescriptor(), descriptor >= 0 else { throw NvstBundle.BundleError.transport("Missing reserved bundle socket") }
+        bundle?.close()
+        let bundle = NvstBundle(handoff: handoff, descriptor: descriptor, logger: logger)
         let sender = NvstFeedbackSender()
         do {
             let identity = try await bundle.prepare(microphone: microphoneSetup, channelCount: configuredAudioChannels)
@@ -196,9 +190,7 @@ extension NVSTCoreTransport {
 
             videoPipeline?.attach(bundle: bundle)
             self.feedbackSender = sender
-            if !identity.usesOfficialIceCredentials {
-                logger?("NVST bundle is announcing libwebrtc's own ICE credentials; Bifrost length checks may reject them")
-            }
+            try bundle.start()
             return NvstBundleReservation(
                 bundlePort: identity.bundlePort,
                 mjolnirPort: (handoff.wireUDPPort ?? handoff.mjolnirUDPPort) ?? handoff.clientUDPPort,
@@ -211,19 +203,23 @@ extension NVSTCoreTransport {
                 microphoneSenderSsrc: microphoneSenderSsrc
             )
         } catch {
-            logger?("NVST bundle bring-up failed: \(error.localizedDescription); falling back to the STUN-only probe")
+            logger?("NVST bundle bring-up failed: \(error.localizedDescription)")
             bundle.close()
-            startBundleProbe(handoff: handoff)
-            scheduleVideoHolePunch()
-            return nil
+            throw error
         }
     }
 
-    private func installBundleHandlers(_ bundle: NvstWebRtcBundle,
+    private func installBundleHandlers(_ bundle: NvstBundle,
                                        sender: NvstFeedbackSender,
                                        logger: (@Sendable (String) -> Void)?) {
         bundleGeneration = bundleGeneration &+ 1
         let generation = bundleGeneration
+        bundle.onTransportFailure = { [weak self] message in
+            Task {
+                guard await self?.bundleGeneration == generation else { return }
+                await self?.reportBundleFailure(message)
+            }
+        }
         bundle.onInputProtocolNegotiated = { [weak self] version in
             Task {
                 guard await self?.bundleGeneration == generation else { return }
@@ -287,10 +283,8 @@ extension NVSTCoreTransport {
         }
 
         let recorder = self.recorder
-        let coOpAudioRelay = self.remoteCoOpAudioRelay
         bundle.onGameAudioFrame = { audioBufferList, frameCount, sampleRate, channels in
             recorder.appendGameAudio(audioBufferList: audioBufferList, frameCount: frameCount, sampleRate: sampleRate, channels: channels)
-            coOpAudioRelay.renderAudioFrame(audioBufferList: audioBufferList, frameCount: frameCount, sampleRate: sampleRate, channels: channels)
         }
         bundle.onPartiallyReliableControlOpen = { [weak self] in
             Task {
@@ -402,7 +396,10 @@ extension NVSTCoreTransport {
         }
         bundle.refreshTransportStatistics()
         let rtt = bundle.roundTripMilliseconds
-        if rtt.isFinite, rtt >= 0 { qosManager.updateRttEma(rttMs: rtt) }
+        if rtt.isFinite, rtt >= 0 {
+            qosManager.updateRtd(rtdMs: rtt)
+            qosManager.updateRttEma(rttMs: rtt)
+        }
         announceRetransmissionState()
         let network = streamProcessor.networkEstimate(forFeedback: true)
         qosManager.obtainFeedback(network: network, rtpStats: stats)
@@ -782,7 +779,7 @@ extension NVSTCoreTransport {
         let frame = max(1, qosManager.snapshot().lastFrameNumber)
         let enabled = qosManager.isRetransmissionFeasible(currentlyEnabled: receiver.isRetransmissionEnabled)
         receiver.updateRetransmissionState(frameNumber: frame, enabled: enabled,
-            roundTripMilliseconds: bundle.roundTripMilliseconds) { [logger] command in
+            roundTripMilliseconds: qosManager.retransmissionRoundTripMilliseconds) { [logger] command in
             let accepted = bundle.sendControl(command)
             logger?("NVST NACK activation frame=\(frame) enabled=\(enabled) accepted=\(accepted)")
             return accepted
@@ -815,20 +812,8 @@ extension NVSTCoreTransport {
         if let ssrc = receiver.stats.boundSSRC { sender.updateMediaSSRC(ssrc) }
     }
 
-    func startBundleProbe(handoff: NVSTVideoHandoff) {
-        guard let descriptor = reserver?.takeBundleDescriptor(), descriptor >= 0 else {
-            logger?("NVST bundle probe skipped: no reserved socket")
-            return
-        }
-        do {
-            let probe = try NvstBundleIceProbe(handoff: handoff, descriptor: descriptor, logger: logger)
-            probe.start()
-            bundleProbe = probe
-            logger?("NVST bundle ICE probe started (STUN only, no DTLS)")
-        } catch {
-            close(descriptor)
-            logger?("NVST bundle probe unavailable: \(error.localizedDescription)")
-        }
+    func reportBundleFailure(_ message: String) {
+        terminationContinuation?.yield(.transportFailed(NativeNVSTTransportFailure(message: message, recoveryClassification: .permanent)))
     }
 
     func reportFatalDecodeError(_ message: String) {

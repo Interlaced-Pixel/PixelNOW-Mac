@@ -2,18 +2,20 @@ import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
+import CxxStdlib
+import NVSTNative
 
 final class NvstActiveBundleHolder: @unchecked Sendable {
     private let lock = NSLock()
-    private var storage: NvstWebRtcBundle?
+    private var storage: NvstBundle?
 
-    func set(_ bundle: NvstWebRtcBundle?) {
+    func set(_ bundle: NvstBundle?) {
         lock.lock()
         storage = bundle
         lock.unlock()
     }
 
-    func get() -> NvstWebRtcBundle? {
+    func get() -> NvstBundle? {
         lock.lock()
         defer { lock.unlock() }
         return storage
@@ -104,9 +106,6 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         ProcessInfo.processInfo.environment["PIXELNOW_NVST_LEGACY_ANNOUNCE"] == "1"
     }
 
-    public static var usesWebRtcBundle: Bool {
-        ProcessInfo.processInfo.environment["PIXELNOW_NVST_WEBRTC_BUNDLE"] != "0"
-    }
 
     public typealias PixelBufferSink = @Sendable (CVPixelBuffer, CMTime, Bool, NvstVideoFrameLifecycle) -> Void
 
@@ -114,15 +113,12 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
     nonisolated let recorder = StreamRecorder()
 
-    nonisolated let remoteCoOpVideoRelay: RemoteCoOpHostVideoRelay
-    nonisolated let remoteCoOpAudioRelay: RemoteCoOpHostAudioRelay
     let logger: (@Sendable (String) -> Void)?
     private let controlTimeout: Duration
     var reserver: NvstLocalBundleReserver?
     var session: NvstRtspSession?
     var receiver: NVSTWireReceiver?
-    var bundleProbe: NvstBundleIceProbe?
-    var bundle: NvstWebRtcBundle?
+    var bundle: NvstBundle?
     var feedbackSender: NvstFeedbackSender?
     var qosManager: NvstQosManager?
     var streamProcessor: NvstStreamProcessor?
@@ -235,7 +231,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
     func seedMicrophoneBundleForTesting(negotiated: Bool) {
         if bundle == nil {
-            bundle = NvstWebRtcBundle(
+            bundle = NvstBundle(
                 handoff: NVSTVideoHandoff(
                     clientUDPPort: 0, videoPeerIP: "10.20.30.40", videoPeerPort: 5004,
                     srtpProfile: .aeadAes256Gcm8,
@@ -302,11 +298,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
                 configuredLeftStickDeadzone: Float = 0.12,
                 configuredRightStickDeadzone: Float = 0.13,
                 logger: (@Sendable (String) -> Void)? = nil,
-                controlTimeout: Duration = .seconds(20),
-                remoteCoOpVideoRelay: RemoteCoOpHostVideoRelay = RemoteCoOpHostVideoRelay(),
-                remoteCoOpAudioRelay: RemoteCoOpHostAudioRelay = RemoteCoOpHostAudioRelay()) {
-        self.remoteCoOpVideoRelay = remoteCoOpVideoRelay
-        self.remoteCoOpAudioRelay = remoteCoOpAudioRelay
+                controlTimeout: Duration = .seconds(20)) {
         self.pixelBufferSink = pixelBufferSink
         self.configuredFps = configuredFps
         self.configuredMaxBitrateKbps = configuredMaxBitrateKbps
@@ -326,7 +318,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     }
 
     public func prepare() async throws {
-        // Bifrost-free transport requires no native library loading.
+        let transport = pixelnow.SctpTransport(pixelnow.SctpConfiguration())
+        guard transport.valid() else { throw NvstBundle.BundleError.transport(String(transport.errorDescription())) }
     }
 
     public var isInputActivated: Bool { didActivateInput }
@@ -382,7 +375,8 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         terminationContinuation = stream.continuation
 
         let reserver = NvstLocalBundleReserver(bundleProvider: { [weak self] handoff, microphoneOfferedOnBundle in
-            await self?.bringUpBundle(handoff: handoff, microphoneOfferedOnBundle: microphoneOfferedOnBundle)
+            guard let self else { throw NvstBundle.BundleError.transport("Transport was released during negotiation") }
+            return try await self.bringUpBundle(handoff: handoff, microphoneOfferedOnBundle: microphoneOfferedOnBundle)
         })
         self.reserver = reserver
         let logger = self.logger
@@ -481,8 +475,12 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
         bundle?.refreshTransportStatistics()
         let keepAlive = await session?.controlKeepAliveSummary() ?? ""
-        logger?(String(format: "NVST hud rtt=%.1fms mjolnirRtt=%.1fms ctrl[%@] jitter=%.1fms decodedRes=%@ negotiatedRes=%@ gameFps=%.1f audioJb=%.1fms",
+        let recoveryTiming = qosManager?.snapshot()
+        logger?(String(format: "NVST hud rtt=%.1fms rttSource=sctp-srtt rttEma=%.1fms rtdMax=%.1fms nackRtt=%.1fms mjolnirRtt=%.1fms ctrl[%@] jitter=%.1fms decodedRes=%@ negotiatedRes=%@ gameFps=%.1f audioJb=%.1fms",
                        bundle?.roundTripMilliseconds ?? -1,
+                       recoveryTiming?.rttEmaMs ?? -1,
+                       recoveryTiming?.rtdMs ?? -1,
+                       qosManager?.retransmissionRoundTripMilliseconds ?? -1,
                        receiver.roundTripMilliseconds,
                        keepAlive,
                        Double(stats.lastJitter) * 1000 / Double(NvstVideoToolboxDecoder.clockRate),
@@ -492,14 +490,12 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
                        lastAudioJitterBufferMilliseconds))
 
         logger?("NVST mjolnir \(receiver.inbound.summary) rcvbuf=\(receiver.receiveBufferBytes)"
+                + " replayRejected=\(stats.replayRejectedPackets) unprotectFailed=\(stats.unprotectFailedPackets) late=\(stats.latePackets) duplicates=\(stats.duplicatePackets)"
                 + " perPacket[\(receiver.processStageTimings.summary(packets: stats.authenticatedPackets + stats.droppedPackets))]"
                 + " \(receiver.fecFindings.summary)"
                 + " nacks=\(receiver.nackSummary.requests)/\(receiver.nackSummary.packets)pkt")
         if let bundle {
             logger?("NVST bundle \(bundle.diagnosticSummary) reportsSent=\(feedbackSender?.sentReportCount ?? 0)")
-        }
-        if let bundleProbe {
-            logger?("NVST probe \(bundleProbe.snapshot.summary)")
         }
         if let sender = feedbackSender, let ssrc = receiver.stats.boundSSRC {
             sender.updateMediaSSRC(ssrc)
@@ -531,9 +527,12 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
         recorder.stop()
 
-        remoteCoOpVideoRelay.removeAll()
-        remoteCoOpAudioRelay.removeAll()
         await teardown(reason: "disconnect")
+    }
+
+    public func disconnectForApplicationTermination() async {
+        recorder.stop()
+        await teardown(reason: "application termination")
     }
 
     public func resetForRecovery() async {
@@ -569,7 +568,6 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
             "hapticEvents": String(hapticEventsReceived),
             "hdrMode": lastHdrMode?.summary ?? "-",
             "bundle": bundle?.diagnosticSummary ?? "-",
-            "bundleProbe": bundleProbe?.snapshot.summary ?? "-",
         ]
     }
 
@@ -783,8 +781,6 @@ extension NVSTCoreTransport {
         microphoneNegotiated = false
         microphoneSenderSsrc = nil
         microphoneOfferedOnBundle = false
-        bundleProbe?.stop()
-        bundleProbe = nil
         mediaFrameContinuation?.finish()
         mediaFrameContinuation = nil
         mediaForwardingTask?.cancel()
