@@ -9,10 +9,9 @@ fi
 
 info_plist="$app_path/Contents/Info.plist"
 native_framework="$app_path/Contents/Frameworks/NVSTNative.framework"
-runtime_manifest="$app_path/Contents/Resources/remote-coop-direct-config.json"
 app_binary="$app_path/Contents/MacOS/PixelNOW"
 
-for required_path in "$info_plist" "$native_framework/NVSTNative" "$native_framework/Resources/ThirdParty/Dependencies.json" "$runtime_manifest" "$app_binary"; do
+for required_path in "$info_plist" "$native_framework/NVSTNative" "$native_framework/Resources/ThirdParty/Dependencies.json" "$app_binary"; do
     if [[ ! -e "$required_path" ]]; then
         echo "Missing native runtime component: $required_path" >&2
         exit 1
@@ -20,7 +19,6 @@ for required_path in "$info_plist" "$native_framework/NVSTNative" "$native_frame
 done
 
 /usr/bin/plutil -lint "$info_plist" >/dev/null
-node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$runtime_manifest"
 test -x "$app_binary"
 runtime_binaries=("$app_binary")
 if [[ -f "$app_path/Contents/MacOS/PixelNOW.debug.dylib" ]]; then

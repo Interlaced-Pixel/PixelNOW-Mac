@@ -123,15 +123,7 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
             throw StreamSessionError.sessionAllocationFailed("This game does not include a launchable GeForce NOW app id.")
         }
         let configuration = normalizedConfiguration(configuration, appId: launchAppId.stringValue)
-        let capabilities = StreamPreferences.loadDeviceCapabilities()
-        let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: capabilities)
-        guard profile.transportMode.value.caseInsensitiveCompare("nvst") == .orderedSame else {
-            throw StreamSessionError.sessionAllocationFailed("Native NVST session requested while WebRTC transport is selected.")
-        }
         let launch = await prepareLaunch(configuration: configuration)
-        guard string(launch.settings["transportMode"]).caseInsensitiveCompare("nvst") == .orderedSame else {
-            throw StreamSessionError.sessionAllocationFailed("Native NVST session requested while WebRTC transport is selected.")
-        }
         let serverType: Int
         do {
             serverType = try await StreamPreferences.fetchServerType(token: configuration.accessToken, streamingBaseUrl: launch.streamingBaseUrl) ?? 0

@@ -819,7 +819,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         guard cursorAssociationHandler(false) == .success else {
             isPointerLocked = false
             updatePointerLockCursorVisibility()
-            NativeNVSTMediaLog.write("webrtc.input.pointer_lock.failed", level: .error, message: "macOS rejected relative pointer capture.", attributes: ["locked": "false"])
+            NativeNVSTMediaLog.write("nvst.input.pointer_lock.failed", level: .error, message: "macOS rejected relative pointer capture.", attributes: ["locked": "false"])
             return
         }
         cursorAssociationGeneration &+= 1
@@ -840,7 +840,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         cursorAssociationGeneration &+= 1
         let releaseGeneration = cursorAssociationGeneration
         if associationResult != .success {
-            NativeNVSTMediaLog.write("webrtc.input.pointer_unlock.failed", level: .error, message: "macOS rejected relative pointer release.", attributes: ["locked": "true"])
+            NativeNVSTMediaLog.write("nvst.input.pointer_unlock.failed", level: .error, message: "macOS rejected relative pointer release.", attributes: ["locked": "true"])
             retryCursorAssociation(generation: releaseGeneration)
         }
         isPointerLocked = false
@@ -882,7 +882,7 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
 
     private func notifyPointerLockChanged(_ locked: Bool) {
         onPointerLockChanged?(locked)
-        NativeNVSTMediaLog.write("webrtc.input.pointer_lock", level: .info, message: locked ? "Pointer lock enabled." : "Pointer lock disabled.", attributes: ["locked": String(locked)])
+            NativeNVSTMediaLog.write("nvst.input.pointer_lock", level: .info, message: locked ? "Pointer lock enabled." : "Pointer lock disabled.", attributes: ["locked": String(locked)])
     }
 
     private func updatePointerLockCursorVisibility() {

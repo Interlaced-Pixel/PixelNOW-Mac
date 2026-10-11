@@ -27,7 +27,6 @@ let package = Package(
                 "Resources",
                 "View",
                 "ViewModel",
-                "WebRTC.framework",
                 "GFN/Native",
                 "build",
                 "scripts",

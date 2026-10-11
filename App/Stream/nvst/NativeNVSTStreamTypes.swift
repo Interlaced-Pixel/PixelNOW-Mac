@@ -24,7 +24,7 @@ public struct NativeNVSTPerformanceSnapshot: Equatable, Sendable {
     public let totalFrameLoss: UInt64
     public let packetLoss: UInt64
     public let totalPacketLoss: UInt64
-    /// Loss over the last poll interval, as the WebRTC path reports it: lost / (received + lost).
+    /// Loss over the last poll interval: lost / (received + lost).
     /// Negative when it cannot be computed yet.
     public let packetLossPercent: Double
     /// Mean client-side decode cost per frame. Distinct from `latencyMilliseconds`, which is the
@@ -48,7 +48,7 @@ public struct NativeNVSTPerformanceSnapshot: Equatable, Sendable {
     public let decoderOutputFormat: String
     /// The ceiling the user configured, so the HUD can show used bitrate against it; -1 if unset.
     public let targetBitrateMegabitsPerSecond: Double
-    /// Mean time audio spent in libwebrtc's jitter buffer over the last snapshot interval, ms; -1
+    /// Mean time audio spent in the receive jitter buffer over the last snapshot interval, ms; -1
     /// when unknown. Against video's decode + present time it gives an A/V offset estimate.
     public let audioJitterBufferMilliseconds: Double
     /// The output device's own latency plus its IO buffer, ms; -1 when unknown. The part of the

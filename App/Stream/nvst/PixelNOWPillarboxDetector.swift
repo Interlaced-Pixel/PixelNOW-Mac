@@ -8,7 +8,7 @@ import QuartzCore
 ///
 /// GeForce NOW renders a 16:9-only game into the full requested canvas (a 21:9
 /// stream carries a 3840x2160 image centred in 5120x2160) and encodes the side
-/// bars as black pixels. Nothing in the WebRTC metadata describes where those
+/// bars as black pixels. Nothing in the stream metadata describes where those
 /// bars start, so the boundary has to be measured from the luma plane.
 struct PixelNOWPillarboxContentRect: Equatable {
     /// Left edge of picture content, as a fraction of frame width.

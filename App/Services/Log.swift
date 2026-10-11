@@ -9,7 +9,7 @@ enum Log {
         case catalog = "Catalog"
         case launch = "Launch"
         case shortcut = "GFNShortcut"
-        case stream = "WebRTC"
+        case stream = "NVST"
     }
 
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.interlacedpixel.pixelnow"
