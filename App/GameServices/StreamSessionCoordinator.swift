@@ -141,7 +141,7 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
         activeSession = descriptor
         return NativeNVSTSessionAllocation(
             session: descriptor,
-            isResume: configuration.resumesExistingSession || sessionInfo.isResume,
+            isResume: sessionInfo.isResume,
             signalingServer: sessionInfo.signalingServer,
             signalingURL: sessionInfo.signalingUrl,
             signalingQueryParameters: sessionInfo.signalingQueryParameters,
@@ -273,8 +273,25 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
         SessionManager.shared.setStreamingBaseUrl(launch.streamingBaseUrl)
 
         if configuration.resumesExistingSession {
-            let claimed = try await claimSession(configuration: configuration, settings: launch.settings)
-            return try await waitForReadySession(claimed, configuration: configuration)
+            do {
+                let claimed = try await claimSession(configuration: configuration, settings: launch.settings)
+                return try await waitForReadySession(claimed, configuration: configuration)
+            } catch let error as StreamSessionError where Self.isStaleResume(error) {
+                NativeNVSTMediaLog.write(
+                    "nvst.session.resume-stale",
+                    level: .info,
+                    message: "The advertised resumable session was already finished; allocating a fresh native NVST session.",
+                    attributes: ["sessionId": configuration.resumeSessionID, "applicationID": configuration.applicationID]
+                )
+                let created = try await createSession(configuration: configuration, settings: launch.settings)
+                do {
+                    return try await waitForReadySession(created, configuration: configuration)
+                } catch {
+                    let descriptor = streamDescriptor(sessionInfo: created, configuration: configuration)
+                    try? await finishSession(descriptor, reason: Task.isCancelled ? .userRequested : .failed)
+                    throw error
+                }
+            }
         }
 
         let created = try await createSession(configuration: configuration, settings: launch.settings)
@@ -285,6 +302,12 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
             try? await finishSession(descriptor, reason: Task.isCancelled ? .userRequested : .failed)
             throw error
         }
+    }
+
+    private static func isStaleResume(_ error: StreamSessionError) -> Bool {
+        guard case .sessionAllocationFailed(let message) = error else { return false }
+        let normalized = message.lowercased()
+        return normalized.contains("no longer resumable") || normalized.contains("stale_active_session")
     }
 
     private func createSession(configuration: PreparedLaunchConfiguration, settings: [String: Any]) async throws -> AllocatedStreamSession {
