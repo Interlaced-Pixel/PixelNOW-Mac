@@ -135,6 +135,7 @@ public enum RemoteCoOpQualityPreset: String, CaseIterable, Codable, Equatable, S
 }
 
 public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
+    public static let isFeatureAvailable = false
     public static let launchMetadataAlphaOptedInKey = "remoteCoOpAlphaOptedIn"
     public static let launchMetadataEnabledKey = "remoteCoOpEnabled"
     public static let launchMetadataReservedGuestSlotsKey = "remoteCoOpReservedGuestSlots"
@@ -163,7 +164,7 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
         self.hideGuestInviteDetails = hideGuestInviteDetails
     }
 
-    public var isAvailable: Bool { isAlphaOptedIn && isEnabled }
+    public var isAvailable: Bool { Self.isFeatureAvailable && isAlphaOptedIn && isEnabled }
 
     public var effectiveReservedGuestSlots: Int {
         isAvailable ? Self.clampedGuestSlots(reservedGuestSlots) : 0
@@ -174,7 +175,7 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
     }
 
     public var launchMetadata: [String: String] {
-        guard isAlphaOptedIn else {
+        guard Self.isFeatureAvailable, isAlphaOptedIn else {
             return [
                 Self.launchMetadataAlphaOptedInKey: String(false),
                 Self.launchMetadataEnabledKey: String(false),
@@ -193,8 +194,8 @@ public struct RemoteCoOpPreferences: Codable, Equatable, Sendable {
 
     public static func launchPreferences(from metadata: [String: String], fallback: RemoteCoOpPreferences) -> RemoteCoOpPreferences {
         RemoteCoOpPreferences(
-            isAlphaOptedIn: bool(metadata[launchMetadataAlphaOptedInKey], defaultValue: fallback.isAlphaOptedIn),
-            isEnabled: bool(metadata[launchMetadataEnabledKey], defaultValue: fallback.isEnabled),
+            isAlphaOptedIn: Self.isFeatureAvailable && bool(metadata[launchMetadataAlphaOptedInKey], defaultValue: fallback.isAlphaOptedIn),
+            isEnabled: Self.isFeatureAvailable && bool(metadata[launchMetadataEnabledKey], defaultValue: fallback.isEnabled),
             reservedGuestSlots: int(metadata[launchMetadataReservedGuestSlotsKey], defaultValue: fallback.reservedGuestSlots),
             qualityPreset: RemoteCoOpQualityPreset(rawValue: metadata[launchMetadataQualityPresetKey] ?? "") ?? fallback.qualityPreset,
             latencyMode: RemoteCoOpLatencyMode(rawValue: metadata[launchMetadataLatencyModeKey] ?? "") ?? fallback.latencyMode,

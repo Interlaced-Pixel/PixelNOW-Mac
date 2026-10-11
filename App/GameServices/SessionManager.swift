@@ -38,13 +38,13 @@ final class SessionManager: NSObject, @unchecked Sendable {
         let capabilities = StreamPreferences.loadDeviceCapabilities()
         let effectiveSettings = settingsByApplyingCloudVariables(settings, capabilities: capabilities)
         let hdrEnabled = bool(effectiveSettings["enableHdr"]) && capabilities.hdrDisplaySupported
-        let transportMode = streamTransportMode(effectiveSettings)
+        let transportMode = "nvst"
         let timezoneOffset = -TimeZone.current.secondsFromGMT() * 1000
         let selectedStore = string(effectiveSettings["selectedStore"]).isEmpty ? "unknown" : string(effectiveSettings["selectedStore"])
 
         Log.info(.launch, "Creating cloud session appId=\(launchAppId.stringValue) base=\(baseUrl) transport=\(transportMode) resolution=\(string(effectiveSettings["resolution"])) fps=\(int(effectiveSettings["fps"], fallback: 60)) codec=\(string(effectiveSettings["codec"])) color=\(string(effectiveSettings["colorQuality"])) bitrate=\(int(effectiveSettings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(effectiveSettings["enableL4S"]) ? "on" : "off") profile=\(int(effectiveSettings["streamingQualityProfile"])) networkTestSessionId=\(escapedLogString(string(effectiveSettings["networkTestSessionId"])))")
 
-        var metadata = [
+        let metadata = [
             ["key": "SubSessionId", "value": UUID().uuidString.lowercased()],
             ["key": "wssignaling", "value": "1"],
             ["key": "networkType", "value": networkTypeValue(effectiveSettings)],
@@ -54,9 +54,6 @@ final class SessionManager: NSObject, @unchecked Sendable {
             ["key": "surroundAudioInfo", "value": String(int(effectiveSettings["surroundAudioMetadata"], fallback: 2))],
             ["key": "store", "value": selectedStore],
         ]
-        if transportMode == "webrtc" {
-            metadata.append(["key": "GSStreamerType", "value": "WebRTC"])
-        }
 
         var sessionRequestData: [String: Any] = [
             "appId": launchAppId.intValue,
@@ -69,7 +66,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
             "clientVersion": GFNClientMetadata.webRTCClientVersion,
             "sdkVersion": "1.0",
             "streamerVersion": 1,
-            "clientPlatformName": sessionClientPlatformName(transportMode),
+            "clientPlatformName": "windows",
             "clientRequestMonitorSettings": [monitorSettings(effectiveSettings, capabilities: capabilities, hdrEnabled: hdrEnabled)],
             "useOps": bool(effectiveSettings["useOps"], fallback: true),
             "audioMode": int(effectiveSettings["audioMode"], fallback: 2),
@@ -352,12 +349,12 @@ final class SessionManager: NSObject, @unchecked Sendable {
         let deviceId = DeviceIdentity.stableCloudmatchDeviceId()
         let clientId = UUID().uuidString.lowercased()
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: currentStreamingBaseUrl(), serverIP: serverIp)
-        let headers = CloudMatchClientHeaders.streamSession(transportMode: streamTransportMode(settings))
+        let headers = CloudMatchClientHeaders.streamSession(transportMode: "nvst")
         guard let validationRequest = CloudMatchRequestFactory.pollSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: deviceId, timeoutInterval: 30, headers: headers) else {
             completion(false, [:], "Invalid validation URL")
             return
         }
-        Log.info(.launch, "Starting claim sessionId=\(sessionId) serverIp=\(serverIp) appId=\(launchAppId.stringValue) transport=\(streamTransportMode(settings)) resolution=\(string(settings["resolution"])) fps=\(int(settings["fps"], fallback: 60)) codec=\(string(settings["codec"])) color=\(string(settings["colorQuality"])) bitrate=\(int(settings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(settings["enableL4S"]) ? "on" : "off") recovery=\(recoveryMode)")
+        Log.info(.launch, "Starting claim sessionId=\(sessionId) serverIp=\(serverIp) appId=\(launchAppId.stringValue) transport=nvst resolution=\(string(settings["resolution"])) fps=\(int(settings["fps"], fallback: 60)) codec=\(string(settings["codec"])) color=\(string(settings["colorQuality"])) bitrate=\(int(settings["maxBitrateMbps"], fallback: 50))Mbps l4s=\(bool(settings["enableL4S"]) ? "on" : "off") recovery=\(recoveryMode)")
         nonisolated(unsafe) let completion = completion
         nonisolated(unsafe) let claimSettings = settings
         let validationNetworkStart = NetworkLog.start(validationRequest, operation: "cloudmatch.validateSessionClaim")
@@ -419,9 +416,9 @@ final class SessionManager: NSObject, @unchecked Sendable {
     private func sendClaimSession(sessionId: String, serverIp: String, appId: ResolvedLaunchAppId, settings: [String: Any], token: String, deviceId: String, clientId: String, completion: @escaping (Bool, [String: Any], String) -> Void) {
         let capabilities = StreamPreferences.loadDeviceCapabilities()
         let hdrEnabled = bool(settings["enableHdr"]) && capabilities.hdrDisplaySupported
-        let transportMode = streamTransportMode(settings)
+        let transportMode = "nvst"
         let selectedStore = string(settings["selectedStore"]).isEmpty ? "unknown" : string(settings["selectedStore"])
-        var metadata = [
+        let metadata = [
             ["key": "SubSessionId", "value": UUID().uuidString.lowercased()],
             ["key": "wssignaling", "value": "1"],
             ["key": "networkType", "value": networkTypeValue(settings)],
@@ -431,9 +428,6 @@ final class SessionManager: NSObject, @unchecked Sendable {
             ["key": "surroundAudioInfo", "value": String(int(settings["surroundAudioMetadata"], fallback: 2))],
             ["key": "store", "value": selectedStore],
         ]
-        if transportMode == "webrtc" {
-            metadata.append(["key": "GSStreamerType", "value": "WebRTC"])
-        }
         var sessionRequestData: [String: Any] = [
             "audioMode": int(settings["audioMode"], fallback: 2),
             "remoteControllersBitmap": int(settings["remoteControllersBitmap"]),
@@ -443,7 +437,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
             "clientVersion": GFNClientMetadata.webRTCClientVersion,
             "deviceHashId": deviceId,
             "internalTitle": NSNull(),
-            "clientPlatformName": sessionClientPlatformName(transportMode),
+            "clientPlatformName": "windows",
             "clientRequestMonitorSettings": [monitorSettings(settings, capabilities: capabilities, hdrEnabled: hdrEnabled)],
             "metaData": metadata,
             "surroundAudioInfo": int(settings["surroundAudioInfo"], fallback: 0),
@@ -916,11 +910,10 @@ private final class PollClaimSessionContext: @unchecked Sendable {
 }
 
 private func settingsByApplyingCloudVariables(_ settings: [String: Any], capabilities: StreamDeviceCapabilities) -> [String: Any] {
-    let resolved = WebRTCMediaStreamSettingsResolver.resolve(
-        profile: webRTCMediaProfile(from: settings),
-        capabilities: webRTCMediaCapabilities(from: capabilities),
-        cloudVariables: webRTCMediaCloudVariables(from: StreamPreferences.loadCachedCloudVariables()),
-        libWebRTCAvailable: true
+    let resolved = NativeMediaStreamSettingsResolver.resolve(
+        profile: nativeMediaProfile(from: settings),
+        capabilities: nativeMediaCapabilities(from: capabilities),
+        cloudVariables: nativeMediaCloudVariables(from: StreamPreferences.loadCachedCloudVariables())
     )
     var result = settings
     result.merge(resolved.dictionary(gameLanguage: string(settings["gameLanguage"]), accountLinked: bool(settings["accountLinked"], fallback: true), selectedStore: string(settings["selectedStore"]))) { _, new in new }
@@ -960,8 +953,9 @@ private func requestedResolution(_ settings: [String: Any]) -> (width: Int, heig
 private func requestedStreamingFeatures(_ settings: [String: Any], hdrEnabled: Bool) -> [String: Any] {
     let codec = string(settings["codec"]).uppercased()
     let codecSupports10Bit = codec == "H265" || codec == "HEVC" || codec == "AV1"
-    let bitDepth = (hdrEnabled && codecSupports10Bit) ? 1 : 0
-    let chromaFormat = 0
+    let quality = string(settings["colorQuality"]).lowercased()
+    let bitDepth = ((hdrEnabled || quality.hasPrefix("10bit")) && codecSupports10Bit) ? 1 : 0
+    let chromaFormat = codecSupports10Bit && quality.hasSuffix("444") ? 2 : 0
     return [
         "reflex": bool(settings["enableReflex"], fallback: true),
         "bitDepth": bitDepth,
@@ -971,26 +965,17 @@ private func requestedStreamingFeatures(_ settings: [String: Any], hdrEnabled: B
         "trueHdr": hdrEnabled,
         "supportedHidDevices": int(settings["supportedHidDevices"]),
         "profile": min(max(int(settings["streamingQualityProfile"]), 0), 4),
-        "fallbackToLogicalResolution": false,
+        "fallbackToLogicalResolution": bool(settings["fallbackToLogicalResolution"]),
         "hidDevices": NSNull(),
         "chromaFormat": chromaFormat,
         "prefilterMode": min(max(int(settings["prefilterMode"]), 0), 2),
         "prefilterSharpness": min(max(int(settings["prefilterSharpness"]), 0), 10),
         "prefilterNoiseReduction": min(max(int(settings["prefilterDenoise"]), 0), 10),
         "prefilterModel": max(int(settings["prefilterModel"]), 0),
-        "hudStreamingMode": 0,
-        "sdrColorSpace": 1,
-        "hdrColorSpace": 0,
+        "hudStreamingMode": int(settings["hudStreamingMode"]),
+        "sdrColorSpace": int(settings["sdrColorSpace"], fallback: 2),
+        "hdrColorSpace": int(settings["hdrColorSpace"]),
     ]
-}
-
-private func streamTransportMode(_ settings: [String: Any]) -> String {
-    let value = string(settings["transportMode"])
-    return value.caseInsensitiveCompare("nvst") == .orderedSame ? "nvst" : "webrtc"
-}
-
-private func sessionClientPlatformName(_ transportMode: String) -> String {
-    transportMode == "nvst" ? "windows" : "browser"
 }
 
 private func sessionTransportPolicy(_ settings: [String: Any]) -> [String: Any]? {

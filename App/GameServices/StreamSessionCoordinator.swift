@@ -478,11 +478,10 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
 
     private func settingsByApplyingCloudVariables(_ settings: [String: Any], variables: StreamCloudVariables) -> [String: Any] {
         let capabilities = StreamPreferences.loadDeviceCapabilities()
-        let resolved = WebRTCMediaStreamSettingsResolver.resolve(
-            profile: webRTCMediaProfile(from: settings),
-            capabilities: webRTCMediaCapabilities(from: capabilities),
-            cloudVariables: webRTCMediaCloudVariables(from: variables),
-            libWebRTCAvailable: true
+        let resolved = NativeMediaStreamSettingsResolver.resolve(
+            profile: nativeMediaProfile(from: settings),
+            capabilities: nativeMediaCapabilities(from: capabilities),
+            cloudVariables: nativeMediaCloudVariables(from: variables)
         )
         var result = settings
         result.merge(resolved.dictionary(gameLanguage: string(settings["gameLanguage"], fallback: GFNLocale.currentGFNLocale()), accountLinked: bool(settings["accountLinked"], fallback: true), selectedStore: string(settings["selectedStore"]))) { _, new in new }
@@ -688,11 +687,10 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
     private func makeSettings(configuration: PreparedLaunchConfiguration) -> [String: Any] {
         let capabilities = StreamPreferences.loadDeviceCapabilities()
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: capabilities)
-        let resolved = WebRTCMediaStreamSettingsResolver.resolve(
-            profile: webRTCMediaProfile(from: profile),
-            capabilities: webRTCMediaCapabilities(from: capabilities),
-            cloudVariables: webRTCMediaCloudVariables(from: StreamPreferences.loadCachedCloudVariables()),
-            libWebRTCAvailable: true
+        let resolved = NativeMediaStreamSettingsResolver.resolve(
+            profile: nativeMediaProfile(from: profile),
+            capabilities: nativeMediaCapabilities(from: capabilities),
+            cloudVariables: nativeMediaCloudVariables(from: StreamPreferences.loadCachedCloudVariables())
         )
         return resolved.dictionary(gameLanguage: GFNLocale.currentGFNLocale(), accountLinked: configuration.accountLinked, selectedStore: configuration.selectedStore)
     }

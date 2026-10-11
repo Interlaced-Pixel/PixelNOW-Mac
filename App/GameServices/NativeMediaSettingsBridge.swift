@@ -1,9 +1,9 @@
 import Foundation
 
-func webRTCMediaCapabilities(from capabilities: StreamDeviceCapabilities) -> WebRTCMediaDeviceCapabilities {
+func nativeMediaCapabilities(from capabilities: StreamDeviceCapabilities) -> NativeMediaDeviceCapabilities {
     let connectedGamepads = NativeNVSTGamepadMonitor.connectedGamepadCount()
     let reservedRemoteGamepads = RemoteCoOpPreferencesStore.reservedControllerSlotsForLaunch()
-    return WebRTCMediaDeviceCapabilities(
+    return NativeMediaDeviceCapabilities(
         h264HardwareDecodeSupported: capabilities.h264HardwareDecodeSupported,
         h265HardwareDecodeSupported: capabilities.h265HardwareDecodeSupported,
         av1HardwareDecodeSupported: capabilities.av1HardwareDecodeSupported,
@@ -16,8 +16,8 @@ func webRTCMediaCapabilities(from capabilities: StreamDeviceCapabilities) -> Web
     )
 }
 
-func webRTCMediaCloudVariables(from variables: StreamCloudVariables) -> WebRTCMediaCloudVariables {
-    WebRTCMediaCloudVariables(
+func nativeMediaCloudVariables(from variables: StreamCloudVariables) -> NativeMediaCloudVariables {
+    NativeMediaCloudVariables(
         fetched: variables.fetched,
         allowH265: variables.allowH265,
         allowAV1: variables.allowAV1,
@@ -30,9 +30,9 @@ func webRTCMediaCloudVariables(from variables: StreamCloudVariables) -> WebRTCMe
     )
 }
 
-func webRTCMediaProfile(from profile: StreamPreferenceProfile) -> WebRTCMediaStreamProfile {
-    WebRTCMediaStreamProfile(
-        resolution: WebRTCMediaResolution(width: profile.resolution.width, height: profile.resolution.height),
+func nativeMediaProfile(from profile: StreamPreferenceProfile) -> NativeMediaStreamProfile {
+    NativeMediaStreamProfile(
+        resolution: NativeMediaResolution(width: profile.resolution.width, height: profile.resolution.height),
         fps: profile.fps,
         codec: profile.codec.value,
         colorQuality: profile.colorQuality.value,
@@ -76,10 +76,10 @@ func webRTCMediaProfile(from profile: StreamPreferenceProfile) -> WebRTCMediaStr
     )
 }
 
-func webRTCMediaProfile(from settings: [String: Any]) -> WebRTCMediaStreamProfile {
+func nativeMediaProfile(from settings: [String: Any]) -> NativeMediaStreamProfile {
     let resolutionParts = bridgeString(settings["resolution"], fallback: "1920x1080").split(separator: "x").compactMap { Int($0) }
-    return WebRTCMediaStreamProfile(
-        resolution: WebRTCMediaResolution(width: resolutionParts.first ?? 1920, height: resolutionParts.count > 1 ? resolutionParts[1] : 1080),
+    return NativeMediaStreamProfile(
+        resolution: NativeMediaResolution(width: resolutionParts.first ?? 1920, height: resolutionParts.count > 1 ? resolutionParts[1] : 1080),
         fps: bridgeInt(settings["fps"], fallback: 60),
         codec: bridgeString(settings["codec"], fallback: "H264"),
         colorQuality: bridgeString(settings["colorQuality"], fallback: "8bit_420"),
@@ -90,7 +90,7 @@ func webRTCMediaProfile(from settings: [String: Any]) -> WebRTCMediaStreamProfil
         prefilterModel: bridgeInt(settings["prefilterModel"]),
         enableL4S: bridgeBool(settings["enableL4S"]),
         enableHdr: bridgeBool(settings["enableHdr"]),
-        transportMode: bridgeString(settings["transportMode"], fallback: "webrtc"),
+        transportMode: bridgeString(settings["transportMode"], fallback: "nvst"),
         streamingQualityProfile: bridgeInt(settings["streamingQualityProfile"]),
         enableCloudGsync: bridgeBool(settings["enableCloudGsync"]),
         fallbackToLogicalResolution: bridgeBool(settings["fallbackToLogicalResolution"]),

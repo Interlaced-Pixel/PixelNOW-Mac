@@ -10,13 +10,13 @@ public enum RemoteCoOpPreferencesStore {
     private static let hideGuestInviteDetailsKey = "PixelNOW.RemoteCoOp.HideGuestInviteDetails"
 
     public static var isAlphaOptedIn: Bool {
-        bool(storage.object(forKey: alphaOptInKey), defaultValue: false)
+        RemoteCoOpPreferences.isFeatureAvailable && bool(storage.object(forKey: alphaOptInKey), defaultValue: false)
     }
 
     public static func load() -> RemoteCoOpPreferences {
         RemoteCoOpPreferences(
             isAlphaOptedIn: isAlphaOptedIn,
-            isEnabled: bool(storage.object(forKey: enabledKey), defaultValue: false),
+            isEnabled: RemoteCoOpPreferences.isFeatureAvailable && bool(storage.object(forKey: enabledKey), defaultValue: false),
             reservedGuestSlots: int(storage.object(forKey: reservedGuestSlotsKey), defaultValue: 1),
             qualityPreset: RemoteCoOpQualityPreset(rawValue: string(storage.object(forKey: qualityPresetKey))) ?? .p720f60,
             latencyMode: RemoteCoOpLatencyMode(rawValue: string(storage.object(forKey: latencyModeKey))) ?? .lowLatency,

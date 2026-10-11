@@ -40,7 +40,7 @@ public enum StreamLaunchStep: Int, CaseIterable, Codable, Equatable, Hashable, S
     case checkNetworkRoute
     case allocateCloudSession
     case receiveStreamOffer
-    case negotiateWebRTC
+    case negotiateNVST
     case connected
 
     public var title: String {
@@ -51,8 +51,8 @@ public enum StreamLaunchStep: Int, CaseIterable, Codable, Equatable, Hashable, S
             "Allocate cloud session"
         case .receiveStreamOffer:
             "Receive stream offer"
-        case .negotiateWebRTC:
-            "Negotiate WebRTC"
+        case .negotiateNVST:
+            "Negotiate NVST"
         case .connected:
             "Connected"
         }

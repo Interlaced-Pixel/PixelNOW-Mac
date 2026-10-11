@@ -11,7 +11,7 @@ enum NativeNVSTStreamLaunchLoadingStage {
         case StreamLaunchStep.checkNetworkRoute.rawValue: return "Checking connection"
         case StreamLaunchStep.allocateCloudSession.rawValue: return "Finding a server"
         case StreamLaunchStep.receiveStreamOffer.rawValue: return "Preparing stream"
-        case StreamLaunchStep.negotiateWebRTC.rawValue: return "Connecting"
+        case StreamLaunchStep.negotiateNVST.rawValue: return "Connecting"
         case StreamLaunchStep.connected.rawValue: return "Ready"
         default: return "Starting"
         }

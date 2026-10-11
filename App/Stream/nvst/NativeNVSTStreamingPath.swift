@@ -128,56 +128,6 @@ public protocol NativeNVSTTransport: Sendable {
     func diagnosticMetadata() async -> [String: String]
 }
 
-public extension NativeNVSTTransport {
-    var isInputActivated: Bool { false }
-
-    func sendNow(_ event: UserInputEvent) {
-        Task { try? await send(event) }
-    }
-
-    func sendAbsoluteMouseMove(_ event: NativeNVSTAbsoluteMouseEvent) async throws {
-        throw NativeNVSTError.notRunning
-    }
-
-    func sendAbsoluteMouseMoveNow(_ event: NativeNVSTAbsoluteMouseEvent) {
-        Task { try? await sendAbsoluteMouseMove(event) }
-    }
-
-    func performanceSnapshot() async -> NativeNVSTPerformanceSnapshot? {
-        nil
-    }
-
-    func setMaximumBitrateKbps(_ bitrateKbps: UInt32) async throws { throw NativeNVSTError.notRunning }
-    func setDynamicStreamingMode(_ mode: NativeNVSTDynamicStreamingMode) async throws { throw NativeNVSTError.notRunning }
-    func setL4SEnabled(_ enabled: Bool) async throws { throw NativeNVSTError.notRunning }
-    func updateGamepadTopology(_ topology: NativeNVSTGamepadTopology) async throws { throw NativeNVSTError.notRunning }
-    func setMicrophoneConfiguration(_ configuration: NativeNVSTMicrophoneConfiguration) async throws {}
-    func microphoneStatus() async -> NativeNVSTMicrophoneStatus { .disabled }
-    func setLocalAudioPlaybackMuted(_ muted: Bool) async throws { throw NativeNVSTError.notRunning }
-    func setLocalAudioPlaybackVolume(_ volume: Double) async throws { throw NativeNVSTError.notRunning }
-
-    func startRecording(configuration: StreamRecordingConfiguration) async {}
-    func stopRecording() async {}
-    func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (StreamRecordingStatus) -> Void)?) async {}
-    func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer) {}
-
-    func pause() async throws {
-        throw NativeNVSTError.notRunning
-    }
-
-    func disconnectForApplicationTermination() async {
-        await disconnect()
-    }
-
-    func terminalEvents() async -> AsyncStream<NativeNVSTTransportTermination> {
-        AsyncStream { $0.finish() }
-    }
-
-    func resetForRecovery() async { await disconnect() }
-    func sendRecoveryMode(enabled: Bool) async {}
-    func diagnosticMetadata() async -> [String: String] { [:] }
-}
-
 public enum NativeNVSTError: LocalizedError, Equatable, Sendable {
     case alreadyRunning
     case notRunning
@@ -324,7 +274,7 @@ public actor NativeNVSTStreamingPath {
             try await stopSessionIfCancelled(allocation.session, isResume: allocation.isResume)
             try await publishProgress(configuration: configuration, step: .receiveStreamOffer, message: "Preparing native NVST transport...", progress: progress)
             try validate(allocation: allocation)
-            try await publishProgress(configuration: configuration, step: .negotiateWebRTC, message: "Connecting native NVST secure RTSP transport...", progress: progress)
+            try await publishProgress(configuration: configuration, step: .negotiateNVST, message: "Connecting native NVST secure RTSP transport...", progress: progress)
             _ = try await transport.connect(allocation: allocation, mediaReceiver: mediaSession)
             try await stopSessionIfCancelled(allocation.session, isResume: allocation.isResume)
         } catch {

@@ -97,7 +97,7 @@ enum CatalogSettingsGroup: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static func visibleCases() -> [CatalogSettingsGroup] {
-        return allCases
+        allCases.filter { RemoteCoOpPreferences.isFeatureAvailable || ($0 != .remoteCoOp && $0 != .labs) }
     }
 
     var title: String {
@@ -515,7 +515,7 @@ final class CatalogViewModel: ObservableObject {
 
     func showSettings(_ page: CatalogSettingsGroup = .account) {
         selectedMainPage = .settings
-        selectedSettingsGroup = page
+        selectedSettingsGroup = CatalogSettingsGroup.visibleCases().contains(page) ? page : .account
         loadSettingsPreferences()
         loadAccountAndStores()
     }
