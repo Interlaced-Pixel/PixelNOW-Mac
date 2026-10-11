@@ -280,9 +280,10 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
                 NativeNVSTMediaLog.write(
                     "nvst.session.resume-stale",
                     level: .info,
-                    message: "The advertised resumable session was already finished; allocating a fresh native NVST session.",
+                    message: "The advertised session cannot be resumed; ending it before allocating a fresh native NVST session.",
                     attributes: ["sessionId": configuration.resumeSessionID, "applicationID": configuration.applicationID]
                 )
+                try await endStaleResumeSession(configuration: configuration)
                 let created = try await createSession(configuration: configuration, settings: launch.settings)
                 do {
                     return try await waitForReadySession(created, configuration: configuration)
@@ -304,10 +305,31 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
         }
     }
 
+    private func endStaleResumeSession(configuration: PreparedLaunchConfiguration) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            SessionManager.shared.stopSession(
+                sessionId: configuration.resumeSessionID,
+                serverIp: configuration.resumeServer
+            ) { success, error in
+                if success {
+                    continuation.resume(returning: ())
+                } else {
+                    continuation.resume(throwing: StreamSessionError.sessionAllocationFailed(
+                        "Unable to end the stale GeForce NOW session before retrying: \(error.isEmpty ? "unknown error" : error)"
+                    ))
+                }
+            }
+        }
+    }
+
     private static func isStaleResume(_ error: StreamSessionError) -> Bool {
         guard case .sessionAllocationFailed(let message) = error else { return false }
         let normalized = message.lowercased()
-        return normalized.contains("no longer resumable") || normalized.contains("stale_active_session")
+        return normalized.contains("no longer resumable")
+            || normalized.contains("no longer reusable")
+            || normalized.contains("not resumable")
+            || normalized.contains("not reusable")
+            || normalized.contains("stale_active_session")
     }
 
     private func createSession(configuration: PreparedLaunchConfiguration, settings: [String: Any]) async throws -> AllocatedStreamSession {

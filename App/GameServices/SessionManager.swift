@@ -57,8 +57,10 @@ final class SessionManager: NSObject, @unchecked Sendable {
 
         var sessionRequestData: [String: Any] = [
             "appId": launchAppId.intValue,
+            "externalAppId": "",
             "internalTitle": internalTitle,
             "availableSupportedControllers": stringArray(effectiveSettings["availableSupportedControllers"]),
+            "preferredController": 0,
             "networkTestSessionId": networkTestSessionIdValue(effectiveSettings),
             "parentSessionId": NSNull(),
             "clientIdentification": "GFN-PC",
@@ -125,11 +127,6 @@ final class SessionManager: NSObject, @unchecked Sendable {
             guard http?.statusCode == 200 else {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 let errorMessage = "HTTP \(http?.statusCode ?? 0): \(body)"
-                if let staleMessage = CloudMatchResponseParser.staleActiveSessionClaimMessage(data) {
-                    self.clearPersistedActiveSessionId("")
-                    createCompletion(false, [:], staleMessage)
-                    return
-                }
                 if let limitedModeMessage = CloudMatchResponseParser.limitedModeStreamingMessage(data) {
                     createCompletion(false, [:], limitedModeMessage)
                     return
@@ -429,6 +426,8 @@ final class SessionManager: NSObject, @unchecked Sendable {
             ["key": "store", "value": selectedStore],
         ]
         var sessionRequestData: [String: Any] = [
+            "externalAppId": "",
+            "preferredController": 0,
             "audioMode": int(settings["audioMode"], fallback: 2),
             "remoteControllersBitmap": int(settings["remoteControllersBitmap"]),
             "sdrHdrMode": hdrEnabled ? 1 : 0,
