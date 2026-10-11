@@ -7,7 +7,6 @@ enum NativeNVSTStreamSidebarFeature: String, CaseIterable, Hashable, Sendable {
     case floatingStats
     case networkHealth
     case sessionLimit
-    case remoteCoOp
     case videoEnhancement
 }
 
@@ -22,17 +21,12 @@ struct NativeNVSTStreamSidebarCapabilities: Equatable, Sendable {
             .floatingStats,
             .networkHealth,
             .sessionLimit,
-            .remoteCoOp,
         ]
         if NVSTMetalFXUpscaler.isSupportedOnCurrentDevice {
             features.insert(.videoEnhancement)
         }
         return NativeNVSTStreamSidebarCapabilities(availableFeatures: features)
     }()
-
-    var visibleFeatures: [NativeNVSTStreamSidebarFeature] {
-        NativeNVSTStreamSidebarFeature.allCases
-    }
 
     func supports(_ feature: NativeNVSTStreamSidebarFeature) -> Bool {
         availableFeatures.contains(feature)

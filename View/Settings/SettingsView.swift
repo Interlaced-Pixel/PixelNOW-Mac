@@ -341,8 +341,6 @@ private struct SettingsContent: View {
             RecordingSettingsPage(viewModel: viewModel)
         case .network:
             NetworkSettingsPage(viewModel: viewModel)
-        case .remoteCoOp:
-            RemoteCoOpSettingsPage(viewModel: viewModel)
         case .theme:
             InterfaceSettingsPage(viewModel: viewModel, inputRouter: controllerInputRouter)
         case .system:
@@ -350,8 +348,6 @@ private struct SettingsContent: View {
                 SystemSettingsPage(viewModel: viewModel)
                 AboutSettingsPage(viewModel: viewModel)
             }
-        case .labs:
-            ExperimentalFeaturesSettingsPage(viewModel: viewModel)
         }
     }
 
@@ -364,10 +360,8 @@ private struct SettingsContent: View {
         case .keybindings: return "Shortcuts available while a stream is active."
         case .recording: return "Video and audio bitrate for session captures and highlights."
         case .network: return "Server region selection and linked game store connections."
-        case .remoteCoOp: return "Host a friend in local multiplayer via streaming."
         case .theme: return "Quality profile, Cloud G-Sync, and L4S congestion control."
         case .system: return "Hardware decode, diagnostics, logs, and app information."
-        case .labs: return "Preview upcoming features and early beta tools."
         }
     }
 }
@@ -1189,23 +1183,6 @@ private enum StoreIconAsset: CaseIterable {
     }
 }
 
-private struct ExperimentalFeaturesSettingsPage: View {
-    @ObservedObject var viewModel: CatalogViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsCard(title: "Alpha Access") {
-                SettingsToggleRow(
-                    title: "Remote Co-Op Alpha",
-                    subtitle: viewModel.remoteCoOpPreferences.isAlphaOptedIn ? "Controls and host options available in Gameplay settings." : "Unlock Remote Co-Op host controls and stream HUD invites.",
-                    isOn: viewModel.remoteCoOpPreferences.isAlphaOptedIn,
-                    action: viewModel.setRemoteCoOpAlphaOptedIn
-                )
-            }
-        }
-    }
-}
-
 private struct GameplaySettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
 
@@ -1285,20 +1262,6 @@ private struct GameplaySettingsPage: View {
                 SettingsToggleRow(title: "Record Enhanced Video", subtitle: "Capture post-upscaled video when MetalFX is active.", isOn: viewModel.streamProfile.recordingEnhancedVideoEnabled, action: viewModel.setRecordingEnhancedVideoEnabled)
             }
 
-            if viewModel.remoteCoOpPreferences.isAlphaOptedIn {
-                SettingsCard(title: "Remote Co-Op") {
-                    SettingsToggleRow(title: "Enable Remote Co-Op", subtitle: "Generate invite links in the stream HUD for guests.", isOn: viewModel.remoteCoOpPreferences.isEnabled, action: viewModel.setRemoteCoOpEnabled)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Reserved Controllers", subtitle: "Pre-allocate gamepad slots for guest players.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Guest Quality", subtitle: "Max outbound streaming bitrate sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedRemoteCoOpQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedRemoteCoOpLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
-                    SettingsDivider()
-                    SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Omit game title and app ID from invite links.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
-                }
-            }
-
             SettingsCard(title: "Profile Maintenance") {
                 HStack(alignment: .center, spacing: 16) {
                     Rectangle()
@@ -1329,14 +1292,6 @@ private struct GameplaySettingsPage: View {
 
     private var selectedMicrophoneDeviceIndex: Int {
         viewModel.microphoneDeviceOptions.firstIndex { $0.uniqueId == viewModel.streamProfile.microphoneDeviceId } ?? 0
-    }
-
-    private var selectedRemoteCoOpQualityPresetIndex: Int {
-        RemoteCoOpQualityPreset.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.qualityPreset) ?? 0
-    }
-
-    private var selectedRemoteCoOpLatencyModeIndex: Int {
-        RemoteCoOpLatencyMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.latencyMode) ?? 0
     }
 
     private var lockedProfileSubtitle: String {
@@ -1697,7 +1652,7 @@ private struct AboutSettingsPage: View {
                             .foregroundStyle(.white.opacity(0.66))
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 8) {
-                            AboutStatusPill(title: "Stream", value: "WebRTC")
+                            AboutStatusPill(title: "Stream", value: "Native NVST")
                             AboutStatusPill(title: "Route", value: route.summary)
                         }
                     }
@@ -1792,7 +1747,7 @@ private struct AboutSettingsPage: View {
             "Account: \(account.displayName)",
             "Membership: \(account.membershipTier)",
             "User ID: \(SettingsFormat.maskedIdentifier(account.userId))",
-            "Streaming: WebRTC",
+            "Streaming: Native NVST",
             "Cloudmatch: \(route.summary)"
         ].joined(separator: "\n")
     }
@@ -2571,43 +2526,6 @@ private struct NetworkSettingsPage: View {
                         AWDLPreferences.setEnabled(enabled)
                     }
                 )
-            }
-        }
-    }
-}
-
-private struct RemoteCoOpSettingsPage: View {
-    @ObservedObject var viewModel: CatalogViewModel
-
-    private var selectedQualityPresetIndex: Int {
-        RemoteCoOpQualityPreset.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.qualityPreset) ?? 0
-    }
-
-    private var selectedLatencyModeIndex: Int {
-        RemoteCoOpLatencyMode.allCases.firstIndex(of: viewModel.remoteCoOpPreferences.latencyMode) ?? 0
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if viewModel.remoteCoOpPreferences.isAlphaOptedIn {
-                SettingsCard(title: "Remote Co-Op") {
-                    SettingsToggleRow(title: "Enable Remote Co-Op", subtitle: "Generate invite links in the stream HUD for guests.", isOn: viewModel.remoteCoOpPreferences.isEnabled, action: viewModel.setRemoteCoOpEnabled)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Reserved Controllers", subtitle: "Pre-allocate gamepad slots for guest players.", options: ["None", "1 Guest", "2 Guests", "3 Guests"], selectedIndex: viewModel.remoteCoOpPreferences.reservedGuestSlots, action: viewModel.setRemoteCoOpReservedGuestSlots)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Guest Quality", subtitle: "Max outbound streaming bitrate sent to guests.", options: RemoteCoOpQualityPreset.allCases.map(\.label), selectedIndex: selectedQualityPresetIndex, action: viewModel.setRemoteCoOpQualityPresetIndex)
-                    SettingsDivider()
-                    SettingsOptionRow(title: "Latency Mode", subtitle: viewModel.remoteCoOpPreferences.latencyMode.description, options: RemoteCoOpLatencyMode.allCases.map(\.label), selectedIndex: selectedLatencyModeIndex, action: viewModel.setRemoteCoOpLatencyModeIndex)
-                    SettingsDivider()
-                    SettingsToggleRow(title: "Hide Guest Invite Details", subtitle: "Omit game title and app ID from invite links.", isOn: viewModel.remoteCoOpPreferences.hideGuestInviteDetails, action: viewModel.setRemoteCoOpHideGuestInviteDetails)
-                }
-            } else {
-                SettingsCard(title: "Remote Co-Op") {
-                    AccountEmptyState(
-                        title: "Alpha access required.",
-                        subtitle: "Enable Remote Co-Op Alpha in Labs to unlock host controls and stream HUD invites."
-                    )
-                }
             }
         }
     }

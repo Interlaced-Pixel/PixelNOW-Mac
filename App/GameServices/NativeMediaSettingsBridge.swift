@@ -2,7 +2,6 @@ import Foundation
 
 func nativeMediaCapabilities(from capabilities: StreamDeviceCapabilities) -> NativeMediaDeviceCapabilities {
     let connectedGamepads = NativeNVSTGamepadMonitor.connectedGamepadCount()
-    let reservedRemoteGamepads = RemoteCoOpPreferencesStore.reservedControllerSlotsForLaunch()
     return NativeMediaDeviceCapabilities(
         h264HardwareDecodeSupported: capabilities.h264HardwareDecodeSupported,
         h265HardwareDecodeSupported: capabilities.h265HardwareDecodeSupported,
@@ -12,7 +11,7 @@ func nativeMediaCapabilities(from capabilities: StreamDeviceCapabilities) -> Nat
         maxDisplayHeight: capabilities.maxDisplayHeight,
         maxDisplayRefreshRate: capabilities.maxDisplayRefreshRate,
         displayDpi: capabilities.displayDpi,
-        connectedGamepadCount: min(4, connectedGamepads + reservedRemoteGamepads)
+        connectedGamepadCount: min(4, connectedGamepads)
     )
 }
 

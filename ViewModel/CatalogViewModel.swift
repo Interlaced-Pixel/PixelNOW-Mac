@@ -32,7 +32,6 @@ private struct CatalogSettingsPreferencesSnapshot: Sendable {
     let profile: StreamPreferenceProfile
     let nativeNVSTRuntimeAvailable: Bool
     let nativeNVSTRuntimeMessage: String
-    let remoteCoOpPreferences: RemoteCoOpPreferences
     let selectedRegionUrl: String
     let regionOptions: [StreamRegionOption]
     let microphoneDeviceOptions: [StreamMicrophoneDeviceOption]
@@ -89,15 +88,13 @@ enum CatalogSettingsGroup: String, CaseIterable, Identifiable {
     case keybindings
     case recording
     case network
-    case remoteCoOp
     case theme
     case system
-    case labs
 
     var id: String { rawValue }
 
     static func visibleCases() -> [CatalogSettingsGroup] {
-        allCases.filter { RemoteCoOpPreferences.isFeatureAvailable || ($0 != .remoteCoOp && $0 != .labs) }
+        allCases
     }
 
     var title: String {
@@ -109,10 +106,8 @@ enum CatalogSettingsGroup: String, CaseIterable, Identifiable {
         case .keybindings: return "Keybindings"
         case .recording: return "Recording"
         case .network: return "Network"
-        case .remoteCoOp: return "Remote Co-Op"
         case .theme: return "Theme"
         case .system: return "System"
-        case .labs: return "Labs"
         }
     }
 
@@ -125,10 +120,8 @@ enum CatalogSettingsGroup: String, CaseIterable, Identifiable {
         case .keybindings: return "keyboard"
         case .recording: return "record.circle"
         case .network: return "network"
-        case .remoteCoOp: return "person.2.fill"
         case .theme: return "paintbrush"
         case .system: return "macwindow"
-        case .labs: return "flask"
         }
     }
 }
@@ -192,7 +185,6 @@ final class CatalogViewModel: ObservableObject {
     @Published var launchFlowError = ""
     @Published var activeLaunchSession: ActiveStreamSessionDescriptor?
     @Published var streamProfile = StreamPreferenceProfile()
-    @Published var remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
     @Published var streamCapabilities = StreamPreferences.loadDeviceCapabilities()
     @Published var nativeNVSTRuntimeAvailable = false
     @Published var nativeNVSTRuntimeMessage = "Checking native NVST runtime availability."
@@ -1110,7 +1102,6 @@ final class CatalogViewModel: ObservableObject {
     private static func mediaConfiguration(from configuration: PreparedLaunchConfiguration, titleOverride: String = "", membershipTier: String = "") -> PreparedLaunchConfiguration {
         let overrideTitle = titleOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         var metadata = configuration.metadata
-        metadata.merge(RemoteCoOpPreferencesStore.load().launchMetadata) { _, launchValue in launchValue }
         let tier = membershipTier.trimmingCharacters(in: .whitespacesAndNewlines)
         if !tier.isEmpty { metadata["membershipTier"] = tier }
         return PreparedLaunchConfiguration(
@@ -1909,50 +1900,6 @@ final class CatalogViewModel: ObservableObject {
         loadSettingsPreferences()
     }
 
-    func setRemoteCoOpEnabled(_ enabled: Bool) {
-        RemoteCoOpPreferencesStore.setEnabled(enabled)
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        actionMessage = enabled ? "Remote Co-Op enabled. Reserved guest slots apply to newly launched streams." : "Remote Co-Op disabled."
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpAlphaOptedIn(_ optedIn: Bool) {
-        RemoteCoOpPreferencesStore.setAlphaOptedIn(optedIn)
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        actionMessage = optedIn ? "Remote Co-Op alpha access enabled. Configure Remote Co-Op from Gameplay settings." : "Remote Co-Op alpha access disabled. Remote Co-Op settings are hidden."
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpReservedGuestSlots(_ index: Int) {
-        RemoteCoOpPreferencesStore.setReservedGuestSlots(index)
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        actionMessage = index > 0 ? "Remote Co-Op will reserve \(index) guest controller slot(s) on newly launched streams." : "Remote Co-Op guest controller slots disabled."
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpQualityPresetIndex(_ index: Int) {
-        let presets = RemoteCoOpQualityPreset.allCases
-        guard presets.indices.contains(index) else { return }
-        RemoteCoOpPreferencesStore.setQualityPreset(presets[index])
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpLatencyModeIndex(_ index: Int) {
-        let modes = RemoteCoOpLatencyMode.allCases
-        guard modes.indices.contains(index) else { return }
-        RemoteCoOpPreferencesStore.setLatencyMode(modes[index])
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        loadSettingsPreferences()
-    }
-
-    func setRemoteCoOpHideGuestInviteDetails(_ hidden: Bool) {
-        RemoteCoOpPreferencesStore.setHideGuestInviteDetails(hidden)
-        remoteCoOpPreferences = RemoteCoOpPreferencesStore.load()
-        actionMessage = hidden ? "Remote Co-Op guest invites will hide game details." : "Remote Co-Op guest invites will show game details."
-        loadSettingsPreferences()
-    }
-
     func setPreventDisplaySleepWhileStreaming(_ enabled: Bool) {
         StreamPreferences.savePreventDisplaySleepWhileStreaming(enabled)
         actionMessage = enabled ? "Display sleep prevention enabled for active streams." : "Display sleep prevention disabled for active streams."
@@ -2287,7 +2234,6 @@ final class CatalogViewModel: ObservableObject {
                 profile: profile,
                 nativeNVSTRuntimeAvailable: nativeNVSTRuntimeAvailable,
                 nativeNVSTRuntimeMessage: nativeNVSTRuntimeMessage,
-                remoteCoOpPreferences: RemoteCoOpPreferencesStore.load(),
                 selectedRegionUrl: StreamPreferences.loadSelectedRegionUrl(userId: userId),
                 regionOptions: Self.launchRegionOptions(from: StreamPreferences.loadCachedRegions(userId: userId)),
                 microphoneDeviceOptions: StreamPreferences.loadMicrophoneDeviceOptions()
@@ -2298,7 +2244,6 @@ final class CatalogViewModel: ObservableObject {
                 self.streamProfile = snapshot.profile
                 self.nativeNVSTRuntimeAvailable = snapshot.nativeNVSTRuntimeAvailable
                 self.nativeNVSTRuntimeMessage = snapshot.nativeNVSTRuntimeMessage
-                self.remoteCoOpPreferences = snapshot.remoteCoOpPreferences
                 self.selectedSettingsRegionUrl = snapshot.selectedRegionUrl
                 self.settingsRegionOptions = snapshot.regionOptions
                 self.unavailableSettingsRegionUrl = snapshot.selectedRegionUrl.isEmpty || snapshot.regionOptions.contains(where: { $0.url == snapshot.selectedRegionUrl }) ? "" : snapshot.selectedRegionUrl
