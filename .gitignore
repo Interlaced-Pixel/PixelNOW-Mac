@@ -31,6 +31,12 @@ DerivedData/
 *.xccheckout
 *.xcscmblueprint
 *.xcodeproj/project.xcworkspace
+!PixelNOW.xcodeproj/project.xcworkspace/
+PixelNOW.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+PixelNOW.xcodeproj/project.xcworkspace/xcuserdata/
+!PixelNOW.xcodeproj/project.xcworkspace/xcshareddata/
+!PixelNOW.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+!PixelNOW.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 *.xcodeproj/xcuserdata/
 
 # Prerequisites

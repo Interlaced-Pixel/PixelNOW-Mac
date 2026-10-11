@@ -30,6 +30,7 @@
 		D00000000000000000000003 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000009 /* main.m */; };
 		D00000000000000000000004 /* PixelNOWAWDLHelper in Copy AWDL Helper */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000A /* PixelNOWAWDLHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		D00000000000000000000005 /* com.interlacedpixel.pixelnow.AWDLHelper.plist in Copy AWDL Helper Plist */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000B /* com.interlacedpixel.pixelnow.AWDLHelper.plist */; };
+		E00000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -151,6 +152,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E00000000000000000000001 /* Sparkle in Frameworks */,
 				7729CE912FE1000000D5C9D5 /* AppIntents.framework in Frameworks */,
 				C00000000000000000000001 /* NVSTNative.framework in Frameworks */,
 			);
@@ -241,6 +243,7 @@
 			);
 			name = PixelNOW;
 			packageProductDependencies = (
+				E00000000000000000000002 /* Sparkle */,
 			);
 			productName = PixelNOW;
 			productReference = 7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */;
@@ -287,6 +290,7 @@
 			mainGroup = 7729CE6D2FDEDAB300D5C9D5;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7729CE772FDEDAB300D5C9D5 /* Products */;
@@ -387,6 +391,25 @@
 			targetProxy = D00000000000000000000006 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E00000000000000000000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		7729CE812FDEDAB500D5C9D5 /* Debug */ = {
