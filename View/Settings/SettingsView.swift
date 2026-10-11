@@ -1618,7 +1618,7 @@ private struct SystemCapabilityRow: View {
 private struct AboutSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
     @State private var copiedKey = ""
-    @AppStorage(UpdatePreferences.automaticUpdateChecksEnabledKey) private var automaticUpdateChecksEnabled = UpdatePreferences.defaultAutomaticUpdateChecksEnabled
+    @State private var automaticUpdateChecksEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1670,6 +1670,7 @@ private struct AboutSettingsPage: View {
                 AboutDetailRow(label: "macOS", value: operatingSystemVersion, copyValue: operatingSystemVersion, copiedKey: $copiedKey)
                 SettingsDivider()
                 SettingsToggleRow(title: "Automatic Update Checks", subtitle: automaticUpdateChecksSubtitle, isOn: automaticUpdateChecksEnabled) { enabled in
+                    automaticUpdateChecksEnabled = enabled
                     AppDelegate.setAutomaticApplicationUpdateChecksEnabled(enabled)
                 }
                 SettingsDivider()
@@ -1677,7 +1678,7 @@ private struct AboutSettingsPage: View {
                     SettingsActionButton(title: "CHECK FOR UPDATES") {
                         AppDelegate.requestApplicationUpdateCheck()
                     }
-                    Text("Check GitHub releases for newer signed builds.")
+                        Text("Check for newer signed PixelNOW builds.")
                         .font(.settingsText(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.54))
                 }
@@ -1709,6 +1710,7 @@ private struct AboutSettingsPage: View {
         }
         .onAppear {
             viewModel.refreshCatalogImageCacheSummary()
+            automaticUpdateChecksEnabled = AppDelegate.automaticApplicationUpdateChecksEnabled
         }
     }
 
@@ -1729,11 +1731,11 @@ private struct AboutSettingsPage: View {
     }
 
     private var automaticUpdateChecksSubtitle: String {
-        if UpdatePreferences.updateChecksAreSuspendedForDebugging {
+        if UpdatePreferences.automaticUpdateChecksAreSuspendedForDebugging {
             return "Paused during debugging. Manual checks remain available."
         }
         if automaticUpdateChecksEnabled {
-            return "Automatically check for new releases on launch and hourly."
+            return "Automatically check for new releases on Sparkle's schedule."
         }
         return "Manual checks only. Releases will not be checked automatically."
     }

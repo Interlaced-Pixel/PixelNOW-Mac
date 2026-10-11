@@ -1,71 +1,17 @@
 import AppKit
-import Darwin
+import Sparkle
 import SwiftUI
 import SwiftData
 
 enum UpdatePreferences {
-    static let automaticUpdateChecksEnabledKey = "PixelNOWAutomaticUpdateChecksEnabled"
-    static let defaultAutomaticUpdateChecksEnabled = true
+    static let legacyAutomaticUpdateChecksEnabledKey = "PixelNOWAutomaticUpdateChecksEnabled"
 
-    private static let remindAfterKey = "PixelNOWUpdateRemindAfter"
-
-    static var automaticUpdateChecksEnabled: Bool {
-        get {
-            guard UserDefaults.standard.object(forKey: automaticUpdateChecksEnabledKey) != nil else {
-                return defaultAutomaticUpdateChecksEnabled
-            }
-            return UserDefaults.standard.bool(forKey: automaticUpdateChecksEnabledKey)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: automaticUpdateChecksEnabledKey)
-        }
-    }
-
-    static var updateChecksAreSuspendedForDebugging: Bool {
+    static var automaticUpdateChecksAreSuspendedForDebugging: Bool {
         #if DEBUG
         return true
         #else
-        return isDebuggerAttached
-        #endif
-    }
-
-    static var automaticUpdateChecksCanBeScheduled: Bool {
-        automaticUpdateChecksEnabled && !updateChecksAreSuspendedForDebugging
-    }
-
-    static func shouldRunAutomaticUpdateCheck(now: Date = Date()) -> Bool {
-        guard automaticUpdateChecksCanBeScheduled else { return false }
-        guard let remindAfterDate else { return true }
-        if remindAfterDate <= now {
-            clearReminder()
-            return true
-        }
         return false
-    }
-
-    static func remindTomorrow(from date: Date = Date()) {
-        let reminderDate = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? date.addingTimeInterval(24 * 60 * 60)
-        UserDefaults.standard.set(reminderDate.timeIntervalSince1970, forKey: remindAfterKey)
-    }
-
-    private static var remindAfterDate: Date? {
-        guard UserDefaults.standard.object(forKey: remindAfterKey) != nil else { return nil }
-        let timestamp = UserDefaults.standard.double(forKey: remindAfterKey)
-        guard timestamp > 0 else { return nil }
-        return Date(timeIntervalSince1970: timestamp)
-    }
-
-    private static func clearReminder() {
-        UserDefaults.standard.removeObject(forKey: remindAfterKey)
-    }
-
-    private static var isDebuggerAttached: Bool {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        let result = sysctl(&mib, u_int(mib.count), &info, &size, nil, 0)
-        guard result == 0 else { return false }
-        return (info.kp_proc.p_flag & P_TRACED) != 0
+        #endif
     }
 }
 
@@ -159,11 +105,11 @@ struct PixelNOWApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let awdlController = AWDLController()
-    private let githubUpdater = GitHubUpdater(owner: "Interlaced-Pixel", repository: "PixelNOW-Mac")
-    private var applicationUpdateCheckTimer: Timer?
-    private var updateCheckTask: Task<Void, Never>?
-    private var updateInstallTask: Task<Void, Never>?
-    private var updateProgressController: UpdateProgressController?
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: false,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
     private var streamShortcutMonitor: Any?
     private var isCompletingUserApprovedTermination = false
 
@@ -196,7 +142,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.saveFrame(usingName: "PixelNOWMainWindow")
         }
         removeStreamShortcutMonitor()
-        stopApplicationUpdateChecks()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -301,158 +246,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     static func requestApplicationUpdateCheck() {
-        (NSApp.delegate as? AppDelegate)?.checkForApplicationUpdates()
+        (NSApp.delegate as? AppDelegate)?.updaterController.checkForUpdates(nil)
     }
 
     static func setAutomaticApplicationUpdateChecksEnabled(_ enabled: Bool) {
-        UpdatePreferences.automaticUpdateChecksEnabled = enabled
-        (NSApp.delegate as? AppDelegate)?.refreshApplicationUpdateCheckSchedule()
+        (NSApp.delegate as? AppDelegate)?.updaterController.updater.automaticallyChecksForUpdates = enabled
+    }
+
+    static var automaticApplicationUpdateChecksEnabled: Bool {
+        (NSApp.delegate as? AppDelegate)?.updaterController.updater.automaticallyChecksForUpdates ?? false
     }
 
     private func startApplicationUpdateChecks() {
-        guard UpdatePreferences.automaticUpdateChecksCanBeScheduled else { return }
-        guard applicationUpdateCheckTimer == nil else { return }
-        checkForApplicationUpdates(showingCurrentStatus: false, automatic: true)
-        applicationUpdateCheckTimer = Timer.scheduledTimer(timeInterval: 60 * 60, target: self, selector: #selector(applicationUpdateCheckTimerFired(_:)), userInfo: nil, repeats: true)
+        migrateLegacyUpdatePreferenceIfNeeded()
+#if DEBUG
+        updaterController.updater.automaticallyChecksForUpdates = false
+#endif
+        updaterController.startUpdater()
     }
 
-    @objc private func applicationUpdateCheckTimerFired(_ timer: Timer) {
-        checkForApplicationUpdates(showingCurrentStatus: false, automatic: true)
-    }
-
-    private func stopApplicationUpdateChecks() {
-        stopAutomaticApplicationUpdateChecks(cancelActiveCheck: true)
-        updateInstallTask?.cancel()
-        updateInstallTask = nil
-        updateProgressController?.dismiss()
-        updateProgressController = nil
-    }
-
-    private func stopAutomaticApplicationUpdateChecks(cancelActiveCheck: Bool) {
-        applicationUpdateCheckTimer?.invalidate()
-        applicationUpdateCheckTimer = nil
-        if cancelActiveCheck {
-            updateCheckTask?.cancel()
-            updateCheckTask = nil
-        }
-    }
-
-    private func refreshApplicationUpdateCheckSchedule() {
-        guard UpdatePreferences.automaticUpdateChecksCanBeScheduled else {
-            stopAutomaticApplicationUpdateChecks(cancelActiveCheck: true)
-            return
-        }
-        startApplicationUpdateChecks()
-    }
-
-    private func checkForApplicationUpdates() {
-        checkForApplicationUpdates(showingCurrentStatus: true, automatic: false)
-    }
-
-    private func checkForApplicationUpdates(showingCurrentStatus: Bool, automatic: Bool) {
-        if automatic, !UpdatePreferences.shouldRunAutomaticUpdateCheck() { return }
-        guard updateCheckTask == nil, updateInstallTask == nil else { return }
-        updateCheckTask = Task { @MainActor in
-            defer { updateCheckTask = nil }
-            do {
-                let release = try await githubUpdater.checkForUpdate()
-                guard let release else {
-                    if showingCurrentStatus {
-                        let currentVersion = githubUpdater.currentVersion
-                        let alert = NSAlert()
-                        alert.messageText = "PixelNOW is up to date"
-                        alert.informativeText = "Version \(currentVersion) is the latest release available on GitHub."
-                        alert.addButton(withTitle: "OK")
-                        presentAlert(alert)
-                    }
-                    return
-                }
-                presentUpdateAlert(for: release)
-            } catch is CancellationError {
-            } catch {
-                guard showingCurrentStatus else { return }
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "Update check failed"
-                alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "OK")
-                presentAlert(alert)
-            }
-        }
-    }
-
-    private func presentUpdateAlert(for release: GitHubRelease) {
-        updateInstallTask?.cancel()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let currentVersion = githubUpdater.currentVersion
-            var notes = release.releaseNotes.isEmpty ? "No release notes were provided." : release.releaseNotes
-            if notes.count > 1400 {
-                notes = String(notes.prefix(1400)) + "\n..."
-            }
-
-            let alert = NSAlert()
-            alert.messageText = "PixelNOW \(release.version) is available"
-            alert.informativeText = "Current version: \(currentVersion)\n\nA newer signed PixelNOW build is available.\n\n\(notes)"
-            alert.addButton(withTitle: "Install and Relaunch")
-            alert.addButton(withTitle: "Remind Me Tomorrow")
-            alert.addButton(withTitle: "Cancel")
-            presentAlert(alert) { [weak self] response in
-                switch response {
-                case .alertFirstButtonReturn:
-                    self?.installUpdate(release)
-                case .alertSecondButtonReturn:
-                    UpdatePreferences.remindTomorrow()
-                default:
-                    break
-                }
-            }
-        }
-    }
-
-    private func installUpdate(_ release: GitHubRelease) {
-        guard updateInstallTask == nil else { return }
-
-        let controller = UpdateProgressController()
-        updateProgressController = controller
-
-        controller.show(release: release) { [weak self] in
-            self?.updateInstallTask?.cancel()
-            self?.updateInstallTask = nil
-            self?.updateProgressController = nil
-        }
-
-        updateInstallTask = Task { @MainActor [weak self, weak controller] in
-            guard let self, let controller else { return }
-            defer { updateInstallTask = nil }
-            do {
-                let launchedInstaller = try await githubUpdater.installRelease(release) { state in
-                    Task { @MainActor in
-                        controller.updateProgress(state)
-                    }
-                }
-                guard launchedInstaller else {
-                    controller.showError("PixelNOW could not launch the update installer.")
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                NSApp.terminate(self)
-            } catch is CancellationError {
-                controller.dismiss()
-                self.updateProgressController = nil
-            } catch {
-                controller.showError(error.localizedDescription.isEmpty ? "PixelNOW could not install the downloaded update." : error.localizedDescription)
-            }
-        }
-    }
-
-    private func showUpdateInstallFailed(message: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Update install failed"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        presentAlert(alert)
+    private func migrateLegacyUpdatePreferenceIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: UpdatePreferences.legacyAutomaticUpdateChecksEnabledKey) != nil else { return }
+        updaterController.updater.automaticallyChecksForUpdates = defaults.bool(forKey: UpdatePreferences.legacyAutomaticUpdateChecksEnabledKey)
+        defaults.removeObject(forKey: UpdatePreferences.legacyAutomaticUpdateChecksEnabledKey)
     }
 
     private func presentAlert(_ alert: NSAlert, completion: ((NSApplication.ModalResponse) -> Void)? = nil) {
