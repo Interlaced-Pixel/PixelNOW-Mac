@@ -6,13 +6,39 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXAggregateTarget section */
+		C00000000000000000000006 /* NVSTNativeBuild */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = C00000000000000000000008 /* Build configuration list for PBXAggregateTarget "NVSTNativeBuild" */;
+			buildPhases = (
+				C00000000000000000000007 /* Build native NVST dependencies */,
+			);
+			dependencies = (
+			);
+			name = NVSTNativeBuild;
+			productName = NVSTNativeBuild;
+		};
+/* End PBXAggregateTarget section */
+
 /* Begin PBXBuildFile section */
 		7729CE862FDEDAB500D5C9D5 /* WebRTC.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */; };
 		7729CE882FDEDAB500D5C9D5 /* WebRTC.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		7729CE912FE1000000D5C9D5 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7729CE922FE1000000D5C9D5 /* AppIntents.framework */; };
 		A00000000000000000000001 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* Resources */; };
 		A00000000000000000000003 /* PixelNOWApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* PixelNOWApp.swift */; };
+		C00000000000000000000001 /* NVSTNative.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C00000000000000000000003 /* NVSTNative.framework */; };
+		C00000000000000000000002 /* NVSTNative.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C00000000000000000000003 /* NVSTNative.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C00000000000000000000004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7729CE6E2FDEDAB300D5C9D5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C00000000000000000000006;
+			remoteInfo = NVSTNativeBuild;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		7729CE892FDEDAB500D5C9D5 /* Embed Frameworks */ = {
@@ -22,6 +48,7 @@
 			dstSubfolderSpec = 10;
 			files = (
 				7729CE882FDEDAB500D5C9D5 /* WebRTC.framework in Embed Frameworks */,
+				C00000000000000000000002 /* NVSTNative.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -29,12 +56,30 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PixelNOW.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = WebRTC.framework; sourceTree = "<group>"; };
+		7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PixelNOW.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7729CE922FE1000000D5C9D5 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		A00000000000000000000002 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = "<group>"; };
 		A00000000000000000000004 /* PixelNOWApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelNOWApp.swift; sourceTree = "<group>"; };
+		C00000000000000000000003 /* NVSTNative.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = NVSTNative.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0000000000000000000000B /* Exceptions for "GFN" folder in "PixelNOW" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Native/AudioProcessing.cmake,
+				Native/CMakeLists.txt,
+				Native/Dependencies.json,
+				Native/src/NvstAudioProcessor.cpp,
+				Native/src/NvstDtlsTransport.cpp,
+				Native/src/NvstOpusEncoder.cpp,
+				Native/src/NvstSctpTransport.cpp,
+				"Native/ThirdParty/nvst-dependencies.tar.gz",
+			);
+			target = 7729CE752FDEDAB300D5C9D5 /* PixelNOW */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7729CE782FDEDAB300D5C9D5 /* App */ = {
@@ -54,6 +99,9 @@
 		};
 		B00000000000000000000104 /* GFN */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0000000000000000000000B /* Exceptions for "GFN" folder in "PixelNOW" target */,
+			);
 			path = GFN;
 			sourceTree = "<group>";
 		};
@@ -71,6 +119,7 @@
 			files = (
 				7729CE912FE1000000D5C9D5 /* AppIntents.framework in Frameworks */,
 				7729CE862FDEDAB500D5C9D5 /* WebRTC.framework in Frameworks */,
+				C00000000000000000000001 /* NVSTNative.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +138,7 @@
 				A00000000000000000000004 /* PixelNOWApp.swift */,
 				7729CE922FE1000000D5C9D5 /* AppIntents.framework */,
 				7729CE872FDEDAB500D5C9D5 /* WebRTC.framework */,
+				C00000000000000000000003 /* NVSTNative.framework */,
 				7729CE772FDEDAB300D5C9D5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -117,6 +167,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				C00000000000000000000005 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7729CE782FDEDAB300D5C9D5 /* App */,
@@ -164,6 +215,7 @@
 			projectRoot = "";
 			targets = (
 				7729CE752FDEDAB300D5C9D5 /* PixelNOW */,
+				C00000000000000000000006 /* NVSTNativeBuild */,
 			);
 		};
 /* End PBXProject section */
@@ -202,6 +254,25 @@
 			shellScript = "\"$SRCROOT/scripts/write-build-metadata.sh\"";
 			showEnvVarsInLog = 0;
 		};
+		C00000000000000000000007 /* Build native NVST dependencies */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/build-nvst-native.sh",
+				"$(SRCROOT)/GFN/Native",
+			);
+			name = "Build native NVST dependencies";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/NVSTNative.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"$SRCROOT/scripts/build-nvst-native.sh\"";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -214,6 +285,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C00000000000000000000005 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C00000000000000000000006 /* NVSTNativeBuild */;
+			targetProxy = C00000000000000000000004 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		7729CE812FDEDAB500D5C9D5 /* Debug */ = {
@@ -359,6 +438,7 @@
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
+					"$(BUILT_PRODUCTS_DIR)",
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "PixelNOW-Info.plist";
@@ -401,6 +481,7 @@
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
+					"$(BUILT_PRODUCTS_DIR)",
 				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "PixelNOW-Info.plist";
@@ -425,6 +506,26 @@
 			};
 			name = Release;
 		};
+		C00000000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		C0000000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -446,9 +547,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		C00000000000000000000008 /* Build configuration list for PBXAggregateTarget "NVSTNativeBuild" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C00000000000000000000009 /* Debug */,
+				C0000000000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
-
-
 	};
 	rootObject = 7729CE6E2FDEDAB300D5C9D5 /* Project object */;
 }
