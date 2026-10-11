@@ -22,6 +22,8 @@ enum NativeNVSTAntiAFKInputPolicy {
 
 @MainActor
 public enum NativeNVSTMediaStreamLifecycle {
+    public static let didChangeNotification = Notification.Name("PixelNOWNativeNVSTMediaStreamLifecycleDidChange")
+
     private static var activeStreamIDs: [UUID] = []
     private static var quitRequestHandlers: [UUID: NativeNVSTMediaStreamQuitRequestHandler] = [:]
     private static var commandHandlers: [UUID: NativeNVSTMediaStreamCommandHandler] = [:]
@@ -37,6 +39,7 @@ public enum NativeNVSTMediaStreamLifecycle {
         quitRequestHandlers[id] = quitRequestHandler
         commandHandlers[id] = commandHandler
         terminationDrainHandlers[id] = terminationDrainHandler
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     public static func deactivate(_ id: UUID) {
@@ -44,6 +47,7 @@ public enum NativeNVSTMediaStreamLifecycle {
         quitRequestHandlers.removeValue(forKey: id)
         commandHandlers.removeValue(forKey: id)
         terminationDrainHandlers.removeValue(forKey: id)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     public static func requestApplicationQuitDecision(completion: @escaping NativeNVSTMediaStreamQuitDecisionHandler) -> Bool {

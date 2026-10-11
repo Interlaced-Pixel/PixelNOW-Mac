@@ -158,6 +158,7 @@ struct PixelNOWApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let awdlController = AWDLController()
     private let githubUpdater = GitHubUpdater(owner: "Interlaced-Pixel", repository: "PixelNOW-Mac")
     private var applicationUpdateCheckTimer: Timer?
     private var updateCheckTask: Task<Void, Never>?
@@ -182,12 +183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info(.app, "NSApplication did finish launching")
+        awdlController.start()
         installStreamShortcutMonitor()
         startApplicationUpdateChecks()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         Log.info(.app, "NSApplication will terminate")
+        awdlController.stop()
         NativeNVSTMediaStreamLifecycle.drainForTermination()
         for window in NSApp.windows where window.isVisible && !window.styleMask.contains(.fullScreen) {
             window.saveFrame(usingName: "PixelNOWMainWindow")
