@@ -99,7 +99,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     private let qosManager: NvstQosManager?
     let queue = DispatchQueue(label: "com.interlacedpixel.pixelnow.nvst.decode", qos: .userInitiated)
     let lock = NSLock()
-    var bundle: NvstWebRtcBundle?
+    var bundle: NvstBundle?
     private var counters = Counters()
     private var loggedSlowFrames = 0
     private var consecutiveDecodeFailures = 0
@@ -149,7 +149,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         self.qosManager = qosManager
         queue.setSpecific(key: queueKey, value: true)
     }
-    public func attach(bundle: NvstWebRtcBundle?) {
+    public func attach(bundle: NvstBundle?) {
         lock.lock()
         self.bundle = bundle
         lock.unlock()
@@ -246,7 +246,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         }
     }
 
-    private func flushFrameStatistics(on channel: NvstWebRtcBundle) {
+    private func flushFrameStatistics(on channel: NvstBundle) {
         for _ in 0..<256 {
             lock.lock()
             let ack = isStopped ? nil : pendingFrameAcknowledgements.first

@@ -2,14 +2,6 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 
-/// Converts decoded surfaces into a pixel format a consumer can take, through
-/// `VTPixelTransferSession` (hardware where the GPU has a path, otherwise Apple's SIMD converters).
-///
-/// Exists because the NVST decoder now emits what the bitstream is — `xf20`, `xf44`, 4:2:2 — and
-/// two consumers downstream were written for NV12: libwebrtc's `RTCCVPixelBuffer` (Remote Co-Op
-/// guests) reads only NV12 and BGRA, and the recorder's asset-writer adaptor is declared once from
-/// the first frame. Each keeps one of these and converts only frames it cannot take as they are, so
-/// the common 8-bit 4:2:0 session pays nothing.
 final class PixelNOWPixelBufferTransfer: @unchecked Sendable {
     private let lock = NSLock()
     private var session: VTPixelTransferSession?
@@ -60,12 +52,4 @@ final class PixelNOWPixelBufferTransfer: @unchecked Sendable {
         return created
     }
 
-    /// The formats libwebrtc's `RTCCVPixelBuffer` can read (its `toI420` and crop/scale paths
-    /// handle NV12 and 32-bit BGRA/ARGB and nothing else).
-    static func isLibWebRTCReadable(_ format: OSType) -> Bool {
-        format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-            || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            || format == kCVPixelFormatType_32BGRA
-            || format == kCVPixelFormatType_32ARGB
-    }
 }

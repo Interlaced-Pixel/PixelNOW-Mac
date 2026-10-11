@@ -87,7 +87,10 @@ final class NvstFrameTiming {
             frameCount = 0
         }
         previousCapture = capture
-        let bounded = min(maximumQueueSeconds, max(minimumQueueSeconds, jitter.quantile))
+        let minimumAdvance = max(0.008, minimumQueueSeconds)
+        let maximumAdvance = min(0.032, maximumQueueSeconds)
+        let bounded = jitter.quantile < minimumAdvance
+            ? minimumAdvance : min(maximumAdvance, jitter.quantile)
         let advance: Double
         if frameCount < 100 {
             advance = 0.02

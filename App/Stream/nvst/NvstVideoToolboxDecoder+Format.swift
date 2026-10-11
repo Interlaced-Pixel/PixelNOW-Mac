@@ -128,24 +128,28 @@ extension NvstVideoToolboxDecoder {
         let total = sizes.reduce(0, +)
         let storage = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: total)
         defer { storage.deallocate() }
+        guard let address = storage.baseAddress else { throw DecoderError.missingParameterSets }
         var offset = 0
         var pointers: [UnsafePointer<UInt8>] = []
         for set in ordered {
-            set.copyBytes(to: storage.baseAddress!.advanced(by: offset), count: set.count)
-            pointers.append(UnsafePointer(storage.baseAddress!.advanced(by: offset)))
+            set.copyBytes(to: address.advanced(by: offset), count: set.count)
+            pointers.append(UnsafePointer(address.advanced(by: offset)))
             offset += set.count
         }
 
         var description: CMFormatDescription?
         let status: OSStatus = pointers.withUnsafeBufferPointer { pointerBuffer in
             sizes.withUnsafeBufferPointer { sizeBuffer in
-                switch codec {
+                guard let pointerAddress = pointerBuffer.baseAddress, let sizeAddress = sizeBuffer.baseAddress else {
+                    return kCMFormatDescriptionError_InvalidParameter
+                }
+                return switch codec {
                 case .hevc:
                     CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                         allocator: kCFAllocatorDefault,
                         parameterSetCount: pointerBuffer.count,
-                        parameterSetPointers: pointerBuffer.baseAddress!,
-                        parameterSetSizes: sizeBuffer.baseAddress!,
+                        parameterSetPointers: pointerAddress,
+                        parameterSetSizes: sizeAddress,
                         nalUnitHeaderLength: 4,
                         extensions: nil,
                         formatDescriptionOut: &description
@@ -154,8 +158,8 @@ extension NvstVideoToolboxDecoder {
                     CMVideoFormatDescriptionCreateFromH264ParameterSets(
                         allocator: kCFAllocatorDefault,
                         parameterSetCount: pointerBuffer.count,
-                        parameterSetPointers: pointerBuffer.baseAddress!,
-                        parameterSetSizes: sizeBuffer.baseAddress!,
+                        parameterSetPointers: pointerAddress,
+                        parameterSetSizes: sizeAddress,
                         nalUnitHeaderLength: 4,
                         formatDescriptionOut: &description
                     )

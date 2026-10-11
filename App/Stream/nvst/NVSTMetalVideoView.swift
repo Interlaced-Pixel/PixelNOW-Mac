@@ -462,11 +462,7 @@ final class NVSTPixelBufferHolder: @unchecked Sendable {
 
     func get() -> (CVPixelBuffer, CMTime, NvstVideoFrameLifecycle?, UInt64)? {
         lock.lock()
-        guard !frames.isEmpty, inFlight.count < 2 else { lock.unlock(); return nil }
-        if !frames.contains(where: { $0.lifecycle != nil }), inFlight.values.contains(where: { $0 != nil }) {
-            lock.unlock()
-            return nil
-        }
+        guard canSubmitFrameLocked() else { lock.unlock(); return nil }
         let now = DispatchTime.now().uptimeNanoseconds
         let mode = frames.compactMap(\.lifecycle).first.map { queueModeLocked(for: $0) }
         var discarded: [NvstVideoFrameLifecycle] = []
@@ -512,6 +508,23 @@ final class NVSTPixelBufferHolder: @unchecked Sendable {
         return (entry.buffer, entry.time, entry.lifecycle, ticket)
     }
 
+    var canSubmitFrame: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return canSubmitFrameLocked()
+    }
+
+    var nextPixelFormat: OSType? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frames.first.map { CVPixelBufferGetPixelFormatType($0.buffer) }
+    }
+
+    private func canSubmitFrameLocked() -> Bool {
+        guard !frames.isEmpty, inFlight.count < 2 else { return false }
+        return frames.contains(where: { $0.lifecycle != nil }) || !inFlight.values.contains(where: { $0 != nil })
+    }
+
     func finish(_ ticket: UInt64) {
         lock.lock()
         if let context = inFlight[ticket], context == nil || context?.isTerminal == true {
@@ -550,9 +563,10 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var uniqueFramesDrawn = 0
     private var lastDrawLogTime = Date()
     private var lastDrawnTime: CMTime?
-    private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    private var colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
     public var onFramePresented: (@Sendable (NvstVideoFrameLifecycle, UInt64) -> Void)?
     public var onDisplayTiming: ((UInt32) -> Void)?
+    public var onPresentationFormat: ((OSType, String, Bool) -> Void)?
 
     private var intermediateSourceTexture: (any MTLTexture)?
     private var intermediateOutputTexture: (any MTLTexture)?
@@ -573,6 +587,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var enhancedPixelBufferPool: CVPixelBufferPool?
     private var enhancedPixelBufferPoolWidth = 0
     private var enhancedPixelBufferPoolHeight = 0
+    private var enhancedPixelBufferPoolFormat: OSType = 0
     private var enhancementSharpness = 10
     private var enhancementDenoise = 0
 
@@ -714,12 +729,13 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
     private func makeEnhancedPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
         guard width > 0, height > 0 else { return nil }
-        if enhancedPixelBufferPool == nil || enhancedPixelBufferPoolWidth != width || enhancedPixelBufferPoolHeight != height {
+        let format = metalView.colorPixelFormat == .rgba16Float ? kCVPixelFormatType_64RGBAHalf : kCVPixelFormatType_32BGRA
+        if enhancedPixelBufferPool == nil || enhancedPixelBufferPoolWidth != width || enhancedPixelBufferPoolHeight != height || enhancedPixelBufferPoolFormat != format {
             let poolAttributes: [String: Any] = [
                 kCVPixelBufferPoolMinimumBufferCountKey as String: 2
             ]
             let pixelBufferAttributes: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferPixelFormatTypeKey as String: format,
                 kCVPixelBufferWidthKey as String: width,
                 kCVPixelBufferHeightKey as String: height,
                 kCVPixelBufferIOSurfacePropertiesKey as String: [:]
@@ -731,12 +747,14 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             enhancedPixelBufferPool = pool
             enhancedPixelBufferPoolWidth = width
             enhancedPixelBufferPoolHeight = height
+            enhancedPixelBufferPoolFormat = format
         }
         guard let pool = enhancedPixelBufferPool else { return nil }
         var pixelBuffer: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer) == kCVReturnSuccess else {
             return nil
         }
+        if let pixelBuffer { CVBufferSetAttachment(pixelBuffer, kCVImageBufferCGColorSpaceKey, colorSpace, .shouldPropagate) }
         return pixelBuffer
     }
 
@@ -796,13 +814,25 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     }
 
     public func draw(in view: MTKView) {
-        guard let currentDrawable = metalView.currentDrawable,
+        guard bufferHolder.canSubmitFrame else { return }
+        let tenBitFormats: Set<OSType> = [kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
+            kCVPixelFormatType_420YpCbCr10BiPlanarFullRange, kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange,
+            kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange]
+        let extendedRange = metalView.layer?.wantsExtendedDynamicRangeContent == true
+        let highPrecision = extendedRange || bufferHolder.nextPixelFormat.map { tenBitFormats.contains($0) } == true
+        let desiredFormat: MTLPixelFormat = highPrecision ? .rgba16Float : .bgra8Unorm
+        if metalView.colorPixelFormat != desiredFormat { metalView.colorPixelFormat = desiredFormat }
+        colorSpace = CGColorSpace(name: extendedRange ? CGColorSpace.extendedLinearITUR_2020 : CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        (metalView.layer as? CAMetalLayer)?.colorspace = colorSpace
+        guard bufferHolder.canSubmitFrame,
+              let currentDrawable = metalView.currentDrawable,
               let commandBuffer = commandQueue?.makeCommandBuffer(),
               let ciContext, let (pixelBuffer, time, lifecycle, ticket) = bufferHolder.get() else {
             return
         }
 
         lifecycle?.noteRenderStarted(at: DispatchTime.now().uptimeNanoseconds)
+        onPresentationFormat?(CVPixelBufferGetPixelFormatType(pixelBuffer), highPrecision ? "RGBA16Float" : "BGRA8Unorm", extendedRange)
         let holder = bufferHolder
         let presented = onFramePresented
         if let lifecycle {
@@ -869,7 +899,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                &intermediateSourceTexture,
                width: sourceWidth,
                height: sourceHeight,
-               pixelFormat: .bgra8Unorm,
+               pixelFormat: desiredFormat,
                usage: [.shaderRead, .shaderWrite, .renderTarget],
                label: "NVSTMetalVideoView Source"
            ),
@@ -877,7 +907,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                &intermediateOutputTexture,
                width: outputWidth,
                height: outputHeight,
-               pixelFormat: .bgra8Unorm,
+               pixelFormat: desiredFormat,
                usage: [.shaderRead, .shaderWrite, .renderTarget],
                label: "NVSTMetalVideoView Output"
            ) {
@@ -901,7 +931,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                    let enhancedBuffer = makeEnhancedPixelBuffer(width: outputWidth, height: outputHeight),
                    let ioSurface = CVPixelBufferGetIOSurface(enhancedBuffer) {
                     let textureDesc = MTLTextureDescriptor.texture2DDescriptor(
-                        pixelFormat: .bgra8Unorm,
+                        pixelFormat: desiredFormat,
                         width: outputWidth,
                         height: outputHeight,
                         mipmapped: false

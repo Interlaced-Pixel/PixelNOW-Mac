@@ -95,6 +95,14 @@ public final class NVSTCoreVideoRenderer {
 
         public var renderedFrameCount: UInt64 { lock.lock(); defer { lock.unlock() }; return renderedFrames }
 
+        func noteFormat(input: OSType, output: String, hdr: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            latestRenderDiagnostics.pixelFormat = NvstVideoToolboxDecoder.pixelFormatName(input)
+            latestRenderDiagnostics.outputFormat = output
+            latestRenderDiagnostics.isHDR = hdr
+        }
+
         var renderDiagnostics: PixelNOWVideoRenderDiagnosticsSnapshot {
             lock.lock()
             defer { lock.unlock() }
@@ -236,6 +244,9 @@ public final class NVSTCoreVideoRenderer {
         self.videoView = videoView
         let sink = NVSTCoreVideoSink(videoView: videoView)
         self.sink = sink
+        videoView.onPresentationFormat = { [weak sink] input, output, hdr in
+            sink?.noteFormat(input: input, output: output, hdr: hdr)
+        }
         videoView.onFramePresented = { [weak sink] lifecycle, presentedAt in
             sink?.notePresentation(lifecycle: lifecycle, presentedAt: presentedAt)
         }
@@ -244,18 +255,14 @@ public final class NVSTCoreVideoRenderer {
             guard let sink else { return }
             var snapshot = sink.renderDiagnostics
             switch state {
-            case .active(let input, let output):
+            case .active:
                 snapshot.renderPath = "MetalFXSpatialScaler"
                 snapshot.activeTier = "MetalFX"
                 snapshot.fallback = ""
-                snapshot.pixelFormat = "\(Int(input.width))x\(Int(input.height))"
-                snapshot.outputFormat = "\(Int(output.width))x\(Int(output.height))"
-            case .standby(let input, let output):
+            case .standby:
                 snapshot.renderPath = "CoreImageDirect"
                 snapshot.activeTier = "Native"
                 snapshot.fallback = "1:1 passthrough"
-                snapshot.pixelFormat = "\(Int(input.width))x\(Int(input.height))"
-                snapshot.outputFormat = "\(Int(output.width))x\(Int(output.height))"
             case .disabled:
                 snapshot.renderPath = "CoreImageDirect"
                 snapshot.activeTier = "Off"
