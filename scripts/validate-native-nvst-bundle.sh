@@ -8,16 +8,42 @@ if [[ -z "$app_path" || ! -d "$app_path" ]]; then
 fi
 
 info_plist="$app_path/Contents/Info.plist"
-webrtc_framework="$app_path/Contents/Frameworks/WebRTC.framework"
+native_framework="$app_path/Contents/Frameworks/NVSTNative.framework"
 runtime_manifest="$app_path/Contents/Resources/remote-coop-direct-config.json"
 app_binary="$app_path/Contents/MacOS/PixelNOW"
 
-for required_path in "$info_plist" "$webrtc_framework" "$runtime_manifest" "$app_binary"; do
-    test -e "$required_path"
+for required_path in "$info_plist" "$native_framework/NVSTNative" "$native_framework/Resources/ThirdParty/Dependencies.json" "$runtime_manifest" "$app_binary"; do
+    if [[ ! -e "$required_path" ]]; then
+        echo "Missing native runtime component: $required_path" >&2
+        exit 1
+    fi
 done
 
 /usr/bin/plutil -lint "$info_plist" >/dev/null
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$runtime_manifest"
 test -x "$app_binary"
+runtime_binaries=("$app_binary")
+if [[ -f "$app_path/Contents/MacOS/PixelNOW.debug.dylib" ]]; then
+    runtime_binaries+=("$app_path/Contents/MacOS/PixelNOW.debug.dylib")
+fi
+native_link_present=false
+for runtime_binary in "${runtime_binaries[@]}"; do
+    dependencies="$(/usr/bin/otool -L "$runtime_binary")"
+    if /usr/bin/grep -q 'WebRTC.framework' <<< "$dependencies"; then
+        echo "The native runtime still links WebRTC.framework: $runtime_binary" >&2
+        exit 1
+    fi
+    if /usr/bin/grep -q '@rpath/NVSTNative.framework/' <<< "$dependencies"; then
+        native_link_present=true
+    fi
+done
+if [[ -e "$app_path/Contents/Frameworks/WebRTC.framework" ]]; then
+    echo "The native runtime still embeds WebRTC.framework." >&2
+    exit 1
+fi
+if [[ "$native_link_present" != true ]]; then
+    echo "The native runtime does not link NVSTNative.framework." >&2
+    exit 1
+fi
 
 echo "Validated PixelNOW native runtime bundle: $app_path"

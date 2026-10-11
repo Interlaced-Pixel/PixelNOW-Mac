@@ -4,6 +4,7 @@ import PackageDescription
 import Foundation
 
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let nativeFrameworks = ProcessInfo.processInfo.environment["PIXELNOW_NATIVE_FRAMEWORKS"] ?? packageRoot + "/build"
 
 let package = Package(
     name: "PixelNOW",
@@ -27,6 +28,7 @@ let package = Package(
                 "View",
                 "ViewModel",
                 "WebRTC.framework",
+                "GFN/Native",
                 "build",
                 "scripts",
                 "tools",
@@ -38,10 +40,11 @@ let package = Package(
                 "GFN"
             ],
             swiftSettings: [
-                .unsafeFlags(["-F", packageRoot, "-Xcc", "-Wno-incomplete-umbrella"])
+                .interoperabilityMode(.Cxx),
+                .unsafeFlags(["-F", nativeFrameworks])
             ],
             linkerSettings: [
-                .unsafeFlags(["-F", packageRoot, "-framework", "WebRTC", "-Xlinker", "-rpath", "-Xlinker", packageRoot])
+                .unsafeFlags(["-F", nativeFrameworks, "-framework", "NVSTNative", "-Xlinker", "-rpath", "-Xlinker", nativeFrameworks])
             ]
         )
     ]
