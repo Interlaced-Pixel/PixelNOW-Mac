@@ -113,13 +113,14 @@ Every commit message must follow this exact structure:
 - **Push Policy:** Push all completed commits to the current branch's upstream remote (`git push origin <branch>`).
 
 # Release Process
-When instructed to create a new GitHub release, strictly follow these steps in order:
-1. **Update Version:** Increment the marketing version by 1 (e.g., 1.74 → 1.75) and build number by 1 (e.g., 74 → 75) using `agvtool new-marketing-version <new_version>` followed by `agvtool new-version -all <new_build_number>`.
-2. **Commit & Push:** Commit all outstanding changes (including the version bump) and push to the remote repository.
-3. **Write Patch Notes:** Create a text file containing the patch notes for the release (e.g., `patch_notes.txt`).
-4. **Compile:** Compile the release configuration of the app using `xcodebuild -scheme PixelNOW -project PixelNOW.xcodeproj -configuration Release clean build`.
-5. **Compress:** Do NOT use the standard `zip` command as it breaks the macOS code signature. Navigate to the release build directory and use `ditto` to compress the app bundle: `ditto -c -k --keepParent PixelNOW.app PixelNOW-<version>-macOS.zip`
-6. **Upload to GitHub:** Use the GitHub CLI to create the release and upload the compressed app bundle: `gh release create v<version> PixelNOW-<version>-macOS.zip -F <patch_notes_file> -t "PixelNOW <version>"`
+When instructed to create a new PixelNOW release, strictly follow these steps in order. PixelNOW uses Sparkle 2 for updates; GitHub Releases host the signed archives and `appcast.xml` is the update feed.
+
+1. **Update Version:** Increment `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` together using `agvtool new-marketing-version <new_version>` followed by `agvtool new-version -all <new_build_number>`. The `CFBundleVersion` value must increase monotonically.
+2. **Compile and Sign:** Compile the Release configuration with `xcodebuild -scheme PixelNOW -project PixelNOW.xcodeproj -configuration Release clean build`. Verify the resulting app with `codesign --verify --deep --strict PixelNOW.app`, then notarize and staple the Developer ID-signed application before distribution.
+3. **Compress:** Do NOT use the standard `zip` command as it breaks the macOS code signature. Navigate to the release build directory and use `ditto -c -k --keepParent PixelNOW.app PixelNOW-<version>-macOS.zip`. The archive must contain only `PixelNOW.app`.
+4. **Commit and Publish the Archive:** Complete the requirement traceability table, commit the version and source changes, and push them before creating the release. Create the matching GitHub release and upload the archive with `gh release create v<version> PixelNOW-<version>-macOS.zip -F <patch_notes_file> -t "PixelNOW <version>"`.
+5. **Generate the Sparkle Appcast:** Place the archive and matching `.md`, `.html`, or `.txt` release notes in a private update-archive directory. Run `scripts/generate-sparkle-appcast.sh /path/to/Sparkle/bin /path/to/update-archives appcast.xml https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v<version>/`. This signs the update with Sparkle's Ed25519 key from the release Mac's Keychain and writes the archive signature, length, version, requirements, and release notes into `appcast.xml`.
+6. **Publish and Verify the Feed:** Verify the generated enclosure URL, `sparkle:edSignature`, archive length, version, minimum macOS requirement, and release notes. Commit and push the generated `appcast.xml`, then verify `https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/appcast.xml` from a fresh HTTPS request. Never commit or expose the private Ed25519 key.
 
 # Workspace Cleanliness
 - **No Leftover Trash:** Never leave random, unneeded artifacts (e.g., temporary scripts, `build.log`, `.txt` dumps) in the workspace root or project directories. Clean them up immediately after use. If you absolutely need a scratchpad or temporary file, place it strictly in the designated artifact scratch directory (`<appDataDir>/brain/<conversation-id>/scratch/`).
