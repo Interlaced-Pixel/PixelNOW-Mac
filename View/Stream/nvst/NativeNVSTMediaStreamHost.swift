@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 typealias NativeNVSTMediaStreamCompletion = NativeNVSTMediaStreamEndCallback
 typealias NativeNVSTMediaStreamProgressHandler = NativeNVSTMediaStreamProgressCallback
@@ -40,6 +41,9 @@ struct NativeNVSTStreamLaunchLoadingScreen<Accessory: View>: View {
     private let accessory: Accessory
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var diagnosticsPresented = false
+    @State private var diagnosticText = ""
+    private let diagnosticRefreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     init(title: String,
          stage: String,
@@ -146,8 +150,72 @@ struct NativeNVSTStreamLaunchLoadingScreen<Accessory: View>: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
+            .overlay(alignment: .bottomTrailing) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    if diagnosticsPresented {
+                        diagnosticPanel(compact: compact)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            diagnosticsPresented.toggle()
+                            if diagnosticsPresented {
+                                diagnosticText = NativeNVSTMediaLog.currentLogText()
+                            }
+                        }
+                    } label: {
+                        Label(
+                            diagnosticsPresented ? "Hide diagnostics" : "Show diagnostics",
+                            systemImage: diagnosticsPresented ? "chevron.down.circle" : "terminal"
+                        )
+                        .font(.nvidia(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                        .background(.black.opacity(0.56), in: Capsule())
+                        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(diagnosticsPresented ? "Hide launch diagnostics" : "Show launch diagnostics")
+                }
+                .padding(.horizontal, compact ? 18 : 28)
+                .padding(.bottom, compact ? 16 : 24)
+            }
         }
         .background(.black)
+        .onReceive(diagnosticRefreshTimer) { _ in
+            guard diagnosticsPresented else { return }
+            diagnosticText = NativeNVSTMediaLog.currentLogText()
+        }
+    }
+
+    private func diagnosticPanel(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("NVST DIAGNOSTICS")
+                    .font(.nvidia(size: 10, weight: .bold))
+                    .tracking(1.1)
+                    .foregroundStyle(Color.pixelNowGreen)
+                Spacer(minLength: 12)
+                Text("LIVE")
+                    .font(.nvidia(size: 9, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            ScrollView(.vertical) {
+                Text(diagnosticText.isEmpty ? "Waiting for NVST diagnostics…" : diagnosticText)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.84))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: compact ? 110 : 170, maxHeight: compact ? 180 : 250)
+        }
+        .padding(12)
+        .frame(maxWidth: compact ? 430 : 620, alignment: .leading)
+        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.42), lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
     }
 }
 

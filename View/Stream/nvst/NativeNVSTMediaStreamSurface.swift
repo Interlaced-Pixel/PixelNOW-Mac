@@ -487,7 +487,7 @@ struct NativeNVSTMediaStreamSurface: View {
             pillarboxFillColor: 0
         )
         let coreSink = renderer.frameSink
-        let diagnosticLog = NvstDiagnosticLog()
+        NativeNVSTMediaLog.beginSessionLog()
         let transport = NVSTCoreTransport(
             pixelBufferSink: { pixelBuffer, presentationTime, isKeyframe, lifecycle in
                 coreSink.render(pixelBuffer: pixelBuffer, presentationTime: presentationTime, isKeyframe: isKeyframe, lifecycle: lifecycle)
@@ -505,7 +505,6 @@ struct NativeNVSTMediaStreamSurface: View {
             configuredRightStickDeadzone: Float(resolved.rightStickDeadzone),
             logger: { message in
                 NativeNVSTMediaLog.write("nvst.core", level: .info, message: message)
-                diagnosticLog.append(message)
             }
         )
         renderer.setEnhancedFrameSink { [weak transport] pixelBuffer, _ in

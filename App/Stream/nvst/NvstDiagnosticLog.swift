@@ -50,6 +50,14 @@ public final class NvstDiagnosticLog: @unchecked Sendable {
         }
     }
 
+    public static func readTail(from url: URL, maximumLines: Int = 180) -> String {
+        guard maximumLines > 0, let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        let lines = text.split(whereSeparator: \.isNewline).suffix(maximumLines)
+        return lines.joined(separator: "\n")
+    }
+
     /// Only ever touched on the serial log queue.
     private nonisolated(unsafe) let timestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
