@@ -405,7 +405,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var nativeFailure: FailurePresentation?
     @State private var nativeAudioDeviceMonitor: NativeNVSTAudioDeviceMonitor?
     @State private var streamingFullScreenWindow: NSWindow?
-    @State private var recordingStatus = WebRTCStreamRecordingStatus.idle
+    @State private var recordingStatus = StreamRecordingStatus.idle
     @State private var recordingNotificationTask: Task<Void, Never>?
     @State private var capturePointerEvents = false
     @State private var streamUpscalingMode = 0
@@ -1202,7 +1202,7 @@ struct NativeNVSTMediaStreamSurface: View {
         }
         guard !recordingIsBusy, isConnected, !isEnding, !didEnd, let path else { return }
         let profile = StreamPreferences.launchProfile(forGame: configuration.applicationID, capabilities: StreamPreferences.loadDeviceCapabilities())
-        let recordingConfiguration = WebRTCStreamRecordingConfiguration(
+        let recordingConfiguration = StreamRecordingConfiguration(
             title: configuration.title,
             applicationID: configuration.applicationID,
             width: profile.resolution.width,
@@ -1229,7 +1229,7 @@ struct NativeNVSTMediaStreamSurface: View {
         }
     }
 
-    private func handleRecordingStatusChanged(_ status: WebRTCStreamRecordingStatus) {
+    private func handleRecordingStatusChanged(_ status: StreamRecordingStatus) {
         recordingNotificationTask?.cancel()
         let previousStatus = recordingStatus
         recordingStatus = status
@@ -1259,7 +1259,7 @@ struct NativeNVSTMediaStreamSurface: View {
             : "Pointer capture disabled.")
     }
 
-    private func logRecordingStatusChanged(_ status: WebRTCStreamRecordingStatus, previousStatus: WebRTCStreamRecordingStatus) {
+    private func logRecordingStatusChanged(_ status: StreamRecordingStatus, previousStatus: StreamRecordingStatus) {
         switch status {
         case .idle:
             return
@@ -2035,7 +2035,7 @@ struct NativeNVSTMediaStreamSurface: View {
                     try await activePath.send(event)
                 } catch {
                     Log.error(.stream, "Remote Co-Op input forwarding failed: \(error.localizedDescription)")
-                    WebRTCMediaLog.write("remote.coop.input.forward.failed", level: .error, message: error.localizedDescription)
+                    NativeNVSTMediaLog.write("remote.coop.input.forward.failed", level: .error, message: error.localizedDescription)
                 }
             }
         )
@@ -2055,7 +2055,7 @@ struct NativeNVSTMediaStreamSurface: View {
             remoteCoOpInviteLinkStatus = nil
             remoteCoOpStatusMessage = "Invite failed: \(error.localizedDescription)"
             Log.error(.stream, "Failed to create Remote Co-Op invite: \(error.localizedDescription)")
-            WebRTCMediaLog.write("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
+            NativeNVSTMediaLog.write("remote.coop.invite.create.failed", level: .error, message: error.localizedDescription)
         }
     }
 

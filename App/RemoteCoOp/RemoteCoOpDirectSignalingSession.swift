@@ -525,10 +525,10 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
         case "hostJoinRejected":
             let error = SignalingError.hostRejected(message.reason ?? "Direct signaling rejected the host.")
             resolveHostRegistration(error: error, matching: task, roomID: message.roomID)
-            WebRTCMediaLog.write("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
+            NativeNVSTMediaLog.write("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
         case "error":
             resolveHostRegistration(error: SignalingError.hostRejected(message.reason ?? "Direct signaling rejected the host."), matching: task, roomID: message.roomID)
-            WebRTCMediaLog.write("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
+            NativeNVSTMediaLog.write("remote.coop.direct.signaling.rejected", level: .warning, message: message.reason ?? "Direct signaling rejected the host.")
         default:
             break
         }
@@ -549,7 +549,7 @@ public final class RemoteCoOpDirectSignalingSession: RemoteCoOpSignalingSession,
             let data = try JSONEncoder().encode(message)
             try await Self.send(data, using: task, gate: gate)
         } catch {
-            WebRTCMediaLog.write("remote.coop.direct.signaling.send.failed", level: .warning, message: error.localizedDescription)
+            NativeNVSTMediaLog.write("remote.coop.direct.signaling.send.failed", level: .warning, message: error.localizedDescription)
             handleDisconnect(task: task, error: error)
         }
     }

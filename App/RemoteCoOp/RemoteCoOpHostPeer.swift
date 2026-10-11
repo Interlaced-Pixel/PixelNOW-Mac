@@ -136,10 +136,10 @@ public actor RemoteCoOpHostPeerController {
         guard participant.connectionState == .connected, participant.inputEnabled else { return }
         guard peers[participant.id] == nil else { return }
         let participantID = participant.id
-        WebRTCMediaLog.write("webrtc.remote_coop.peer.start", level: .info, message: "Starting Remote Co-Op host peer.", attributes: ["participantID": participantID.uuidString])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.peer.start", level: .info, message: "Starting Remote Co-Op host peer.", attributes: ["participantID": participantID.uuidString])
         let callbacks = RemoteCoOpHostPeerCallbacks(
             sendSignal: { [signaling] signal in
-                WebRTCMediaLog.write("webrtc.remote_coop.peer.signal.send", level: .info, message: "Sending Remote Co-Op peer signal.", attributes: ["participantID": participantID.uuidString, "kind": signal.kind.rawValue])
+                NativeNVSTMediaLog.write("webrtc.remote_coop.peer.signal.send", level: .info, message: "Sending Remote Co-Op peer signal.", attributes: ["participantID": participantID.uuidString, "kind": signal.kind.rawValue])
                 await signaling.send(.peerSignal(participantID: participantID, signal: signal))
             },
             receiveInput: { [inputScheduler] packet in
@@ -150,11 +150,11 @@ public actor RemoteCoOpHostPeerController {
         peers[participantID] = peer
         do {
             try await peer.start()
-            WebRTCMediaLog.write("webrtc.remote_coop.peer.started", level: .info, message: "Remote Co-Op host peer started.", attributes: ["participantID": participantID.uuidString])
+            NativeNVSTMediaLog.write("webrtc.remote_coop.peer.started", level: .info, message: "Remote Co-Op host peer started.", attributes: ["participantID": participantID.uuidString])
             if let sink = peer as? any RemoteCoOpHostVideoSink { videoRelay?.upsert(sink) }
             if let sink = peer as? any RemoteCoOpHostAudioSink { audioRelay?.upsert(sink) }
         } catch {
-            WebRTCMediaLog.write("webrtc.remote_coop.peer.start.failed", level: .warning, message: error.localizedDescription, attributes: ["participantID": participantID.uuidString])
+            NativeNVSTMediaLog.write("webrtc.remote_coop.peer.start.failed", level: .warning, message: error.localizedDescription, attributes: ["participantID": participantID.uuidString])
             peers[participantID] = nil
             videoRelay?.remove(participantID: participantID)
             audioRelay?.remove(participantID: participantID)
@@ -283,7 +283,7 @@ private actor RemoteCoOpHostInputScheduler {
         if !routedEvents.isEmpty { latestRoutedInputs[packet.participantID] = packet }
         routedInputCount &+= 1
         guard latencyMode == .lowLatency, routedInputCount.isMultiple(of: Self.diagnosticInterval) else { return }
-        WebRTCMediaLog.write("webrtc.remote_coop.input.coalesced", level: .debug, message: "Remote Co-Op low latency input coalescing active.", attributes: [
+        NativeNVSTMediaLog.write("webrtc.remote_coop.input.coalesced", level: .debug, message: "Remote Co-Op low latency input coalescing active.", attributes: [
             "coalescingDelayMilliseconds": String(Self.millisecondsBetween(receivedAtNanoseconds, routedAtNanoseconds)),
             "participantID": packet.participantID.uuidString,
             "routedInputs": String(routedInputCount),

@@ -49,7 +49,7 @@ public struct RecordingEditorCaption: Codable, Equatable, Identifiable, Sendable
 }
 
 enum RecordingEditorTranscriptionService {
-    static func transcribe(recording: WebRTCStreamRecording) async throws -> RecordingEditorTranscript {
+    static func transcribe(recording: StreamRecording) async throws -> RecordingEditorTranscript {
         let authorization = await authorizationStatus()
         guard authorization == .authorized else {
             throw RecordingEditorTranscriptionError.permissionRequired

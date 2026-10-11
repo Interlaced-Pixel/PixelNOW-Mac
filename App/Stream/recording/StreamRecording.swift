@@ -6,13 +6,7 @@ import CoreMedia
 import CoreVideo
 import Foundation
 import QuartzCore
-@preconcurrency import WebRTC
 
-public typealias StreamRecording = WebRTCStreamRecording
-public typealias StreamRecordingLibrary = WebRTCStreamRecordingLibrary
-public typealias StreamRecordingConfiguration = WebRTCStreamRecordingConfiguration
-public typealias StreamRecordingStatus = WebRTCStreamRecordingStatus
-public typealias StreamRecorder = WebRTCStreamRecorder
 
 public struct RecordingPointerEvent: Codable, Equatable, Sendable {
     public enum ClickType: String, Codable, Sendable {
@@ -33,7 +27,7 @@ public struct RecordingPointerEvent: Codable, Equatable, Sendable {
     }
 }
 
-public struct WebRTCStreamRecording: Codable, Equatable, Identifiable, Sendable {
+public struct StreamRecording: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let title: String
     public let applicationID: String
@@ -53,12 +47,12 @@ public struct WebRTCStreamRecording: Codable, Equatable, Identifiable, Sendable 
     public var metadataURL: URL { storageDirectory.appendingPathComponent(id.uuidString).appendingPathExtension("json") }
 
     private var storageDirectory: URL {
-        guard let storageDirectoryPath, !storageDirectoryPath.isEmpty else { return WebRTCStreamRecordingLibrary.recordingsDirectory(forGameTitle: title) }
+        guard let storageDirectoryPath, !storageDirectoryPath.isEmpty else { return StreamRecordingLibrary.recordingsDirectory(forGameTitle: title) }
         return URL(fileURLWithPath: storageDirectoryPath, isDirectory: true)
     }
 }
 
-public enum WebRTCStreamRecordingLibrary {
+public enum StreamRecordingLibrary {
     public static var recordingsDirectory: URL {
         let base = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies", isDirectory: true)
         return base.appendingPathComponent("NVIDIA", isDirectory: true).appendingPathComponent("GeForce NOW", isDirectory: true)
@@ -79,14 +73,14 @@ public enum WebRTCStreamRecordingLibrary {
         return directory
     }
 
-    public static func loadRecordings() -> [WebRTCStreamRecording] {
+    public static func loadRecordings() -> [StreamRecording] {
         recordingMetadataURLs()
             .filter { $0.pathExtension.caseInsensitiveCompare("json") == .orderedSame }
             .compactMap { url in
                 guard let data = try? Data(contentsOf: url) else { return nil }
-                guard let recording = try? JSONDecoder.recordingDecoder.decode(WebRTCStreamRecording.self, from: data) else { return nil }
+                guard let recording = try? JSONDecoder.recordingDecoder.decode(StreamRecording.self, from: data) else { return nil }
                 if recording.storageDirectoryPath == nil {
-                    return WebRTCStreamRecording(
+                    return StreamRecording(
                         id: recording.id,
                         title: recording.title,
                         applicationID: recording.applicationID,
@@ -109,8 +103,8 @@ public enum WebRTCStreamRecordingLibrary {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
-    public static func loadAvailableRecordings() async -> [WebRTCStreamRecording] {
-        var available: [WebRTCStreamRecording] = []
+    public static func loadAvailableRecordings() async -> [StreamRecording] {
+        var available: [StreamRecording] = []
         for recording in loadRecordings() {
             let asset = AVURLAsset(url: recording.videoURL)
             guard (try? await asset.load(.isPlayable)) == true,
@@ -121,13 +115,13 @@ public enum WebRTCStreamRecordingLibrary {
         return available
     }
 
-    public static func importVideo(from sourceURL: URL) async throws -> WebRTCStreamRecording {
+    public static func importVideo(from sourceURL: URL) async throws -> StreamRecording {
         let asset = AVURLAsset(url: sourceURL)
-        guard try await asset.load(.isPlayable) else { throw WebRTCStreamRecordingImportError.unplayableVideo }
+        guard try await asset.load(.isPlayable) else { throw StreamRecordingImportError.unplayableVideo }
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
-        guard let videoTrack = videoTracks.first else { throw WebRTCStreamRecordingImportError.missingVideoTrack }
+        guard let videoTrack = videoTracks.first else { throw StreamRecordingImportError.missingVideoTrack }
         let duration = try await asset.load(.duration)
-        guard duration.seconds.isFinite, duration.seconds > 0 else { throw WebRTCStreamRecordingImportError.invalidDuration }
+        guard duration.seconds.isFinite, duration.seconds > 0 else { throw StreamRecordingImportError.invalidDuration }
         let naturalSize = try await videoTrack.load(.naturalSize)
         let preferredTransform = try await videoTrack.load(.preferredTransform)
         let displayBounds = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
@@ -145,7 +139,7 @@ public enum WebRTCStreamRecordingLibrary {
         let fileManager = FileManager.default
         let sourceValues = try sourceURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
         guard sourceValues.isRegularFile == true, (sourceValues.fileSize ?? 0) > 0 else {
-            throw WebRTCStreamRecordingImportError.unavailableVideo
+            throw StreamRecordingImportError.unavailableVideo
         }
         let recordingID = UUID()
         let outputDirectory = recordingsDirectory.appendingPathComponent("Imported Videos", isDirectory: true)
@@ -159,7 +153,7 @@ public enum WebRTCStreamRecordingLibrary {
 
         do {
             try fileManager.copyItem(at: sourceURL, to: outputURL)
-            let recording = WebRTCStreamRecording(
+            let recording = StreamRecording(
                 id: recordingID,
                 title: title.isEmpty ? "Imported Video" : title,
                 applicationID: "local.imported-video",
@@ -184,7 +178,7 @@ public enum WebRTCStreamRecordingLibrary {
         }
     }
 
-    public static func delete(_ recording: WebRTCStreamRecording) throws {
+    public static func delete(_ recording: StreamRecording) throws {
         if FileManager.default.fileExists(atPath: recording.videoURL.path) { try FileManager.default.removeItem(at: recording.videoURL) }
         if FileManager.default.fileExists(atPath: recording.metadataURL.path) { try FileManager.default.removeItem(at: recording.metadataURL) }
         let directory = recording.videoURL.deletingLastPathComponent()
@@ -203,7 +197,7 @@ public enum WebRTCStreamRecordingLibrary {
         }
     }
 
-    private static func isPresentNonemptyVideoFile(_ recording: WebRTCStreamRecording) -> Bool {
+    private static func isPresentNonemptyVideoFile(_ recording: StreamRecording) -> Bool {
         guard let values = try? recording.videoURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) else { return false }
         return values.isRegularFile == true && (values.fileSize ?? 0) > 0
     }
@@ -224,7 +218,7 @@ public enum WebRTCStreamRecordingLibrary {
     }
 }
 
-private enum WebRTCStreamRecordingImportError: LocalizedError {
+private enum StreamRecordingImportError: LocalizedError {
     case unplayableVideo
     case missingVideoTrack
     case invalidDuration
@@ -240,7 +234,7 @@ private enum WebRTCStreamRecordingImportError: LocalizedError {
     }
 }
 
-public struct WebRTCStreamRecordingConfiguration: Equatable, Sendable {
+public struct StreamRecordingConfiguration: Equatable, Sendable {
     public let title: String
     public let applicationID: String
     public let width: Int
@@ -283,12 +277,12 @@ public struct WebRTCStreamRecordingConfiguration: Equatable, Sendable {
     }
 }
 
-public enum WebRTCStreamRecordingStatus: Equatable, Sendable {
+public enum StreamRecordingStatus: Equatable, Sendable {
     case idle
     case starting
     case recording(startedAt: Date, elapsedSeconds: Double)
     case finishing
-    case finished(WebRTCStreamRecording)
+    case finished(StreamRecording)
     case failed(String)
 
     public var isRecording: Bool {
@@ -306,8 +300,8 @@ public enum WebRTCStreamRecordingStatus: Equatable, Sendable {
     }
 }
 
-public final class WebRTCStreamRecorder: @unchecked Sendable {
-    public var onStatusChanged: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?
+public final class StreamRecorder: @unchecked Sendable {
+    public var onStatusChanged: (@MainActor @Sendable (StreamRecordingStatus) -> Void)?
 
     private enum VideoFrameSource {
         case native
@@ -315,7 +309,6 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
     }
 
     private let queue = DispatchQueue(label: "io.opencg.pixelnow.recording.writer")
-    private let conversionQueue = DispatchQueue(label: "io.opencg.pixelnow.recording.conversion", qos: .userInitiated)
     private let frameLock = NSLock()
     private let firstFrameTimeout: DispatchTimeInterval
     private let maxQueuedEnhancedVideoFrames = 4
@@ -326,10 +319,9 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
     private var audioInput: AVAssetWriterInput?
     private var microphoneCapturer: StreamRecordingMicrophoneCapturer?
     private var audioMixer: StreamRecordingAudioMixer?
-    private var configuration: WebRTCStreamRecordingConfiguration?
+    private var configuration: StreamRecordingConfiguration?
     private var id = UUID()
     private var outputURL: URL?
-    private let i420BGRAConverter = WebRTCI420BGRAConverter()
     private var i420PixelBufferPool: CVPixelBufferPool?
     private var i420PixelBufferPoolWidth = 0
     private var i420PixelBufferPoolHeight = 0
@@ -363,11 +355,11 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         return writer.status == .unknown || writer.status == .writing
     }
 
-    public func start(configuration: WebRTCStreamRecordingConfiguration) {
+    public func start(configuration: StreamRecordingConfiguration) {
         queue.async { [weak self] in
             guard let self, self.configuration == nil, self.writer == nil else { return }
             do {
-                let directory = try WebRTCStreamRecordingLibrary.ensureDirectory(forGameTitle: configuration.title)
+                let directory = try StreamRecordingLibrary.ensureDirectory(forGameTitle: configuration.title)
                 self.id = UUID()
                 self.setActiveRecordingId(self.id, enhancedVideoPreferred: configuration.enhancedVideoEnabled)
                 self.configuration = configuration
@@ -414,32 +406,6 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
 
     public func stop() {
         queue.async { self.finish() }
-    }
-
-    public func appendVideoFrame(_ frame: RTCVideoFrame) {
-        guard let recordingId = beginVideoFrameAppend(source: .native) else { return }
-        let captureHostTime = CACurrentMediaTime()
-        if let buffer = frame.buffer as? RTCCVPixelBuffer, Self.isWritableBGRA(buffer.pixelBuffer) {
-            appendPixelBuffer(buffer.pixelBuffer, recordingId: recordingId, source: .native, captureHostTime: captureHostTime)
-            return
-        }
-        let retainedFrame = UInt(bitPattern: Unmanaged.passRetained(frame).toOpaque())
-        conversionQueue.async {
-            let frame = Unmanaged<RTCVideoFrame>.fromOpaque(UnsafeRawPointer(bitPattern: retainedFrame)!).takeRetainedValue()
-            let i420Frame = frame.newI420()
-            guard let i420 = i420Frame.buffer as? RTCI420Buffer,
-                  let pixelBuffer = self.newBGRAFramebuffer(from: i420) else {
-                self.finishVideoFrameAppend(recordingId: recordingId, source: .native)
-                return
-            }
-            let retainedPixelBuffer = UInt(bitPattern: Unmanaged.passRetained(pixelBuffer).toOpaque())
-            self.queue.async {
-                defer { self.finishVideoFrameAppend(recordingId: recordingId, source: .native) }
-                let pixelBuffer = Unmanaged<CVPixelBuffer>.fromOpaque(UnsafeRawPointer(bitPattern: retainedPixelBuffer)!).takeRetainedValue()
-                guard self.isActiveRecording(recordingId) else { return }
-                self.appendPixelBufferOnQueue(pixelBuffer, source: .native, captureHostTime: captureHostTime)
-            }
-        }
     }
 
     public func appendPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
@@ -516,7 +482,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
               let configuration,
               let outputURL else { return }
         guard let writablePixelBuffer = makeWritablePixelBuffer(from: pixelBuffer) else {
-            fail(WebRTCStreamRecorderError.pixelBufferConversionFailed)
+            fail(StreamRecorderError.pixelBufferConversionFailed)
             return
         }
         guard prepareWriterIfNeeded(pixelBuffer: writablePixelBuffer, configuration: configuration, outputURL: outputURL),
@@ -569,14 +535,14 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         audioMixer?.flush()
         guard let writer else {
             reset()
-            emit(.failed(Self.message(for: WebRTCStreamRecorderError.noFramesCaptured)))
+            emit(.failed(Self.message(for: StreamRecorderError.noFramesCaptured)))
             return
         }
         switch writer.status {
         case .unknown:
             writer.cancelWriting()
             reset()
-            emit(.failed(Self.message(for: WebRTCStreamRecorderError.noFramesCaptured)))
+            emit(.failed(Self.message(for: StreamRecorderError.noFramesCaptured)))
         case .writing:
             videoInput?.markAsFinished()
             audioInput?.markAsFinished()
@@ -602,7 +568,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         }
         let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path)
         let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-        let recording = WebRTCStreamRecording(
+        let recording = StreamRecording(
             id: id,
             title: configuration.title,
             applicationID: configuration.applicationID,
@@ -769,11 +735,11 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         emit(.recording(startedAt: startedAt, elapsedSeconds: max(0, now - (firstHostTime ?? now))))
     }
 
-    private func emit(_ status: WebRTCStreamRecordingStatus) {
+    private func emit(_ status: StreamRecordingStatus) {
         Task { @MainActor [onStatusChanged] in onStatusChanged?(status) }
     }
 
-    private func videoSettings(configuration: WebRTCStreamRecordingConfiguration, width: Int, height: Int) -> [String: Any] {
+    private func videoSettings(configuration: StreamRecordingConfiguration, width: Int, height: Int) -> [String: Any] {
         let bitrate = configuration.videoBitrateMbps > 0 ? configuration.videoBitrateMbps * 1_000_000 : max(4_000_000, width * height * configuration.fps / 8)
         return [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -788,7 +754,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         ]
     }
 
-    private func prepareWriterIfNeeded(pixelBuffer: CVPixelBuffer, configuration: WebRTCStreamRecordingConfiguration, outputURL: URL) -> Bool {
+    private func prepareWriterIfNeeded(pixelBuffer: CVPixelBuffer, configuration: StreamRecordingConfiguration, outputURL: URL) -> Bool {
         if writer != nil { return true }
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -805,7 +771,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
                 kCVPixelBufferIOSurfacePropertiesKey as String: [:],
             ]
             let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: videoInput, sourcePixelBufferAttributes: attributes)
-            guard writer.canAdd(videoInput) else { throw WebRTCStreamRecorderError.unableToAddVideoInput }
+            guard writer.canAdd(videoInput) else { throw StreamRecorderError.unableToAddVideoInput }
             writer.add(videoInput)
 
             let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings(configuration: configuration))
@@ -824,25 +790,13 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
         }
     }
 
-    private func audioSettings(configuration: WebRTCStreamRecordingConfiguration) -> [String: Any] {
+    private func audioSettings(configuration: StreamRecordingConfiguration) -> [String: Any] {
         [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 48_000,
             AVNumberOfChannelsKey: 2,
             AVEncoderBitRateKey: configuration.audioBitrateKbps * 1_000,
         ]
-    }
-
-    private func newBGRAFramebuffer(from i420: RTCI420Buffer) -> CVPixelBuffer? {
-        let width = Int(i420.width)
-        let height = Int(i420.height)
-        guard width > 0, height > 0 else { return nil }
-        let pool = i420BGRAFramebufferPool(width: width, height: height)
-        var pixelBuffer: CVPixelBuffer?
-        guard let pool,
-              CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer) == kCVReturnSuccess,
-              let pixelBuffer else { return nil }
-        return i420BGRAConverter.copy(i420, toBGRAOutput: pixelBuffer) ? pixelBuffer : nil
     }
 
     private func makeWritablePixelBuffer(from source: CVPixelBuffer) -> CVPixelBuffer? {
@@ -871,7 +825,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
                   !self.capturedVideoFrame,
                   !self.finishing,
                   !self.failed else { return }
-            self.fail(WebRTCStreamRecorderError.videoFramesUnavailable)
+            self.fail(StreamRecorderError.videoFramesUnavailable)
         }
     }
 
@@ -939,7 +893,7 @@ public final class WebRTCStreamRecorder: @unchecked Sendable {
     }
 }
 
-private enum WebRTCStreamRecorderError: LocalizedError {
+private enum StreamRecorderError: LocalizedError {
     case noFramesCaptured
     case unableToAddVideoInput
     case pixelBufferConversionFailed

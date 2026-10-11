@@ -14,7 +14,7 @@ extension PixelNOWCoreAudioRTCDevice {
         var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         let context = Unmanaged.passUnretained(self).toOpaque()
         let status = AudioObjectAddPropertyListener(AudioObjectID(kAudioObjectSystemObject), &outputAddress, coreAudioDeviceDefaultChangedCallback, context)
-        WebRTCMediaLog.write("webrtc.native.audio.self_monitor.start", level: .debug, message: "CoreAudio RTC device is following the default output device.", attributes: ["status": String(status)])
+        NativeNVSTMediaLog.write("webrtc.native.audio.self_monitor.start", level: .debug, message: "CoreAudio RTC device is following the default output device.", attributes: ["status": String(status)])
     }
 
     func stopSelfDeviceMonitoring() {
@@ -45,7 +45,7 @@ extension PixelNOWCoreAudioRTCDevice {
         let current = LibWebRTCAudio.defaultAudioDevice(kAudioHardwarePropertyDefaultOutputDevice)
         guard current != AudioDeviceID(kAudioObjectUnknown) else {
             guard attempt < 10 else {
-                WebRTCMediaLog.write("webrtc.native.audio.self_monitor.unavailable", level: .warning, message: "Default output device stayed unavailable after a hotplug.")
+                NativeNVSTMediaLog.write("webrtc.native.audio.self_monitor.unavailable", level: .warning, message: "Default output device stayed unavailable after a hotplug.")
                 return
             }
             Task { [weak self] in
@@ -56,7 +56,7 @@ extension PixelNOWCoreAudioRTCDevice {
             return
         }
         guard audioQueue.sync(execute: { current != outputDevice }) else { return }
-        WebRTCMediaLog.write("webrtc.native.audio.self_monitor.changed", level: .info, message: "Default output device changed; rebinding the CoreAudio RTC device.", attributes: ["outputDevice": String(current)])
+        NativeNVSTMediaLog.write("webrtc.native.audio.self_monitor.changed", level: .info, message: "Default output device changed; rebinding the CoreAudio RTC device.", attributes: ["outputDevice": String(current)])
         handleDefaultDeviceChange()
     }
 }

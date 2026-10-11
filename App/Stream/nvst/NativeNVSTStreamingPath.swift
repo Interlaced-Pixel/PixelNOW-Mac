@@ -115,9 +115,9 @@ public protocol NativeNVSTTransport: Sendable {
     func setDynamicStreamingMode(_ mode: NativeNVSTDynamicStreamingMode) async throws
     func setL4SEnabled(_ enabled: Bool) async throws
     func updateGamepadTopology(_ topology: NativeNVSTGamepadTopology) async throws
-    func startRecording(configuration: WebRTCStreamRecordingConfiguration) async
+    func startRecording(configuration: StreamRecordingConfiguration) async
     func stopRecording() async
-    func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?) async
+    func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (StreamRecordingStatus) -> Void)?) async
     func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer)
     func pause() async throws
     func disconnect() async
@@ -156,9 +156,9 @@ public extension NativeNVSTTransport {
     func setLocalAudioPlaybackMuted(_ muted: Bool) async throws { throw NativeNVSTError.notRunning }
     func setLocalAudioPlaybackVolume(_ volume: Double) async throws { throw NativeNVSTError.notRunning }
 
-    func startRecording(configuration: WebRTCStreamRecordingConfiguration) async {}
+    func startRecording(configuration: StreamRecordingConfiguration) async {}
     func stopRecording() async {}
-    func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?) async {}
+    func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (StreamRecordingStatus) -> Void)?) async {}
     func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer) {}
 
     func pause() async throws {
@@ -406,7 +406,7 @@ public actor NativeNVSTStreamingPath {
     }
 
     @discardableResult
-    public func startRecording(configuration: WebRTCStreamRecordingConfiguration) async -> Bool {
+    public func startRecording(configuration: StreamRecordingConfiguration) async -> Bool {
         guard activeSession != nil else { return false }
         await transport.startRecording(configuration: configuration)
         return true
@@ -416,7 +416,7 @@ public actor NativeNVSTStreamingPath {
         await transport.stopRecording()
     }
 
-    public func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (WebRTCStreamRecordingStatus) -> Void)?) async {
+    public func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (StreamRecordingStatus) -> Void)?) async {
         await transport.setRecordingStatusHandler(handler)
     }
 

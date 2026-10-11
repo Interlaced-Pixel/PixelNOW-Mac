@@ -39,17 +39,17 @@ enum RecordingEditorDragPayload: Equatable {
 
 struct RecordingEditorSegment: Equatable, Identifiable {
     let id: UUID
-    var recording: WebRTCStreamRecording
+    var recording: StreamRecording
     var startSeconds: Double
     var endSeconds: Double
     var audioGain: Double
     var isAudioMuted: Bool
     var fadeInSeconds: Double
     var fadeOutSeconds: Double
-    var transitionBefore: WebRTCStreamRecordingTransitionStyle
+    var transitionBefore: StreamRecordingTransitionStyle
     var transitionDurationSeconds: Double
 
-    init(id: UUID = UUID(), recording: WebRTCStreamRecording, startSeconds: Double, endSeconds: Double, audioGain: Double = 1, isAudioMuted: Bool = false, fadeInSeconds: Double = 0, fadeOutSeconds: Double = 0, transitionBefore: WebRTCStreamRecordingTransitionStyle = .cut, transitionDurationSeconds: Double = 0.5) {
+    init(id: UUID = UUID(), recording: StreamRecording, startSeconds: Double, endSeconds: Double, audioGain: Double = 1, isAudioMuted: Bool = false, fadeInSeconds: Double = 0, fadeOutSeconds: Double = 0, transitionBefore: StreamRecordingTransitionStyle = .cut, transitionDurationSeconds: Double = 0.5) {
         self.id = id
         self.recording = recording
         self.startSeconds = startSeconds
@@ -125,7 +125,7 @@ enum RecordingEditorExportQuality: String, CaseIterable, Identifiable {
         }
     }
 
-    var preset: WebRTCStreamRecordingExportPreset {
+    var preset: StreamRecordingExportPreset {
         switch self {
         case .highest: return .highestQuality
         case .balanced: return .balanced
@@ -152,7 +152,7 @@ private struct RecordingEditorSnapshot {
     var cropHeight: Double
     var cropEnabled: Bool
     var cropAspectPreset: RecordingEditorAspectPreset
-    var rotation: WebRTCStreamRecordingRotation
+    var rotation: StreamRecordingRotation
     var isFlippedHorizontally: Bool
     var isFlippedVertically: Bool
     var playbackRate: Double
@@ -162,8 +162,8 @@ private struct RecordingEditorSnapshot {
     var fadeOutSeconds: Double
     var exportQuality: RecordingEditorExportQuality
     var markers: [RecordingEditorMarker]
-    var outputResolution: WebRTCStreamRecordingOutputResolution
-    var colorAdjustment: WebRTCStreamRecordingColorAdjustment
+    var outputResolution: StreamRecordingOutputResolution
+    var colorAdjustment: StreamRecordingColorAdjustment
     var transcript: RecordingEditorTranscript?
     var captions: [RecordingEditorCaption]
     var burnInCaptions: Bool
@@ -182,8 +182,8 @@ private struct RecordingEditorTimeRange {
 final class RecordingEditorViewModel: ObservableObject {
     private static let sectionJoinTolerance = 0.05
 
-    let primaryRecording: WebRTCStreamRecording
-    @Published var library: [WebRTCStreamRecording]
+    let primaryRecording: StreamRecording
+    @Published var library: [StreamRecording]
     @Published var outputTitle: String
     @Published var segments: [RecordingEditorSegment]
     @Published var selectedSegmentID: UUID?
@@ -197,7 +197,7 @@ final class RecordingEditorViewModel: ObservableObject {
     @Published var cropAspectPreset: RecordingEditorAspectPreset = .source
     @Published var isCropOverlayEditing = false
     @Published var showsSafeAreaGuides = false
-    @Published var rotation: WebRTCStreamRecordingRotation = .degrees0
+    @Published var rotation: StreamRecordingRotation = .degrees0
     @Published var isFlippedHorizontally = false
     @Published var isFlippedVertically = false
     @Published var playbackRate = 1.0
@@ -206,12 +206,12 @@ final class RecordingEditorViewModel: ObservableObject {
     @Published var fadeInSeconds = 0.0
     @Published var fadeOutSeconds = 0.0
     @Published var exportQuality: RecordingEditorExportQuality = .highest
-    @Published var outputResolution: WebRTCStreamRecordingOutputResolution = .source
+    @Published var outputResolution: StreamRecordingOutputResolution = .source
     @Published var markers: [RecordingEditorMarker] = []
     @Published var snappingEnabled = true
     @Published var timelineZoomScale = 1.0
     @Published var timelineVisibleStartSeconds = 0.0
-    @Published var colorAdjustment = WebRTCStreamRecordingColorAdjustment.neutral
+    @Published var colorAdjustment = StreamRecordingColorAdjustment.neutral
     @Published private(set) var transcript: RecordingEditorTranscript?
     @Published private(set) var draftTranscript: RecordingEditorTranscript?
     @Published var captions: [RecordingEditorCaption] = []
@@ -231,12 +231,12 @@ final class RecordingEditorViewModel: ObservableObject {
     private var hasRecordedOutputTitleEdit = false
     private var editorProjectID = UUID()
     private var pendingProject: RecordingEditorProject?
-    private var relinkedRecordings: [UUID: WebRTCStreamRecording] = [:]
+    private var relinkedRecordings: [UUID: StreamRecording] = [:]
 
     private var undoStack: [RecordingEditorSnapshot] = []
     private var redoStack: [RecordingEditorSnapshot] = []
 
-    init(recording: WebRTCStreamRecording, library: [WebRTCStreamRecording]) {
+    init(recording: StreamRecording, library: [StreamRecording]) {
         primaryRecording = recording
         self.library = library
         outputTitle = Self.uniqueOutputTitle(for: recording.title, recordingID: recording.id, library: library)
@@ -245,7 +245,7 @@ final class RecordingEditorViewModel: ObservableObject {
         selectedSegmentID = segment.id
     }
 
-    private static func uniqueOutputTitle(for sourceTitle: String, recordingID: UUID, library: [WebRTCStreamRecording]) -> String {
+    private static func uniqueOutputTitle(for sourceTitle: String, recordingID: UUID, library: [StreamRecording]) -> String {
         var base = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         for suffix in [" - Edited", " Edited", " - Edit", " Edit"] where base.lowercased().hasSuffix(suffix.lowercased()) {
             base = String(base.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -468,7 +468,7 @@ final class RecordingEditorViewModel: ObservableObject {
         exportQuality = quality
     }
 
-    func setOutputResolution(_ resolution: WebRTCStreamRecordingOutputResolution) {
+    func setOutputResolution(_ resolution: StreamRecordingOutputResolution) {
         guard outputResolution != resolution else { return }
         recordUndo()
         outputResolution = resolution
@@ -535,7 +535,7 @@ final class RecordingEditorViewModel: ObservableObject {
         overlays.removeAll { $0.id == id }
     }
 
-    func setSelectedTransition(_ transition: WebRTCStreamRecordingTransitionStyle) {
+    func setSelectedTransition(_ transition: StreamRecordingTransitionStyle) {
         guard let index = selectedSegmentIndex, index > 0, segments[index].transitionBefore != transition else { return }
         recordUndo()
         segments[index].transitionBefore = transition
@@ -776,7 +776,7 @@ final class RecordingEditorViewModel: ObservableObject {
         let accessStarted = sourceURL.startAccessingSecurityScopedResource()
         defer { if accessStarted { sourceURL.stopAccessingSecurityScopedResource() } }
         do {
-            let recording = try await WebRTCStreamRecordingLibrary.importVideo(from: sourceURL)
+            let recording = try await StreamRecordingLibrary.importVideo(from: sourceURL)
             relinkedRecordings[missingID] = recording
             library.append(recording)
             missingProjectRecordingIDs.removeAll { $0 == missingID }
@@ -793,11 +793,11 @@ final class RecordingEditorViewModel: ObservableObject {
         }
     }
 
-    private func applyProject(_ project: RecordingEditorProject, recordingsByID: [UUID: WebRTCStreamRecording]) -> Bool {
+    private func applyProject(_ project: RecordingEditorProject, recordingsByID: [UUID: StreamRecording]) -> Bool {
         let restoredSegments = project.segments.compactMap { item -> RecordingEditorSegment? in
             guard let recording = recordingsByID[item.recordingID], item.startSeconds.isFinite, item.endSeconds.isFinite,
                   item.startSeconds >= 0, item.endSeconds > item.startSeconds, item.endSeconds <= recording.durationSeconds + 0.05 else { return nil }
-            return RecordingEditorSegment(id: item.id, recording: recording, startSeconds: item.startSeconds, endSeconds: item.endSeconds, audioGain: item.audioGain, isAudioMuted: item.isAudioMuted, fadeInSeconds: item.fadeInSeconds, fadeOutSeconds: item.fadeOutSeconds, transitionBefore: WebRTCStreamRecordingTransitionStyle(rawValue: item.transitionBefore ?? "cut") ?? .cut, transitionDurationSeconds: item.transitionDurationSeconds ?? 0.5)
+            return RecordingEditorSegment(id: item.id, recording: recording, startSeconds: item.startSeconds, endSeconds: item.endSeconds, audioGain: item.audioGain, isAudioMuted: item.isAudioMuted, fadeInSeconds: item.fadeInSeconds, fadeOutSeconds: item.fadeOutSeconds, transitionBefore: StreamRecordingTransitionStyle(rawValue: item.transitionBefore ?? "cut") ?? .cut, transitionDurationSeconds: item.transitionDurationSeconds ?? 0.5)
         }
         guard restoredSegments.count == project.segments.count, !restoredSegments.isEmpty else {
             errorMessage = "The saved edit project contains invalid clip ranges and could not be restored."
@@ -818,7 +818,7 @@ final class RecordingEditorViewModel: ObservableObject {
         cropHeight = project.cropHeight
         cropEnabled = project.cropEnabled
         cropAspectPreset = RecordingEditorAspectPreset(rawValue: project.cropAspectPreset ?? "source") ?? .source
-        rotation = WebRTCStreamRecordingRotation(rawValue: project.rotationRawValue) ?? .degrees0
+        rotation = StreamRecordingRotation(rawValue: project.rotationRawValue) ?? .degrees0
         isFlippedHorizontally = project.isFlippedHorizontally
         isFlippedVertically = project.isFlippedVertically
         playbackRate = min(max(project.playbackRate, 0.25), 4)
@@ -827,8 +827,8 @@ final class RecordingEditorViewModel: ObservableObject {
         fadeInSeconds = max(0, project.fadeInSeconds)
         fadeOutSeconds = max(0, project.fadeOutSeconds)
         if let quality = RecordingEditorExportQuality(rawValue: project.exportQuality) { exportQuality = quality }
-        if let resolution = WebRTCStreamRecordingOutputResolution(rawValue: project.outputResolution) { outputResolution = resolution }
-        colorAdjustment = WebRTCStreamRecordingColorAdjustment(exposure: project.colorExposure, contrast: project.colorContrast, saturation: project.colorSaturation, temperature: project.colorTemperature, tint: project.colorTint, vignette: project.colorVignette)
+        if let resolution = StreamRecordingOutputResolution(rawValue: project.outputResolution) { outputResolution = resolution }
+        colorAdjustment = StreamRecordingColorAdjustment(exposure: project.colorExposure, contrast: project.colorContrast, saturation: project.colorSaturation, temperature: project.colorTemperature, tint: project.colorTint, vignette: project.colorVignette)
         transcript = project.transcript
         captions = project.captions
         burnInCaptions = project.burnInCaptions
@@ -1058,7 +1058,7 @@ final class RecordingEditorViewModel: ObservableObject {
         markOutSeconds = nil
     }
 
-    func appendRecording(_ recording: WebRTCStreamRecording) {
+    func appendRecording(_ recording: StreamRecording) {
         guard recording.durationSeconds > 0 else { return }
         recordUndo()
         let segment = RecordingEditorSegment(recording: recording, startSeconds: 0, endSeconds: recording.durationSeconds)
@@ -1066,7 +1066,7 @@ final class RecordingEditorViewModel: ObservableObject {
         selectedSegmentID = segment.id
     }
 
-    func appendRecording(_ recording: WebRTCStreamRecording, at insertionIndex: Int) {
+    func appendRecording(_ recording: StreamRecording, at insertionIndex: Int) {
         guard recording.durationSeconds > 0 else { return }
         recordUndo()
         let segment = RecordingEditorSegment(recording: recording, startSeconds: 0, endSeconds: recording.durationSeconds)
@@ -1192,12 +1192,12 @@ final class RecordingEditorViewModel: ObservableObject {
 
     func rotateLeft() {
         recordUndo()
-        rotation = WebRTCStreamRecordingRotation(rawValue: (rotation.rawValue + 270) % 360) ?? .degrees0
+        rotation = StreamRecordingRotation(rawValue: (rotation.rawValue + 270) % 360) ?? .degrees0
     }
 
     func rotateRight() {
         recordUndo()
-        rotation = WebRTCStreamRecordingRotation(rawValue: (rotation.rawValue + 90) % 360) ?? .degrees0
+        rotation = StreamRecordingRotation(rawValue: (rotation.rawValue + 90) % 360) ?? .degrees0
     }
 
     func toggleHorizontalFlip() {
@@ -1255,15 +1255,15 @@ final class RecordingEditorViewModel: ObservableObject {
         apply(snapshot)
     }
 
-    func request(isCropEditingPreview: Bool = false) -> WebRTCStreamRecordingEditRequest {
-        WebRTCStreamRecordingEditRequest(
+    func request(isCropEditingPreview: Bool = false) -> StreamRecordingEditRequest {
+        StreamRecordingEditRequest(
             title: outputTitle,
             segments: segments.map { segment in
-                WebRTCStreamRecordingEditSegment(
+                StreamRecordingEditSegment(
                     recording: segment.recording,
                     startSeconds: segment.startSeconds,
                     endSeconds: segment.endSeconds,
-                    audio: WebRTCStreamRecordingAudioEdit(
+                    audio: StreamRecordingAudioEdit(
                         volume: segment.audioGain,
                         isMuted: segment.isAudioMuted,
                         fadeInSeconds: segment.fadeInSeconds,
@@ -1273,12 +1273,12 @@ final class RecordingEditorViewModel: ObservableObject {
                     transitionDurationSeconds: segment.transitionDurationSeconds
                 )
             },
-            crop: cropEnabled && !isCropEditingPreview ? WebRTCStreamRecordingCrop(x: cropX, y: cropY, width: cropWidth, height: cropHeight) : nil,
+            crop: cropEnabled && !isCropEditingPreview ? StreamRecordingCrop(x: cropX, y: cropY, width: cropWidth, height: cropHeight) : nil,
             rotation: isCropEditingPreview ? .degrees0 : rotation,
             isFlippedHorizontally: !isCropEditingPreview && isFlippedHorizontally,
             isFlippedVertically: !isCropEditingPreview && isFlippedVertically,
             playbackRate: playbackRate,
-            audio: WebRTCStreamRecordingAudioEdit(volume: volume, isMuted: isMuted, fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds),
+            audio: StreamRecordingAudioEdit(volume: volume, isMuted: isMuted, fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds),
             exportPreset: exportQuality.preset,
             outputResolution: outputResolution,
             color: colorAdjustment,
@@ -1294,14 +1294,14 @@ final class RecordingEditorViewModel: ObservableObject {
         activeExportSession = nil
     }
 
-    func export() async throws -> WebRTCStreamRecording {
-        guard !isExporting else { throw WebRTCStreamRecordingEditorError.exportFailed("An export is already running.") }
+    func export() async throws -> StreamRecording {
+        guard !isExporting else { throw StreamRecordingEditorError.exportFailed("An export is already running.") }
         isExporting = true
         exportProgress = 0
         errorMessage = nil
         do {
             let request = request()
-            let recording = try await WebRTCStreamRecordingLibrary.exportEditedRecording(
+            let recording = try await StreamRecordingLibrary.exportEditedRecording(
                 request,
                 sessionHandler: { [weak self] sessionBox in
                     self?.activeExportSession = sessionBox.session
@@ -1317,7 +1317,7 @@ final class RecordingEditorViewModel: ObservableObject {
         } catch {
             activeExportSession = nil
             isExporting = false
-            if case WebRTCStreamRecordingEditorError.exportCancelled = error {
+            if case StreamRecordingEditorError.exportCancelled = error {
                 exportProgress = 0
             } else {
                 errorMessage = error.localizedDescription
@@ -1327,12 +1327,12 @@ final class RecordingEditorViewModel: ObservableObject {
     }
 
     func exportCopy(to destinationURL: URL) async throws -> URL {
-        guard !isExporting else { throw WebRTCStreamRecordingEditorError.exportFailed("An export is already running.") }
+        guard !isExporting else { throw StreamRecordingEditorError.exportFailed("An export is already running.") }
         isExporting = true
         exportProgress = 0
         errorMessage = nil
         do {
-            let outputURL = try await WebRTCStreamRecordingLibrary.exportEditedRecordingCopy(
+            let outputURL = try await StreamRecordingLibrary.exportEditedRecordingCopy(
                 request(),
                 to: destinationURL,
                 sessionHandler: { [weak self] sessionBox in self?.activeExportSession = sessionBox.session },
@@ -1345,7 +1345,7 @@ final class RecordingEditorViewModel: ObservableObject {
         } catch {
             activeExportSession = nil
             isExporting = false
-            if case WebRTCStreamRecordingEditorError.exportCancelled = error {
+            if case StreamRecordingEditorError.exportCancelled = error {
                 exportProgress = 0
             } else {
                 errorMessage = error.localizedDescription

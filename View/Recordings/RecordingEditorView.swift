@@ -86,7 +86,7 @@ struct RecordingEditorView: View {
     let onPause: () -> Void
     let onShuttle: (Float) -> Void
     let onCancel: () -> Void
-    let onSaved: (WebRTCStreamRecording) -> Void
+    let onSaved: (StreamRecording) -> Void
     let onPreviewChanged: () -> Void
 
     @State private var exportTask: Task<Void, Never>?
@@ -632,7 +632,7 @@ struct RecordingEditorView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var filteredBrowserRecordings: [WebRTCStreamRecording] {
+    private var filteredBrowserRecordings: [StreamRecording] {
         let query = browserSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return viewModel.library }
         return viewModel.library.filter {
@@ -782,8 +782,8 @@ struct RecordingEditorView: View {
                         get: { selectedSegment.transitionBefore },
                         set: viewModel.setSelectedTransition
                     )) {
-                        Text("Cut").tag(WebRTCStreamRecordingTransitionStyle.cut)
-                        Text("Fade Through Black").tag(WebRTCStreamRecordingTransitionStyle.fadeThroughBlack)
+                        Text("Cut").tag(StreamRecordingTransitionStyle.cut)
+                        Text("Fade Through Black").tag(StreamRecordingTransitionStyle.fadeThroughBlack)
                     }
                     .pickerStyle(.menu)
                     if selectedSegment.transitionBefore == .fadeThroughBlack {
@@ -881,10 +881,10 @@ struct RecordingEditorView: View {
                 get: { viewModel.outputResolution },
                 set: viewModel.setOutputResolution
             )) {
-                Text("Source Match").tag(WebRTCStreamRecordingOutputResolution.source)
-                Text("1080p MP4").tag(WebRTCStreamRecordingOutputResolution.p1080)
-                Text("720p MP4").tag(WebRTCStreamRecordingOutputResolution.p720)
-                Text("Up to 4K MP4").tag(WebRTCStreamRecordingOutputResolution.p4k).disabled(!viewModel.supports4KOutput)
+                Text("Source Match").tag(StreamRecordingOutputResolution.source)
+                Text("1080p MP4").tag(StreamRecordingOutputResolution.p1080)
+                Text("720p MP4").tag(StreamRecordingOutputResolution.p720)
+                Text("Up to 4K MP4").tag(StreamRecordingOutputResolution.p4k).disabled(!viewModel.supports4KOutput)
             }
             .pickerStyle(.menu)
             let dimensions = viewModel.predictedOutputDimensions
@@ -1354,7 +1354,7 @@ struct RecordingEditorView: View {
 }
 
 private struct RecordingEditorBrowserClipRow: View {
-    let recording: WebRTCStreamRecording
+    let recording: StreamRecording
     let isSelected: Bool
     let timelineUsesRecording: Bool
     let onSelect: () -> Void
@@ -1446,7 +1446,7 @@ private struct RecordingEditorBrowserClipRow: View {
 private enum RecordingEditorBrowserThumbnailCache {
     private static let cache = NSCache<NSString, NSImage>()
 
-    static func thumbnail(for recording: WebRTCStreamRecording) async -> NSImage? {
+    static func thumbnail(for recording: StreamRecording) async -> NSImage? {
         let key = recording.id.uuidString as NSString
         if let cachedImage = cache.object(forKey: key) { return cachedImage }
         guard FileManager.default.fileExists(atPath: recording.videoURL.path) else { return nil }

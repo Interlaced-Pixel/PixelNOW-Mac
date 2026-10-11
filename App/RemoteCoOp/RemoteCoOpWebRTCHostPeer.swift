@@ -59,11 +59,11 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
     }
 
     public func start() async throws {
-        WebRTCMediaLog.write("webrtc.remote_coop.host_peer.start", level: .info, message: "Starting WebRTC Remote Co-Op host peer.", attributes: ["participantID": participantID.uuidString])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.host_peer.start", level: .info, message: "Starting WebRTC Remote Co-Op host peer.", attributes: ["participantID": participantID.uuidString])
         let peerConnection = try makePeerConnection()
         createInputChannel(peerConnection: peerConnection)
         try await createAndSendOffer(peerConnection: peerConnection)
-        WebRTCMediaLog.write("webrtc.remote_coop.host_peer.started", level: .info, message: "WebRTC Remote Co-Op host peer started.", attributes: ["participantID": participantID.uuidString])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.host_peer.started", level: .info, message: "WebRTC Remote Co-Op host peer started.", attributes: ["participantID": participantID.uuidString])
     }
 
     public func apply(_ signal: RemoteCoOpWirePeerSignal) async throws {
@@ -212,7 +212,7 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
         guard let peerConnection = factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
             throw RemoteCoOpHostPeerError.negotiationFailed("Unable to create Remote Co-Op WebRTC peer connection.")
         }
-        WebRTCMediaLog.write("webrtc.remote_coop.host_peer.connection", level: .info, message: "Remote Co-Op direct peer connection created.", attributes: ["participantID": participantID.uuidString, "iceServers": String(configuration.iceServers.count), "policy": "all"])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.host_peer.connection", level: .info, message: "Remote Co-Op direct peer connection created.", attributes: ["participantID": participantID.uuidString, "iceServers": String(configuration.iceServers.count), "policy": "all"])
         attachVideoTrack(peerConnection: peerConnection, factory: factory)
         attachAudioTrack(peerConnection: peerConnection, factory: factory)
         stateLock.withLock {
@@ -301,7 +301,7 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
 
     private func logVideoPacingIfNeeded() {
         guard deliveredVideoFrameCount.isMultiple(of: 240), droppedVideoFrameCount > 0 else { return }
-        WebRTCMediaLog.write("webrtc.remote_coop.video.paced", level: .debug, message: "Remote Co-Op video pacing dropped stale frames.", attributes: [
+        NativeNVSTMediaLog.write("webrtc.remote_coop.video.paced", level: .debug, message: "Remote Co-Op video pacing dropped stale frames.", attributes: [
             "participantID": participantID.uuidString,
             "deliveredFrames": String(deliveredVideoFrameCount),
             "droppedFrames": String(droppedVideoFrameCount),
@@ -358,12 +358,12 @@ public final class RemoteCoOpWebRTCHostPeer: NSObject, RemoteCoOpHostPeer, Remot
 
     private func createAndSendOffer(peerConnection: RTCPeerConnection) async throws {
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        WebRTCMediaLog.write("webrtc.remote_coop.host_peer.offer.create", level: .info, message: "Creating Remote Co-Op WebRTC offer.", attributes: ["participantID": participantID.uuidString])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.host_peer.offer.create", level: .info, message: "Creating Remote Co-Op WebRTC offer.", attributes: ["participantID": participantID.uuidString])
         let offer = try await createOffer(peerConnection: peerConnection, constraints: constraints)
-        WebRTCMediaLog.write("webrtc.remote_coop.host_peer.offer.created", level: .info, message: "Remote Co-Op WebRTC offer created.", attributes: ["participantID": participantID.uuidString, "sdpBytes": String(offer.sdp.utf8.count)])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.host_peer.offer.created", level: .info, message: "Remote Co-Op WebRTC offer created.", attributes: ["participantID": participantID.uuidString, "sdpBytes": String(offer.sdp.utf8.count)])
         try await setLocalDescription(offer, peerConnection: peerConnection)
         try await waitForICEGathering(peerConnection)
-        WebRTCMediaLog.write("webrtc.remote_coop.host_peer.offer.local_description", level: .info, message: "Remote Co-Op local offer description set.", attributes: ["participantID": participantID.uuidString])
+        NativeNVSTMediaLog.write("webrtc.remote_coop.host_peer.offer.local_description", level: .info, message: "Remote Co-Op local offer description set.", attributes: ["participantID": participantID.uuidString])
         let gatheredSDP = stateLock.withLock { peerConnection.localDescription?.sdp } ?? offer.sdp
         await callbacks.sendSignal(RemoteCoOpWirePeerSignal(kind: .offer, sdp: gatheredSDP))
     }

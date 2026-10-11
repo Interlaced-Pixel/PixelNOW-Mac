@@ -4,16 +4,16 @@ import CoreGraphics
 import CoreImage
 import Foundation
 
-public struct WebRTCStreamRecordingEditSegment: Equatable, Identifiable, Sendable {
+public struct StreamRecordingEditSegment: Equatable, Identifiable, Sendable {
     public let id: UUID
-    public var recording: WebRTCStreamRecording
+    public var recording: StreamRecording
     public var startSeconds: Double
     public var endSeconds: Double
-    public var audio: WebRTCStreamRecordingAudioEdit
-    public var transitionBefore: WebRTCStreamRecordingTransitionStyle
+    public var audio: StreamRecordingAudioEdit
+    public var transitionBefore: StreamRecordingTransitionStyle
     public var transitionDurationSeconds: Double
 
-    public init(id: UUID = UUID(), recording: WebRTCStreamRecording, startSeconds: Double, endSeconds: Double, audio: WebRTCStreamRecordingAudioEdit = .original, transitionBefore: WebRTCStreamRecordingTransitionStyle = .cut, transitionDurationSeconds: Double = 0.5) {
+    public init(id: UUID = UUID(), recording: StreamRecording, startSeconds: Double, endSeconds: Double, audio: StreamRecordingAudioEdit = .original, transitionBefore: StreamRecordingTransitionStyle = .cut, transitionDurationSeconds: Double = 0.5) {
         self.id = id
         self.recording = recording
         self.startSeconds = startSeconds
@@ -26,7 +26,7 @@ public struct WebRTCStreamRecordingEditSegment: Equatable, Identifiable, Sendabl
     public var durationSeconds: Double { max(0, endSeconds - startSeconds) }
 }
 
-public struct WebRTCStreamRecordingCrop: Equatable, Sendable {
+public struct StreamRecordingCrop: Equatable, Sendable {
     public var x: Double
     public var y: Double
     public var width: Double
@@ -39,14 +39,14 @@ public struct WebRTCStreamRecordingCrop: Equatable, Sendable {
         self.height = height
     }
 
-    public static let fullFrame = WebRTCStreamRecordingCrop(x: 0, y: 0, width: 1, height: 1)
+    public static let fullFrame = StreamRecordingCrop(x: 0, y: 0, width: 1, height: 1)
 
     var isFullFrame: Bool {
         abs(x) <= 0.0001 && abs(y) <= 0.0001 && abs(width - 1) <= 0.0001 && abs(height - 1) <= 0.0001
     }
 }
 
-public enum WebRTCStreamRecordingRotation: Int, CaseIterable, Sendable {
+public enum StreamRecordingRotation: Int, CaseIterable, Sendable {
     case degrees0 = 0
     case degrees90 = 90
     case degrees180 = 180
@@ -55,18 +55,18 @@ public enum WebRTCStreamRecordingRotation: Int, CaseIterable, Sendable {
     public var quarterTurns: Int { rawValue / 90 }
 }
 
-public enum WebRTCStreamRecordingExportPreset: String, CaseIterable, Sendable {
+public enum StreamRecordingExportPreset: String, CaseIterable, Sendable {
     case highestQuality
     case balanced
     case compact
 }
 
-public enum WebRTCStreamRecordingTransitionStyle: String, Codable, CaseIterable, Sendable {
+public enum StreamRecordingTransitionStyle: String, Codable, CaseIterable, Sendable {
     case cut
     case fadeThroughBlack
 }
 
-public enum WebRTCStreamRecordingOutputResolution: String, CaseIterable, Sendable {
+public enum StreamRecordingOutputResolution: String, CaseIterable, Sendable {
     case source
     case p720
     case p1080
@@ -82,7 +82,7 @@ public enum WebRTCStreamRecordingOutputResolution: String, CaseIterable, Sendabl
     }
 }
 
-public struct WebRTCStreamRecordingAudioEdit: Equatable, Sendable {
+public struct StreamRecordingAudioEdit: Equatable, Sendable {
     public var volume: Double
     public var isMuted: Bool
     public var fadeInSeconds: Double
@@ -95,10 +95,10 @@ public struct WebRTCStreamRecordingAudioEdit: Equatable, Sendable {
         self.fadeOutSeconds = fadeOutSeconds
     }
 
-    public static let original = WebRTCStreamRecordingAudioEdit()
+    public static let original = StreamRecordingAudioEdit()
 }
 
-public struct WebRTCStreamRecordingColorAdjustment: Equatable, Sendable {
+public struct StreamRecordingColorAdjustment: Equatable, Sendable {
     public var exposure: Double
     public var contrast: Double
     public var saturation: Double
@@ -115,14 +115,14 @@ public struct WebRTCStreamRecordingColorAdjustment: Equatable, Sendable {
         self.vignette = vignette
     }
 
-    public static let neutral = WebRTCStreamRecordingColorAdjustment()
+    public static let neutral = StreamRecordingColorAdjustment()
 
     var isNeutral: Bool {
         abs(exposure) < 0.0001 && abs(contrast - 1) < 0.0001 && abs(saturation - 1) < 0.0001 && abs(temperature) < 0.0001 && abs(tint) < 0.0001 && abs(vignette) < 0.0001
     }
 }
 
-public struct WebRTCStreamRecordingPreview: @unchecked Sendable {
+public struct StreamRecordingPreview: @unchecked Sendable {
     public let asset: AVAsset
     public let audioMix: AVAudioMix?
     public let videoComposition: AVVideoComposition?
@@ -136,24 +136,24 @@ public struct WebRTCStreamRecordingPreview: @unchecked Sendable {
     }
 }
 
-public struct WebRTCStreamRecordingEditRequest: Sendable {
+public struct StreamRecordingEditRequest: Sendable {
     public var title: String
-    public var segments: [WebRTCStreamRecordingEditSegment]
-    public var crop: WebRTCStreamRecordingCrop?
-    public var rotation: WebRTCStreamRecordingRotation
+    public var segments: [StreamRecordingEditSegment]
+    public var crop: StreamRecordingCrop?
+    public var rotation: StreamRecordingRotation
     public var isFlippedHorizontally: Bool
     public var isFlippedVertically: Bool
     public var playbackRate: Double
-    public var audio: WebRTCStreamRecordingAudioEdit
-    public var exportPreset: WebRTCStreamRecordingExportPreset
-    public var outputResolution: WebRTCStreamRecordingOutputResolution
-    public var color: WebRTCStreamRecordingColorAdjustment
+    public var audio: StreamRecordingAudioEdit
+    public var exportPreset: StreamRecordingExportPreset
+    public var outputResolution: StreamRecordingOutputResolution
+    public var color: StreamRecordingColorAdjustment
     public var captions: [RecordingEditorCaption]
     public var burnInCaptions: Bool
     public var overlays: [RecordingEditorOverlay]
     public var zoomKeyframes: [RecordingEditorZoomKeyframe]
 
-    public init(title: String, segments: [WebRTCStreamRecordingEditSegment], crop: WebRTCStreamRecordingCrop? = nil, rotation: WebRTCStreamRecordingRotation = .degrees0, isFlippedHorizontally: Bool = false, isFlippedVertically: Bool = false, playbackRate: Double = 1, audio: WebRTCStreamRecordingAudioEdit = .original, exportPreset: WebRTCStreamRecordingExportPreset = .highestQuality, outputResolution: WebRTCStreamRecordingOutputResolution = .source, color: WebRTCStreamRecordingColorAdjustment = .neutral, captions: [RecordingEditorCaption] = [], burnInCaptions: Bool = false, overlays: [RecordingEditorOverlay] = [], zoomKeyframes: [RecordingEditorZoomKeyframe] = []) {
+    public init(title: String, segments: [StreamRecordingEditSegment], crop: StreamRecordingCrop? = nil, rotation: StreamRecordingRotation = .degrees0, isFlippedHorizontally: Bool = false, isFlippedVertically: Bool = false, playbackRate: Double = 1, audio: StreamRecordingAudioEdit = .original, exportPreset: StreamRecordingExportPreset = .highestQuality, outputResolution: StreamRecordingOutputResolution = .source, color: StreamRecordingColorAdjustment = .neutral, captions: [RecordingEditorCaption] = [], burnInCaptions: Bool = false, overlays: [RecordingEditorOverlay] = [], zoomKeyframes: [RecordingEditorZoomKeyframe] = []) {
         self.title = title
         self.segments = segments
         self.crop = crop
@@ -188,7 +188,7 @@ public struct RecordingEditorZoomKeyframe: Codable, Equatable, Identifiable, Sen
     }
 }
 
-public enum WebRTCStreamRecordingEditorError: LocalizedError, Equatable {
+public enum StreamRecordingEditorError: LocalizedError, Equatable {
     case emptyTimeline
     case missingSourceFile(String)
     case invalidTimeRange(String)
@@ -232,8 +232,8 @@ public enum WebRTCStreamRecordingEditorError: LocalizedError, Equatable {
     }
 }
 
-private struct WebRTCStreamRecordingLoadedSegment {
-    let segment: WebRTCStreamRecordingEditSegment
+private struct StreamRecordingLoadedSegment {
+    let segment: StreamRecordingEditSegment
     let asset: AVURLAsset
     let duration: CMTime
     let videoTrack: AVAssetTrack
@@ -243,15 +243,15 @@ private struct WebRTCStreamRecordingLoadedSegment {
     let frameRate: Float
 }
 
-private struct WebRTCStreamRecordingTimelineBuildResult {
+private struct StreamRecordingTimelineBuildResult {
     let composition: AVMutableComposition
     let duration: CMTime
-    let firstRecording: WebRTCStreamRecording
+    let firstRecording: StreamRecording
     let renderSize: CGSize
     let frameRate: Float
 }
 
-public final class WebRTCStreamRecordingExportSessionBox: @unchecked Sendable {
+public final class StreamRecordingExportSessionBox: @unchecked Sendable {
     let session: AVAssetExportSession
 
     init(session: AVAssetExportSession) {
@@ -259,8 +259,8 @@ public final class WebRTCStreamRecordingExportSessionBox: @unchecked Sendable {
     }
 }
 
-public extension WebRTCStreamRecordingLibrary {
-    static func previewEditedRecording(_ request: WebRTCStreamRecordingEditRequest) async throws -> WebRTCStreamRecordingPreview {
+public extension StreamRecordingLibrary {
+    static func previewEditedRecording(_ request: StreamRecordingEditRequest) async throws -> StreamRecordingPreview {
         let normalizedRequest = try validate(request)
         let loadedSegments = try await loadSegments(normalizedRequest.segments)
         let build = try buildTimeline(from: loadedSegments, request: normalizedRequest)
@@ -269,7 +269,7 @@ public extension WebRTCStreamRecordingLibrary {
             ? videoComposition(for: build.composition, request: normalizedRequest, renderSize: build.renderSize, frameRate: build.frameRate)
             : nil
         )
-        return WebRTCStreamRecordingPreview(
+        return StreamRecordingPreview(
             asset: build.composition,
             audioMix: previewAudioMix,
             videoComposition: previewVideoComposition,
@@ -277,7 +277,7 @@ public extension WebRTCStreamRecordingLibrary {
         )
     }
 
-    static func exportEditedRecording(_ request: WebRTCStreamRecordingEditRequest, sessionHandler: (@MainActor (WebRTCStreamRecordingExportSessionBox) -> Void)? = nil, progressHandler: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> WebRTCStreamRecording {
+    static func exportEditedRecording(_ request: StreamRecordingEditRequest, sessionHandler: (@MainActor (StreamRecordingExportSessionBox) -> Void)? = nil, progressHandler: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> StreamRecording {
         let normalizedRequest = try validate(request)
         let outputID = UUID()
         let outputDirectory = try ensureDirectory(forGameTitle: normalizedRequest.title)
@@ -289,7 +289,7 @@ public extension WebRTCStreamRecordingLibrary {
             let loadedSegments = try await loadSegments(normalizedRequest.segments)
             let build = try buildTimeline(from: loadedSegments, request: normalizedRequest)
             let presetName = await compatiblePreset(for: normalizedRequest.exportPreset, asset: build.composition)
-            guard let exportSession = AVAssetExportSession(asset: build.composition, presetName: presetName) else { throw WebRTCStreamRecordingEditorError.unableToCreateExportSession }
+            guard let exportSession = AVAssetExportSession(asset: build.composition, presetName: presetName) else { throw StreamRecordingEditorError.unableToCreateExportSession }
             let outputFileType = try compatibleMP4FileType(for: exportSession)
             exportSession.shouldOptimizeForNetworkUse = false
             exportSession.timeRange = CMTimeRange(start: .zero, duration: build.duration)
@@ -297,21 +297,21 @@ public extension WebRTCStreamRecordingLibrary {
             if needsVideoComposition(normalizedRequest, loadedSegments: loadedSegments) {
                 exportSession.videoComposition = try await videoComposition(for: build.composition, request: normalizedRequest, renderSize: build.renderSize, frameRate: build.frameRate)
             }
-            let sessionBox = WebRTCStreamRecordingExportSessionBox(session: exportSession)
+            let sessionBox = StreamRecordingExportSessionBox(session: exportSession)
             await sessionHandler?(sessionBox)
             await progressHandler?(0)
             try await runExportSession(exportSession, outputURL: outputURL, outputFileType: outputFileType, progressHandler: progressHandler)
             await progressHandler?(1)
             let attributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
             let fileSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-            guard fileSize > 0 else { throw WebRTCStreamRecordingEditorError.invalidExportedFile }
+            guard fileSize > 0 else { throw StreamRecordingEditorError.invalidExportedFile }
             let inspection = try await inspectExportedMedia(
                 at: outputURL,
                 expectedDuration: build.duration.seconds,
                 expectedVideoSize: build.renderSize,
                 requiresAudio: !normalizedRequest.audio.isMuted && loadedSegments.contains { $0.audioTrack != nil && !$0.segment.audio.isMuted }
             )
-            let recording = WebRTCStreamRecording(
+            let recording = StreamRecording(
                 id: outputID,
                 title: normalizedRequest.title,
                 applicationID: build.firstRecording.applicationID,
@@ -336,13 +336,13 @@ public extension WebRTCStreamRecordingLibrary {
         }
     }
 
-    static func exportEditedRecordingCopy(_ request: WebRTCStreamRecordingEditRequest, to destinationURL: URL, sessionHandler: (@MainActor (WebRTCStreamRecordingExportSessionBox) -> Void)? = nil, progressHandler: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
+    static func exportEditedRecordingCopy(_ request: StreamRecordingEditRequest, to destinationURL: URL, sessionHandler: (@MainActor (StreamRecordingExportSessionBox) -> Void)? = nil, progressHandler: (@MainActor @Sendable (Double) -> Void)? = nil) async throws -> URL {
         let normalizedRequest = try validate(request)
         let outputURL = destinationURL.pathExtension.isEmpty ? destinationURL.appendingPathExtension("mp4") : destinationURL
         let fileManager = FileManager.default
         let destinationPath = outputURL.standardizedFileURL.path
         guard !normalizedRequest.segments.contains(where: { $0.recording.videoURL.standardizedFileURL.path == destinationPath }) else {
-            throw WebRTCStreamRecordingEditorError.exportFailed("Choose a new file so the source recording stays unchanged.")
+            throw StreamRecordingEditorError.exportFailed("Choose a new file so the source recording stays unchanged.")
         }
         let parentDirectory = outputURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
@@ -351,7 +351,7 @@ public extension WebRTCStreamRecordingLibrary {
             let loadedSegments = try await loadSegments(normalizedRequest.segments)
             let build = try buildTimeline(from: loadedSegments, request: normalizedRequest)
             let presetName = await compatiblePreset(for: normalizedRequest.exportPreset, asset: build.composition)
-            guard let exportSession = AVAssetExportSession(asset: build.composition, presetName: presetName) else { throw WebRTCStreamRecordingEditorError.unableToCreateExportSession }
+            guard let exportSession = AVAssetExportSession(asset: build.composition, presetName: presetName) else { throw StreamRecordingEditorError.unableToCreateExportSession }
             let outputFileType = try compatibleMP4FileType(for: exportSession)
             exportSession.shouldOptimizeForNetworkUse = false
             exportSession.timeRange = CMTimeRange(start: .zero, duration: build.duration)
@@ -359,7 +359,7 @@ public extension WebRTCStreamRecordingLibrary {
             if needsVideoComposition(normalizedRequest, loadedSegments: loadedSegments) {
                 exportSession.videoComposition = try await videoComposition(for: build.composition, request: normalizedRequest, renderSize: build.renderSize, frameRate: build.frameRate)
             }
-            await sessionHandler?(WebRTCStreamRecordingExportSessionBox(session: exportSession))
+            await sessionHandler?(StreamRecordingExportSessionBox(session: exportSession))
             await progressHandler?(0)
             try await runExportSession(exportSession, outputURL: temporaryURL, outputFileType: outputFileType, progressHandler: progressHandler)
             _ = try await inspectExportedMedia(
@@ -381,13 +381,13 @@ public extension WebRTCStreamRecordingLibrary {
         }
     }
 
-    private static func validate(_ request: WebRTCStreamRecordingEditRequest) throws -> WebRTCStreamRecordingEditRequest {
-        guard !request.segments.isEmpty else { throw WebRTCStreamRecordingEditorError.emptyTimeline }
-        guard request.playbackRate.isFinite, request.playbackRate >= 0.25, request.playbackRate <= 4 else { throw WebRTCStreamRecordingEditorError.invalidPlaybackRate }
+    private static func validate(_ request: StreamRecordingEditRequest) throws -> StreamRecordingEditRequest {
+        guard !request.segments.isEmpty else { throw StreamRecordingEditorError.emptyTimeline }
+        guard request.playbackRate.isFinite, request.playbackRate >= 0.25, request.playbackRate <= 4 else { throw StreamRecordingEditorError.invalidPlaybackRate }
         if let crop = request.crop, !crop.isFullFrame {
             guard crop.x.isFinite, crop.y.isFinite, crop.width.isFinite, crop.height.isFinite,
                   crop.x >= 0, crop.y >= 0, crop.width > 0, crop.height > 0,
-                  crop.x + crop.width <= 1.0001, crop.y + crop.height <= 1.0001 else { throw WebRTCStreamRecordingEditorError.invalidCrop }
+                  crop.x + crop.width <= 1.0001, crop.y + crop.height <= 1.0001 else { throw StreamRecordingEditorError.invalidCrop }
         }
         let cleanedTitle = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
         var normalized = request
@@ -421,32 +421,32 @@ public extension WebRTCStreamRecordingLibrary {
         return normalized
     }
 
-    private static func loadSegments(_ segments: [WebRTCStreamRecordingEditSegment]) async throws -> [WebRTCStreamRecordingLoadedSegment] {
-        var loadedSegments: [WebRTCStreamRecordingLoadedSegment] = []
+    private static func loadSegments(_ segments: [StreamRecordingEditSegment]) async throws -> [StreamRecordingLoadedSegment] {
+        var loadedSegments: [StreamRecordingLoadedSegment] = []
         loadedSegments.reserveCapacity(segments.count)
         for segment in segments {
             let url = segment.recording.videoURL
-            guard FileManager.default.fileExists(atPath: url.path) else { throw WebRTCStreamRecordingEditorError.missingSourceFile(url.lastPathComponent) }
+            guard FileManager.default.fileExists(atPath: url.path) else { throw StreamRecordingEditorError.missingSourceFile(url.lastPathComponent) }
             let asset = AVURLAsset(url: url)
             let duration = try await asset.load(.duration)
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
-            guard let videoTrack = videoTracks.first else { throw WebRTCStreamRecordingEditorError.noVideoTrack(url.lastPathComponent) }
+            guard let videoTrack = videoTracks.first else { throw StreamRecordingEditorError.noVideoTrack(url.lastPathComponent) }
             let frameRate = try await videoTrack.load(.nominalFrameRate)
             let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
             let naturalSize = try await videoTrack.load(.naturalSize)
             let preferredTransform = try await videoTrack.load(.preferredTransform)
             let displaySize = displaySize(naturalSize: naturalSize, preferredTransform: preferredTransform)
-            guard segment.startSeconds.isFinite, segment.endSeconds.isFinite, segment.startSeconds >= 0, segment.endSeconds > segment.startSeconds else { throw WebRTCStreamRecordingEditorError.invalidTimeRange(url.lastPathComponent) }
-            guard segment.endSeconds <= duration.seconds + 0.05 else { throw WebRTCStreamRecordingEditorError.invalidTimeRange(url.lastPathComponent) }
-            loadedSegments.append(WebRTCStreamRecordingLoadedSegment(segment: segment, asset: asset, duration: duration, videoTrack: videoTrack, audioTrack: audioTrack, displaySize: displaySize, preferredTransform: preferredTransform, frameRate: frameRate))
+            guard segment.startSeconds.isFinite, segment.endSeconds.isFinite, segment.startSeconds >= 0, segment.endSeconds > segment.startSeconds else { throw StreamRecordingEditorError.invalidTimeRange(url.lastPathComponent) }
+            guard segment.endSeconds <= duration.seconds + 0.05 else { throw StreamRecordingEditorError.invalidTimeRange(url.lastPathComponent) }
+            loadedSegments.append(StreamRecordingLoadedSegment(segment: segment, asset: asset, duration: duration, videoTrack: videoTrack, audioTrack: audioTrack, displaySize: displaySize, preferredTransform: preferredTransform, frameRate: frameRate))
         }
         return loadedSegments
     }
 
-    private static func buildTimeline(from loadedSegments: [WebRTCStreamRecordingLoadedSegment], request: WebRTCStreamRecordingEditRequest) throws -> WebRTCStreamRecordingTimelineBuildResult {
-        guard let firstSegment = loadedSegments.first else { throw WebRTCStreamRecordingEditorError.emptyTimeline }
+    private static func buildTimeline(from loadedSegments: [StreamRecordingLoadedSegment], request: StreamRecordingEditRequest) throws -> StreamRecordingTimelineBuildResult {
+        guard let firstSegment = loadedSegments.first else { throw StreamRecordingEditorError.emptyTimeline }
         let composition = AVMutableComposition()
-        guard let videoCompositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { throw WebRTCStreamRecordingEditorError.unableToCreateCompositionTrack }
+        guard let videoCompositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { throw StreamRecordingEditorError.unableToCreateCompositionTrack }
         let audioCompositionTrack = loadedSegments.contains { $0.audioTrack != nil } ? composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) : nil
         videoCompositionTrack.preferredTransform = firstSegment.preferredTransform
         var cursor = CMTime.zero
@@ -468,10 +468,10 @@ public extension WebRTCStreamRecordingLibrary {
             cursor = CMTimeAdd(cursor, scaledDuration)
         }
         let renderSize = renderSize(for: firstSegment.displaySize, request: request)
-        return WebRTCStreamRecordingTimelineBuildResult(composition: composition, duration: cursor, firstRecording: firstSegment.segment.recording, renderSize: renderSize, frameRate: firstSegment.frameRate)
+        return StreamRecordingTimelineBuildResult(composition: composition, duration: cursor, firstRecording: firstSegment.segment.recording, renderSize: renderSize, frameRate: firstSegment.frameRate)
     }
 
-    private static func videoComposition(for composition: AVMutableComposition, request: WebRTCStreamRecordingEditRequest, renderSize: CGSize, frameRate: Float) async throws -> AVMutableVideoComposition {
+    private static func videoComposition(for composition: AVMutableComposition, request: StreamRecordingEditRequest, renderSize: CGSize, frameRate: Float) async throws -> AVMutableVideoComposition {
         let videoComposition = try await withCheckedThrowingContinuation { continuation in
             AVMutableVideoComposition.videoComposition(with: composition, applyingCIFiltersWithHandler: { filterRequest in
                 applyVideoFilters(filterRequest, request: request, renderSize: renderSize)
@@ -479,7 +479,7 @@ public extension WebRTCStreamRecordingLibrary {
                 if let videoComposition {
                     continuation.resume(returning: videoComposition)
                 } else {
-                    continuation.resume(throwing: WebRTCStreamRecordingEditorError.exportFailed(error?.localizedDescription ?? "Unable to create video composition."))
+                    continuation.resume(throwing: StreamRecordingEditorError.exportFailed(error?.localizedDescription ?? "Unable to create video composition."))
                 }
             }
         }
@@ -489,7 +489,7 @@ public extension WebRTCStreamRecordingLibrary {
         return videoComposition
     }
 
-    private static func applyVideoFilters(_ filterRequest: AVAsynchronousCIImageFilteringRequest, request: WebRTCStreamRecordingEditRequest, renderSize: CGSize) {
+    private static func applyVideoFilters(_ filterRequest: AVAsynchronousCIImageFilteringRequest, request: StreamRecordingEditRequest, renderSize: CGSize) {
         let sourceExtent = filterRequest.sourceImage.extent
         let crop = request.crop ?? .fullFrame
         let cropRect = cropRect(for: sourceExtent, crop: crop)
@@ -560,7 +560,7 @@ public extension WebRTCStreamRecordingLibrary {
         )
     }
 
-    private static func applyPointerTreatment(_ segments: [WebRTCStreamRecordingEditSegment], at timelineTime: Double, playbackRate: Double, to image: CIImage, renderSize: CGSize) -> CIImage {
+    private static func applyPointerTreatment(_ segments: [StreamRecordingEditSegment], at timelineTime: Double, playbackRate: Double, to image: CIImage, renderSize: CGSize) -> CIImage {
         var cursor = 0.0
         for segment in segments {
             let duration = segment.durationSeconds / max(0.25, playbackRate)
@@ -614,7 +614,7 @@ public extension WebRTCStreamRecordingLibrary {
         return CIImage(cgImage: cgImage)
     }
 
-    private static func transitionBlackOpacity(at time: Double, segments: [WebRTCStreamRecordingEditSegment], playbackRate: Double) -> CGFloat {
+    private static func transitionBlackOpacity(at time: Double, segments: [StreamRecordingEditSegment], playbackRate: Double) -> CGFloat {
         var cursor = 0.0
         var opacity = 0.0
         for (index, segment) in segments.enumerated() {
@@ -677,7 +677,7 @@ public extension WebRTCStreamRecordingLibrary {
         }
     }
 
-    private static func audioMix(for composition: AVMutableComposition, request: WebRTCStreamRecordingEditRequest, duration: CMTime) -> AVAudioMix? {
+    private static func audioMix(for composition: AVMutableComposition, request: StreamRecordingEditRequest, duration: CMTime) -> AVAudioMix? {
         guard let audioTrack = composition.tracks(withMediaType: .audio).first else { return nil }
         let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
         let masterVolume = Float(request.audio.isMuted ? 0 : request.audio.volume)
@@ -715,7 +715,7 @@ public extension WebRTCStreamRecordingLibrary {
     }
 
     private static func runExportSession(_ exportSession: AVAssetExportSession, outputURL: URL, outputFileType: AVFileType, progressHandler: (@MainActor @Sendable (Double) -> Void)?) async throws {
-        let box = WebRTCStreamRecordingExportSessionBox(session: exportSession)
+        let box = StreamRecordingExportSessionBox(session: exportSession)
         let progressTask = Task.detached(priority: .utility) {
             while !Task.isCancelled {
                 await progressHandler?(Double(box.session.progress))
@@ -726,13 +726,13 @@ public extension WebRTCStreamRecordingLibrary {
         do {
             try await exportSession.export(to: outputURL, as: outputFileType)
         } catch is CancellationError {
-            throw WebRTCStreamRecordingEditorError.exportCancelled
+            throw StreamRecordingEditorError.exportCancelled
         } catch {
-            throw WebRTCStreamRecordingEditorError.exportFailed(error.localizedDescription)
+            throw StreamRecordingEditorError.exportFailed(error.localizedDescription)
         }
     }
 
-    private static func needsVideoComposition(_ request: WebRTCStreamRecordingEditRequest, loadedSegments: [WebRTCStreamRecordingLoadedSegment]) -> Bool {
+    private static func needsVideoComposition(_ request: StreamRecordingEditRequest, loadedSegments: [StreamRecordingLoadedSegment]) -> Bool {
         if let crop = request.crop, !crop.isFullFrame { return true }
         if request.rotation != .degrees0 || request.isFlippedHorizontally || request.isFlippedVertically { return true }
         if !request.color.isNeutral { return true }
@@ -745,7 +745,7 @@ public extension WebRTCStreamRecordingLibrary {
         return loadedSegments.contains { abs($0.displaySize.width - firstSize.width) > 1 || abs($0.displaySize.height - firstSize.height) > 1 }
     }
 
-    private static func applyColorAdjustments(_ image: CIImage, adjustment: WebRTCStreamRecordingColorAdjustment) -> CIImage {
+    private static func applyColorAdjustments(_ image: CIImage, adjustment: StreamRecordingColorAdjustment) -> CIImage {
         var result = image
         if abs(adjustment.exposure) > 0.0001, let filter = CIFilter(name: "CIExposureAdjust") {
             filter.setValue(result, forKey: kCIInputImageKey)
@@ -775,7 +775,7 @@ public extension WebRTCStreamRecordingLibrary {
         return result
     }
 
-    private static func compatiblePreset(for exportPreset: WebRTCStreamRecordingExportPreset, asset: AVAsset) async -> String {
+    private static func compatiblePreset(for exportPreset: StreamRecordingExportPreset, asset: AVAsset) async -> String {
         let preferred: [String]
         switch exportPreset {
         case .highestQuality:
@@ -802,7 +802,7 @@ public extension WebRTCStreamRecordingLibrary {
     private static func compatibleMP4FileType(for exportSession: AVAssetExportSession) throws -> AVFileType {
         if exportSession.supportedFileTypes.contains(.mp4) { return .mp4 }
         if let fileType = exportSession.supportedFileTypes.first { return fileType }
-        throw WebRTCStreamRecordingEditorError.unsupportedExportType
+        throw StreamRecordingEditorError.unsupportedExportType
     }
 
     private struct ExportedMediaInspection {
@@ -812,15 +812,15 @@ public extension WebRTCStreamRecordingLibrary {
     }
 
     private static func inspectExportedMedia(at url: URL, expectedDuration: Double, expectedVideoSize: CGSize, requiresAudio: Bool) async throws -> ExportedMediaInspection {
-        guard url.pathExtension.lowercased() == "mp4" else { throw WebRTCStreamRecordingEditorError.invalidExportedFile }
+        guard url.pathExtension.lowercased() == "mp4" else { throw StreamRecordingEditorError.invalidExportedFile }
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        guard ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 0 else { throw WebRTCStreamRecordingEditorError.invalidExportedFile }
+        guard ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 0 else { throw StreamRecordingEditorError.invalidExportedFile }
         let asset = AVURLAsset(url: url)
-        guard try await asset.load(.isPlayable) else { throw WebRTCStreamRecordingEditorError.invalidExportedFile }
+        guard try await asset.load(.isPlayable) else { throw StreamRecordingEditorError.invalidExportedFile }
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
-        guard let videoTrack = videoTracks.first else { throw WebRTCStreamRecordingEditorError.invalidExportedFile }
+        guard let videoTrack = videoTracks.first else { throw StreamRecordingEditorError.invalidExportedFile }
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        guard !requiresAudio || !audioTracks.isEmpty else { throw WebRTCStreamRecordingEditorError.invalidExportedFile }
+        guard !requiresAudio || !audioTracks.isEmpty else { throw StreamRecordingEditorError.invalidExportedFile }
         let duration = try await asset.load(.duration)
         let durationSeconds = duration.seconds
         guard durationSeconds.isFinite,
@@ -828,7 +828,7 @@ public extension WebRTCStreamRecordingLibrary {
               expectedDuration.isFinite,
               expectedDuration > 0,
               abs(durationSeconds - expectedDuration) <= max(0.5, expectedDuration * 0.02) else {
-            throw WebRTCStreamRecordingEditorError.invalidExportedFile
+            throw StreamRecordingEditorError.invalidExportedFile
         }
         let naturalSize = try await videoTrack.load(.naturalSize)
         let preferredTransform = try await videoTrack.load(.preferredTransform)
@@ -837,7 +837,7 @@ public extension WebRTCStreamRecordingLibrary {
         let height = max(1, Int(size.height.rounded()))
         guard abs(CGFloat(width) - expectedVideoSize.width) <= 2,
               abs(CGFloat(height) - expectedVideoSize.height) <= 2 else {
-            throw WebRTCStreamRecordingEditorError.invalidExportedFile
+            throw StreamRecordingEditorError.invalidExportedFile
         }
         return ExportedMediaInspection(width: width, height: height, durationSeconds: durationSeconds)
     }
@@ -849,7 +849,7 @@ public extension WebRTCStreamRecordingLibrary {
         return CGSize(width: max(1, width), height: max(1, height))
     }
 
-    private static func renderSize(for sourceSize: CGSize, request: WebRTCStreamRecordingEditRequest) -> CGSize {
+    private static func renderSize(for sourceSize: CGSize, request: StreamRecordingEditRequest) -> CGSize {
         let crop = request.crop ?? .fullFrame
         let croppedSize = CGSize(width: sourceSize.width * max(0.01, crop.width), height: sourceSize.height * max(0.01, crop.height))
         let rotated = rotatedSize(croppedSize, rotation: request.rotation)
@@ -864,7 +864,7 @@ public extension WebRTCStreamRecordingLibrary {
         return CGSize(width: width + width % 2, height: height + height % 2)
     }
 
-    private static func cropRect(for extent: CGRect, crop: WebRTCStreamRecordingCrop) -> CGRect {
+    private static func cropRect(for extent: CGRect, crop: StreamRecordingCrop) -> CGRect {
         guard !crop.isFullFrame else { return extent }
         return CGRect(
             x: extent.minX + extent.width * crop.x,
@@ -874,11 +874,11 @@ public extension WebRTCStreamRecordingLibrary {
         )
     }
 
-    private static func rotatedSize(_ size: CGSize, rotation: WebRTCStreamRecordingRotation) -> CGSize {
+    private static func rotatedSize(_ size: CGSize, rotation: StreamRecordingRotation) -> CGSize {
         rotation == .degrees90 || rotation == .degrees270 ? CGSize(width: size.height, height: size.width) : size
     }
 
-    private static func rotatedImage(_ image: CIImage, rotation: WebRTCStreamRecordingRotation, sourceSize: CGSize) -> CIImage {
+    private static func rotatedImage(_ image: CIImage, rotation: StreamRecordingRotation, sourceSize: CGSize) -> CIImage {
         switch rotation {
         case .degrees0:
             return image
@@ -891,7 +891,7 @@ public extension WebRTCStreamRecordingLibrary {
         }
     }
 
-    private static func bitrateForExportPreset(_ preset: WebRTCStreamRecordingExportPreset, source: WebRTCStreamRecording) -> Int {
+    private static func bitrateForExportPreset(_ preset: StreamRecordingExportPreset, source: StreamRecording) -> Int {
         switch preset {
         case .highestQuality:
             return source.videoBitrateMbps

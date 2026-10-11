@@ -16,11 +16,11 @@ enum RecordingsLayout {
 
 struct RecordingsView: View {
     @Binding var isVideoEditorPresented: Bool
-    @State private var recordings: [WebRTCStreamRecording] = []
-    @State private var selectedRecording: WebRTCStreamRecording?
+    @State private var recordings: [StreamRecording] = []
+    @State private var selectedRecording: StreamRecording?
     @State private var player: AVPlayer?
     @State private var message = ""
-    @State private var pendingDelete: WebRTCStreamRecording?
+    @State private var pendingDelete: StreamRecording?
     @State private var searchText = ""
     @State private var sortOrder: RecordingSortOrder = .newest
     @State private var activeFilters = Set<RecordingFilter>()
@@ -36,7 +36,7 @@ struct RecordingsView: View {
     @State private var importErrorMessage: String?
     @State private var exportingRecordingID: UUID?
 
-    private var visibleRecordings: [WebRTCStreamRecording] {
+    private var visibleRecordings: [StreamRecording] {
         let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return recordings
             .filter { recording in
@@ -277,7 +277,7 @@ struct RecordingsView: View {
         }
     }
 
-    private func selectedPlayer(recording: WebRTCStreamRecording, player: AVPlayer) -> some View {
+    private func selectedPlayer(recording: StreamRecording, player: AVPlayer) -> some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
                 RecordingPlayerView(player: player)
@@ -321,7 +321,7 @@ struct RecordingsView: View {
 
     @MainActor
     private func reload(showMessage: Bool) async {
-        let availableRecordings = await WebRTCStreamRecordingLibrary.loadAvailableRecordings()
+        let availableRecordings = await StreamRecordingLibrary.loadAvailableRecordings()
         guard !Task.isCancelled else { return }
         recordings = availableRecordings
         if let selectedRecording, let refreshed = recordings.first(where: { $0.id == selectedRecording.id }) {
@@ -360,15 +360,15 @@ struct RecordingsView: View {
         }
     }
 
-    private func importVideo(at url: URL) async throws -> WebRTCStreamRecording {
+    private func importVideo(at url: URL) async throws -> StreamRecording {
         let accessed = url.startAccessingSecurityScopedResource()
         defer {
             if accessed { url.stopAccessingSecurityScopedResource() }
         }
-        return try await WebRTCStreamRecordingLibrary.importVideo(from: url)
+        return try await StreamRecordingLibrary.importVideo(from: url)
     }
 
-    private func exportOriginal(_ recording: WebRTCStreamRecording) {
+    private func exportOriginal(_ recording: StreamRecording) {
         guard FileManager.default.fileExists(atPath: recording.videoURL.path) else {
             message = "This video is no longer available. Refresh the library to remove it."
             Task { await reload(showMessage: false) }
@@ -413,7 +413,7 @@ struct RecordingsView: View {
         }.value
     }
 
-    private func select(_ recording: WebRTCStreamRecording?, autoplay: Bool) {
+    private func select(_ recording: StreamRecording?, autoplay: Bool) {
         removePlayerTimeObserver()
         if let recording, editorViewModel?.primaryRecording.id != recording.id {
             cancelEditorPreview()
@@ -444,7 +444,7 @@ struct RecordingsView: View {
         if autoplay { nextPlayer.play() }
     }
 
-    private func restart(_ recording: WebRTCStreamRecording) {
+    private func restart(_ recording: StreamRecording) {
         if editorViewModel?.primaryRecording.id == recording.id {
             seekEditorPreview(seconds: 0)
             player?.play()
@@ -460,7 +460,7 @@ struct RecordingsView: View {
         playerIsPlaying = true
     }
 
-    private func togglePlayback(_ recording: WebRTCStreamRecording) {
+    private func togglePlayback(_ recording: StreamRecording) {
         guard selectedRecording?.id == recording.id, let player else {
             select(recording, autoplay: true)
             return
@@ -474,7 +474,7 @@ struct RecordingsView: View {
         }
     }
 
-    private func seek(_ recording: WebRTCStreamRecording, seconds: Double) {
+    private func seek(_ recording: StreamRecording, seconds: Double) {
         guard selectedRecording?.id == recording.id else { return }
         let time = CMTime(seconds: min(max(0, seconds), max(0, recording.durationSeconds)), preferredTimescale: 600)
         player?.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -520,7 +520,7 @@ struct RecordingsView: View {
         playerIsPlaying = true
     }
 
-    private func startEditing(_ recording: WebRTCStreamRecording) {
+    private func startEditing(_ recording: StreamRecording) {
         if selectedRecording?.id != recording.id { select(recording, autoplay: false) }
         player?.pause()
         playerIsPlaying = false
@@ -538,7 +538,7 @@ struct RecordingsView: View {
         message = "Editor closed."
     }
 
-    private func editedRecordingSaved(_ recording: WebRTCStreamRecording) {
+    private func editedRecordingSaved(_ recording: StreamRecording) {
         cancelEditorPreview()
         editorViewModel = nil
         Task { @MainActor in
@@ -563,7 +563,7 @@ struct RecordingsView: View {
                 if Task.isCancelled { return }
             }
             do {
-                let preview = try await WebRTCStreamRecordingLibrary.previewEditedRecording(request)
+                let preview = try await StreamRecordingLibrary.previewEditedRecording(request)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     guard self.editorViewModel?.previewSignature == signature else { return }
@@ -578,7 +578,7 @@ struct RecordingsView: View {
         }
     }
 
-    private func applyEditedPreview(_ preview: WebRTCStreamRecordingPreview, targetSeconds: Double, shouldResumePlayback: Bool) {
+    private func applyEditedPreview(_ preview: StreamRecordingPreview, targetSeconds: Double, shouldResumePlayback: Bool) {
         guard let player else { return }
         let item = AVPlayerItem(asset: preview.asset)
         item.audioMix = preview.audioMix
@@ -617,17 +617,17 @@ struct RecordingsView: View {
         self.playerTimeObserver = nil
     }
 
-    private func reveal(_ recording: WebRTCStreamRecording) {
+    private func reveal(_ recording: StreamRecording) {
         NSWorkspace.shared.activateFileViewerSelecting([recording.videoURL])
         message = "Revealed \(recording.videoURL.lastPathComponent) in Finder."
     }
 
-    private func open(_ recording: WebRTCStreamRecording) {
+    private func open(_ recording: StreamRecording) {
         NSWorkspace.shared.open(recording.videoURL)
         message = "Opened \(recording.videoURL.lastPathComponent)."
     }
 
-    private func copyPath(_ recording: WebRTCStreamRecording) {
+    private func copyPath(_ recording: StreamRecording) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(recording.videoURL.path, forType: .string)
         copiedPathRecordingID = recording.id
@@ -650,7 +650,7 @@ struct RecordingsView: View {
     private func deletePendingRecording() async {
         guard let recording = pendingDelete else { return }
         do {
-            try WebRTCStreamRecordingLibrary.delete(recording)
+            try StreamRecordingLibrary.delete(recording)
             pendingDelete = nil
             message = "Deleted \(recording.title)."
             await reload(showMessage: false)
@@ -737,7 +737,7 @@ private struct RecordingFilterChip: View {
 }
 
 private struct RecordingRow: View {
-    let recording: WebRTCStreamRecording
+    let recording: StreamRecording
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovering = false
@@ -797,7 +797,7 @@ private struct RecordingRow: View {
 }
 
 private struct RecordingThumbnail: View {
-    let recording: WebRTCStreamRecording
+    let recording: StreamRecording
     let isSelected: Bool
     let isHovering: Bool
     @State private var thumbnail: NSImage?
@@ -923,7 +923,7 @@ struct RecordingPlayerView: NSViewRepresentable {
 private enum RecordingThumbnailLoader {
     private static let cache = NSCache<NSString, NSImage>()
 
-    static func thumbnail(for recording: WebRTCStreamRecording) async -> NSImage? {
+    static func thumbnail(for recording: StreamRecording) async -> NSImage? {
         let key = recording.id.uuidString as NSString
         if let cached = cache.object(forKey: key) { return cached }
         let image = await generateThumbnail(videoURL: recording.videoURL, durationSeconds: recording.durationSeconds)
@@ -969,7 +969,7 @@ private struct RecordingPill: View {
 }
 
 private struct RecordingInspector: View {
-    let recording: WebRTCStreamRecording
+    let recording: StreamRecording
     let isPlaying: Bool
     let isExporting: Bool
     let copiedPath: Bool
@@ -1238,9 +1238,9 @@ private struct RecordingLibraryStats {
     let count: Int
     let totalDurationSeconds: Double
     let totalBytes: Int64
-    let newest: WebRTCStreamRecording?
+    let newest: StreamRecording?
 
-    init(recordings: [WebRTCStreamRecording]) {
+    init(recordings: [StreamRecording]) {
         count = recordings.count
         totalDurationSeconds = recordings.reduce(0) { $0 + $1.durationSeconds }
         totalBytes = recordings.reduce(0) { $0 + $1.fileSizeBytes }
@@ -1273,8 +1273,8 @@ private enum RecordingSortOrder: String, CaseIterable, Identifiable {
     }
 }
 
-private extension Array where Element == WebRTCStreamRecording {
-    func sorted(using order: RecordingSortOrder) -> [WebRTCStreamRecording] {
+private extension Array where Element == StreamRecording {
+    func sorted(using order: RecordingSortOrder) -> [StreamRecording] {
         switch order {
         case .newest: return sorted { $0.createdAt > $1.createdAt }
         case .oldest: return sorted { $0.createdAt < $1.createdAt }
@@ -1314,7 +1314,7 @@ private enum RecordingFilter: String, CaseIterable, Identifiable {
         }
     }
 
-    func matches(_ recording: WebRTCStreamRecording) -> Bool {
+    func matches(_ recording: StreamRecording) -> Bool {
         switch self {
         case .fourK: return recording.width >= 3840 || recording.height >= 2160
         case .qhd: return recording.width >= 2560 || recording.height >= 1440
@@ -1353,7 +1353,7 @@ private func compactFileSizeText(_ bytes: Int64) -> String {
     return formatter.string(fromByteCount: bytes)
 }
 
-private func qualityText(_ recording: WebRTCStreamRecording) -> String {
+private func qualityText(_ recording: StreamRecording) -> String {
     if recording.width >= 3840 || recording.height >= 2160 { return "4K" }
     if recording.width >= 2560 || recording.height >= 1440 { return "1440p" }
     if recording.width >= 1920 || recording.height >= 1080 { return "1080p" }
@@ -1361,10 +1361,10 @@ private func qualityText(_ recording: WebRTCStreamRecording) -> String {
     return "Auto"
 }
 
-private func resolutionLabel(_ recording: WebRTCStreamRecording) -> String {
+private func resolutionLabel(_ recording: StreamRecording) -> String {
     recording.width > 0 && recording.height > 0 ? "\(recording.width)×\(recording.height)" : "Unknown"
 }
 
-private func bitrateText(_ recording: WebRTCStreamRecording) -> String {
+private func bitrateText(_ recording: StreamRecording) -> String {
     recording.videoBitrateMbps == 0 ? "Auto" : "\(recording.videoBitrateMbps) Mbps"
 }
