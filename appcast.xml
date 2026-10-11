@@ -1,9 +1,38 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>PixelNOW Updates</title>
         <link>https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases</link>
         <description>PixelNOW macOS application updates</description>
         <language>en</language>
+        <item>
+            <title>1.78</title>
+            <pubDate>Sun, 11 Oct 2026 12:11:43 -0500</pubDate>
+            <sparkle:version>78</sparkle:version>
+            <sparkle:shortVersionString>1.78</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# PixelNOW 1.78
+
+## Native NVST streaming
+
+- Align stale-session recovery and resume allocation with the vendor request flow.
+- Surface live launch diagnostics for faster diagnosis of stream startup failures.
+- Preserve negotiated video precision and bound presentation pacing.
+- Own the native NVST bundle and CoreAudio lifecycle directly, with native stream settings and recording media paths.
+- Remove retired WebRTC runtime artifacts and legacy build paths.
+
+## Updates and packaging
+
+- Replace the custom updater with Sparkle 2 and publish a signed appcast feed.
+- Package the privileged AWDL helper and gate AWDL control by stream activity.
+- Remove the disabled remote co-op stack and its unused deployment assets.
+
+## Qualification note
+
+This archive passed Release compilation, code-sign verification, Sparkle framework validation, native NVST bundle validation, and archive extraction checks. It was signed with the available Apple Development identity and was not notarized because Developer ID and notarization credentials were unavailable on the release machine.
+]]></description>
+            <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.78/PixelNOW-1.78-macOS.zip" length="12718657" type="application/octet-stream" sparkle:edSignature="ZLRbcnFs/xsm93v3zM0YiMnZTBRu2TTb273sTSyArRhcjwagMAAhNmk8Pr3M29/UKVnq+jWMV+q4ER80v/9JBw=="/>
+        </item>
     </channel>
 </rss>
