@@ -55,10 +55,17 @@ final class AWDLController {
         let proxy = helperConnection.remoteObjectProxyWithErrorHandler { error in
             Log.warning(.app, "AWDL helper restore request failed: \(error.localizedDescription)")
         } as? PixelNOWAWDLHelperProtocol
-        proxy?.setAWDLEnabled(true) { _ in }
+        proxy?.setAWDLEnabled(true, withReply: Self.handleRestoreReply)
         helperConnection.invalidate()
         self.helperConnection = nil
         hasCheckedIn = false
+    }
+
+    nonisolated private static func handleRestoreReply(_ accepted: Bool) {
+        guard !accepted else { return }
+        Task { @MainActor in
+            Log.warning(.app, "AWDL helper rejected restore request")
+        }
     }
 
     private func registerAndConnect() {
