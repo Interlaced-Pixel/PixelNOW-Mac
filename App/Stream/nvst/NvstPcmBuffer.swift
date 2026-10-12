@@ -21,6 +21,7 @@ final class NvstPcmBuffer: @unchecked Sendable {
         let write = written.load(ordering: .acquiring)
         return Int(min(UInt64(Self.capacity), write &- read))
     }
+    var isMuted: Bool { muted.load(ordering: .acquiring) }
     var droppedFrames: UInt64 { dropped.load(ordering: .relaxed) }
     var underrunFrames: UInt64 { underruns.load(ordering: .relaxed) }
     func requestDiscard() { discardRequested.store(true, ordering: .releasing) }

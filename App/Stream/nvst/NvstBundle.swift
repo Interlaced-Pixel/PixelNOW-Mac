@@ -204,7 +204,15 @@ public final class NvstBundle: @unchecked Sendable {
     public func setRemoteAudioMuted(_ muted: Bool) { playout.setMuted(muted) }
     public func setRemoteAudioVolume(_ volume: Double) { playout.setVolume(volume) }
     public func setMicrophoneCaptureEnabled(_ enabled: Bool) {
-        synchronized { microphoneCaptureEnabled = enabled; capture.setMuted(!enabled) }
+        synchronized {
+            microphoneCaptureEnabled = enabled
+            capture.setMuted(!enabled)
+            if !enabled {
+                capture.discardPending()
+                renderReference.discardPending()
+                previousMicrophonePayloads.removeAll(keepingCapacity: true)
+            }
+        }
     }
     public func setMicrophoneVolume(_ volume: Double) {
         synchronized { microphoneVolume = min(max(volume.isFinite ? volume : 1, 0), 1) }

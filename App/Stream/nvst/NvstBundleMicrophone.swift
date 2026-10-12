@@ -15,12 +15,19 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
         queue.async { [weak self] in self?.fail(message) }
     }
     func handleRenderReference(_ samples: UnsafePointer<Int16>, frames: Int, channels: Int) {
-        guard microphoneProcessor != nil else { return }
+        guard microphoneProcessor != nil, !capture.isMuted else { return }
         renderReference.writeCapture(samples, frames: frames, channels: channels)
         microphoneSignal?.add(data: 1)
     }
 
     func drainMicrophone() {
+        guard !closed, microphoneCaptureEnabled, dtls?.connected() == true,
+              microphoneEncoder != nil, microphoneProcessor != nil else {
+            capture.discardPending()
+            renderReference.discardPending()
+            previousMicrophonePayloads.removeAll(keepingCapacity: true)
+            return
+        }
         var referenceFrames = 0
         while referenceFrames < 64, let samples = renderReference.readCapture(frames: 480) {
             let processed = samples.withUnsafeBufferPointer { microphoneProcessor?.processRender($0.baseAddress, $0.count) == true }
@@ -29,11 +36,6 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
                 return
             }
             referenceFrames += 1
-        }
-        guard !closed, microphoneCaptureEnabled, dtls?.connected() == true, microphoneEncoder != nil else {
-            capture.discardPending()
-            previousMicrophonePayloads.removeAll(keepingCapacity: true)
-            return
         }
         var drained = 0
         while drained < 32, var samples = capture.readCapture(frames: 480) {
