@@ -1827,21 +1827,6 @@ final class CatalogViewModel: ObservableObject {
         loadSettingsPreferences()
     }
 
-    func setPrefilterModeIndex(_ index: Int) {
-        StreamPreferences.savePrefilterModeIndex(index)
-        loadSettingsPreferences()
-    }
-
-    func setPrefilterSharpness(_ value: Double) {
-        StreamPreferences.savePrefilterSharpness(Int(value.rounded()))
-        loadSettingsPreferences()
-    }
-
-    func setPrefilterDenoise(_ value: Double) {
-        StreamPreferences.savePrefilterDenoise(Int(value.rounded()))
-        loadSettingsPreferences()
-    }
-
     func setUpscalingModeIndex(_ index: Int) {
         StreamPreferences.saveUpscalingModeIndex(index)
         loadSettingsPreferences()

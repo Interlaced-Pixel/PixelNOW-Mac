@@ -1407,13 +1407,6 @@ private struct ResolutionUpscalingSettingsPage: View {
                 SettingsSliderRow(title: "Noise Reduction", valueText: "\(viewModel.streamProfile.upscalingDenoise)", value: Double(viewModel.streamProfile.upscalingDenoise), range: 0...20, action: viewModel.setUpscalingDenoise)
             }
 
-            SettingsCard(title: "Image Enhancement") {
-                SettingsOptionRow(title: "Prefilter Mode", subtitle: "Hardware prefiltering applied before frame presentation.", options: StreamPreferences.prefilterModeOptions.map(\.label), selectedIndex: viewModel.streamProfile.prefilterModeIndex, action: viewModel.setPrefilterModeIndex)
-                SettingsDivider()
-                SettingsSliderRow(title: "Prefilter Sharpness", valueText: "\(viewModel.streamProfile.prefilterSharpness)", value: Double(viewModel.streamProfile.prefilterSharpness), range: 0...10, action: viewModel.setPrefilterSharpness)
-                SettingsDivider()
-                SettingsSliderRow(title: "Prefilter Denoise", valueText: "\(viewModel.streamProfile.prefilterDenoise)", value: Double(viewModel.streamProfile.prefilterDenoise), range: 0...10, action: viewModel.setPrefilterDenoise)
-            }
         }
     }
 }

@@ -499,47 +499,6 @@ struct GameLaunchSettingsSheet: View {
 
             Divider().background(Color.white.opacity(0.08))
 
-            settingSectionHeader("Prefilter Image Processing")
-            VStack(alignment: .leading, spacing: 8) {
-                Picker("Prefilter Mode", selection: Binding(
-                    get: { profile.prefilterModeIndex },
-                    set: { newMode in
-                        profile.prefilterModeIndex = newMode
-                        profile.prefilterModeOption = StreamPreferences.prefilterModeOptions[newMode]
-                        profile.prefilterMode = profile.prefilterModeOption.value
-                        saveCurrentProfile()
-                    }
-                )) {
-                    ForEach(StreamPreferences.prefilterModeOptions.indices, id: \.self) { idx in
-                        Text(StreamPreferences.prefilterModeOptions[idx].label).tag(idx)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                if profile.prefilterModeIndex == 2 {
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Sharpness: \(profile.prefilterSharpness)").font(.caption).foregroundStyle(.white.opacity(0.7))
-                            Slider(value: Binding(
-                                get: { Double(profile.prefilterSharpness) },
-                                set: { profile.prefilterSharpness = Int($0); saveCurrentProfile() }
-                            ), in: 0...10, step: 1)
-                            .tint(Color.pixelNowGreen)
-                        }
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Denoise: \(profile.prefilterDenoise)").font(.caption).foregroundStyle(.white.opacity(0.7))
-                            Slider(value: Binding(
-                                get: { Double(profile.prefilterDenoise) },
-                                set: { profile.prefilterDenoise = Int($0); saveCurrentProfile() }
-                            ), in: 0...10, step: 1)
-                            .tint(Color.pixelNowGreen)
-                        }
-                    }
-                }
-            }
-
-            Divider().background(Color.white.opacity(0.08))
-
             settingSectionHeader("Dynamic Range (HDR)")
             VStack(alignment: .leading, spacing: 10) {
                 HStack {

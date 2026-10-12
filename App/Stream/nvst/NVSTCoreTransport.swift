@@ -272,11 +272,6 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
     let configuredMaxBitrateKbps: Int?
 
-    private let configuredPrefilterMode: Int?
-    private let configuredPrefilterSharpness: Int?
-    private let configuredPrefilterDenoise: Int?
-    private let configuredPrefilterModel: Int?
-
     let configuredColorQuality: String?
     let configuredGameVolume: Double?
     let configuredL4SEnabled: Bool
@@ -288,10 +283,6 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     public init(pixelBufferSink: PixelBufferSink? = nil,
                 configuredFps: Int? = nil,
                 configuredMaxBitrateKbps: Int? = nil,
-                configuredPrefilterMode: Int? = nil,
-                configuredPrefilterSharpness: Int? = nil,
-                configuredPrefilterDenoise: Int? = nil,
-                configuredPrefilterModel: Int? = nil,
                 configuredColorQuality: String? = nil,
                 configuredGameVolume: Double? = nil,
                 configuredL4SEnabled: Bool = false,
@@ -302,10 +293,6 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
         self.pixelBufferSink = pixelBufferSink
         self.configuredFps = configuredFps
         self.configuredMaxBitrateKbps = configuredMaxBitrateKbps
-        self.configuredPrefilterMode = configuredPrefilterMode
-        self.configuredPrefilterSharpness = configuredPrefilterSharpness
-        self.configuredPrefilterDenoise = configuredPrefilterDenoise
-        self.configuredPrefilterModel = configuredPrefilterModel
         self.configuredColorQuality = configuredColorQuality
         self.configuredGameVolume = configuredGameVolume
         self.configuredL4SEnabled = configuredL4SEnabled
@@ -673,10 +660,6 @@ extension NVSTCoreTransport {
             codec: profile.codec,
             bitrateKbps: profile.bitrateKbps,
             maximumBitrateKbps: profile.maximumBitrateKbps,
-            prefilterMode: configuredPrefilterMode,
-            prefilterSharpness: configuredPrefilterSharpness,
-            prefilterDenoise: configuredPrefilterDenoise,
-            prefilterModel: configuredPrefilterModel,
             colorQuality: configuredColorQuality,
             audioChannels: configuredAudioChannels,
             timeout: controlTimeout,

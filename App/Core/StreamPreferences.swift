@@ -80,16 +80,6 @@ public struct StreamColorQualityOption: Equatable, Sendable {
     }
 }
 
-public struct StreamPrefilterModeOption: Equatable, Sendable {
-    public var label: String
-    public var value: Int
-
-    public init(label: String, value: Int) {
-        self.label = label
-        self.value = value
-    }
-}
-
 public struct StreamUpscalingModeOption: Equatable, Sendable {
     public var label: String
     public var value: Int
@@ -244,11 +234,10 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var hdrColorSpaceIndex = 0
     public var fps = 60
     public var maxBitrateMbps = 50
-    public var prefilterModeIndex = 0
-    public var prefilterMode = 0
+    public var prefilterMode = 2
     public var prefilterSharpness = 0
     public var prefilterDenoise = 0
-    public var prefilterModel = 0
+    public var prefilterModel = 4
     public var upscalingModeIndex = 0
     public var upscalingMode = 0
     public var upscalingTargetIndex = 1
@@ -295,7 +284,6 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var codec = StreamPreferences.codecOptions[0]
     public var bitrate = StreamPreferences.bitrateOptions[2]
     public var colorQuality = StreamPreferences.colorQualityOptions[0]
-    public var prefilterModeOption = StreamPreferences.prefilterModeOptions[0]
     public var upscalingModeOption = StreamPreferences.upscalingModeOptions[0]
     public var upscalingTargetOption = StreamPreferences.upscalingTargetOptions[1]
 
@@ -359,11 +347,6 @@ public enum StreamPreferences {
         StreamColorSpaceOption(label: "Default", value: 0),
         StreamColorSpaceOption(label: "BT.709", value: 1),
         StreamColorSpaceOption(label: "BT.2020", value: 2)
-    ]
-    public static let prefilterModeOptions = [
-        StreamPrefilterModeOption(label: "Off", value: 0),
-        StreamPrefilterModeOption(label: "Auto", value: 1),
-        StreamPrefilterModeOption(label: "Custom", value: 2)
     ]
     public static let upscalingModeOptions = [
         StreamUpscalingModeOption(label: "Off",     value: 0),
@@ -454,9 +437,6 @@ public enum StreamPreferences {
         Keys.hudStreamingModeIndex,
         Keys.sdrColorSpaceIndex,
         Keys.hdrColorSpaceIndex,
-        Keys.prefilterModeIndex,
-        Keys.prefilterSharpness,
-        Keys.prefilterDenoise,
         Keys.upscalingModeIndex,
         Keys.upscalingTargetIndex,
         Keys.upscalingSharpness,
@@ -1107,9 +1087,6 @@ public enum StreamPreferences {
     public static func saveHudStreamingModeIndex(_ value: Int) { storage.set(clamp(value, 0, hudStreamingModeOptions.count - 1), forKey: k.hudStreamingModeIndex) }
     public static func saveSDRColorSpaceIndex(_ value: Int) { storage.set(clamp(value, 0, colorSpaceOptions.count - 1), forKey: k.sdrColorSpaceIndex) }
     public static func saveHDRColorSpaceIndex(_ value: Int) { storage.set(clamp(value, 0, colorSpaceOptions.count - 1), forKey: k.hdrColorSpaceIndex) }
-    public static func savePrefilterModeIndex(_ value: Int) { saveCanonicalInt(k.prefilterModeIndex, clamp(value, 0, prefilterModeOptions.count - 1)) }
-    public static func savePrefilterSharpness(_ value: Int) { saveCanonicalInt(k.prefilterSharpness, clamp(value, 0, 10)) }
-    public static func savePrefilterDenoise(_ value: Int) { saveCanonicalInt(k.prefilterDenoise, clamp(value, 0, 10)) }
     public static func saveUpscalingModeIndex(_ value: Int) { storage.set(normalizedUpscalingModeIndex(value), forKey: k.upscalingModeIndex) }
     public static func saveUpscalingTargetIndex(_: Int) { storage.set(defaultUpscalingTargetIndex, forKey: k.upscalingTargetIndex) }
     public static func saveUpscalingSharpness(_ value: Int) { storage.set(clamp(value, 0, 15), forKey: k.upscalingSharpness) }
@@ -1212,11 +1189,6 @@ public enum StreamPreferences {
         profile.hdrColorSpaceIndex = clampedInt(dictionary, k.hdrColorSpaceIndex, 0, colorSpaceOptions.count)
         profile.hdrColorSpaceOption = colorSpaceOptions[profile.hdrColorSpaceIndex]
         profile.hdrColorSpace = profile.hdrColorSpaceOption.value
-        profile.prefilterModeIndex = clampedInt(dictionary, k.prefilterModeIndex, 0, prefilterModeOptions.count)
-        profile.prefilterModeOption = prefilterModeOptions[profile.prefilterModeIndex]
-        profile.prefilterMode = profile.prefilterModeOption.value
-        profile.prefilterSharpness = clampedInt(dictionary, k.prefilterSharpness, 0, 11)
-        profile.prefilterDenoise = clampedInt(dictionary, k.prefilterDenoise, 0, 11)
         profile.upscalingModeIndex = storedUpscalingModeIndex(dictionary)
         profile.upscalingModeOption = upscalingModeOptions[profile.upscalingModeIndex]
         profile.upscalingMode = profile.upscalingModeOption.value
@@ -1277,9 +1249,6 @@ public enum StreamPreferences {
             k.hudStreamingModeIndex: profile.hudStreamingModeIndex,
             k.sdrColorSpaceIndex: profile.sdrColorSpaceIndex,
             k.hdrColorSpaceIndex: profile.hdrColorSpaceIndex,
-            k.prefilterModeIndex: profile.prefilterModeIndex,
-            k.prefilterSharpness: profile.prefilterSharpness,
-            k.prefilterDenoise: profile.prefilterDenoise,
             k.upscalingModeIndex: profile.upscalingModeIndex,
             k.upscalingTargetIndex: profile.upscalingTargetIndex,
             k.upscalingSharpness: profile.upscalingSharpness,
@@ -1531,8 +1500,7 @@ public enum StreamPreferences {
     }
 
     private static func storedPreferenceValue(_ key: String) -> Any? {
-        let prefilterKey = key == k.prefilterModeIndex || key == k.prefilterSharpness || key == k.prefilterDenoise
-        return storage.storedValue(forKey: key, preferCanonicalDomain: prefilterKey)
+        return storage.storedValue(forKey: key, preferCanonicalDomain: false)
     }
 
     private static func saveCanonicalInt(_ key: String, _ value: Int) {
@@ -1979,9 +1947,6 @@ public enum StreamPreferences {
         static let hudStreamingModeIndex = "PixelNOW.Stream.HudStreamingModeIndex"
         static let sdrColorSpaceIndex = "PixelNOW.Stream.SDRColorSpaceIndex"
         static let hdrColorSpaceIndex = "PixelNOW.Stream.HDRColorSpaceIndex"
-        static let prefilterModeIndex = "PixelNOW.Stream.PrefilterModeIndex"
-        static let prefilterSharpness = "PixelNOW.Stream.PrefilterSharpness"
-        static let prefilterDenoise = "PixelNOW.Stream.PrefilterDenoise"
         static let upscalingModeIndex = "PixelNOW.Stream.UpscalingModeIndex"
         static let upscalingTargetIndex = "PixelNOW.Stream.UpscalingTargetIndex"
         static let upscalingSharpness = "PixelNOW.Stream.UpscalingSharpness"
