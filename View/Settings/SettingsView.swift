@@ -35,7 +35,6 @@ private extension Font {
     let userId: String
     let authorizationState: String
     let authStatus: String
-    let rememberSession: Bool
 
     init(viewModel: CatalogViewModel) {
         displayName = viewModel.account.displayName.isEmpty ? "Signed in" : viewModel.account.displayName
@@ -44,7 +43,6 @@ private extension Font {
         userId = viewModel.session.userId.isEmpty ? viewModel.account.userId : viewModel.session.userId
         authorizationState = SettingsFormat.normalizedState(viewModel.account.authorizationState)
         authStatus = SettingsFormat.normalizedState(viewModel.account.authStatus)
-        rememberSession = viewModel.account.rememberSession
     }
 
     var isAuthorized: Bool {
@@ -115,13 +113,6 @@ private enum SettingsFormat {
     static func maskedIdentifier(_ value: String) -> String {
         guard value.count > 10 else { return value.isEmpty ? "Unavailable" : "****" }
         return "\(value.prefix(6))****\(value.suffix(4))"
-    }
-
-    static func maskedEmail(_ value: String) -> String {
-        guard let atIndex = value.firstIndex(of: "@") else { return value.isEmpty ? "Unavailable" : "****" }
-        let name = String(value[..<atIndex])
-        let domain = String(value[value.index(after: atIndex)...])
-        return "\(name.prefix(2))****@\(domain)"
     }
 
     static func endpointHost(_ value: String) -> String {
@@ -353,7 +344,7 @@ private struct SettingsContent: View {
 
     private var subtitle: String {
         switch viewModel.selectedSettingsGroup {
-        case .account: return "NVIDIA accounts, membership tier, and active session details."
+        case .account: return "NVIDIA accounts, membership, and connected stores."
         case .video: return "Stream resolution, frame rate, codec, HDR, and MetalFX upscaling."
         case .audio: return "Volume levels, microphone routing, and voice transmission mode."
         case .input: return "Mouse capture, anti-AFK, and controller navigation mode."
@@ -396,8 +387,6 @@ private struct AccountSettingsPage: View {
     let onAddAccount: () -> Void
     let onSignOut: () -> Void
     let onForget: (LoginAccount) -> Void
-    @State private var revealSensitive = false
-    @State private var copiedKey = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -455,78 +444,6 @@ private struct AccountSettingsPage: View {
                 }
             }
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 16) {
-                    profilePrivacyCard
-                    sessionCard
-                }
-                VStack(alignment: .leading, spacing: 16) {
-                    profilePrivacyCard
-                    sessionCard
-                }
-            }
-
-            SettingsCard(title: "Playtime Statistics") {
-                if viewModel.playtimeStatistics.sessionCount == 0 {
-                    AccountEmptyState(title: "No completed streams recorded yet.", subtitle: "PixelNOW will track local playtime after your next PixelNOW session ends.")
-                } else {
-                    SettingsFlowLayout(spacing: 10) {
-                        SettingsStatisticTile(label: "Total Playtime", value: durationText(viewModel.playtimeStatistics.totalSeconds), emphasized: true)
-                        if viewModel.subscriptionStatus.isAvailable {
-                            SettingsStatisticTile(label: "Remaining Playtime", value: viewModel.subscriptionStatus.remainingPlaytimeText)
-                        }
-                        SettingsStatisticTile(label: "Sessions", value: "\(viewModel.playtimeStatistics.sessionCount)")
-                        SettingsStatisticTile(label: "Last Session", value: durationText(viewModel.playtimeStatistics.lastSessionSeconds))
-                        SettingsStatisticTile(label: "Average Session", value: durationText(viewModel.playtimeStatistics.averageSessionSeconds))
-                        SettingsStatisticTile(label: "Longest Session", value: durationText(viewModel.playtimeStatistics.longestSessionSeconds))
-                        SettingsStatisticTile(label: "Last Played", value: lastPlayedText)
-                    }
-                    if !viewModel.playtimeStatistics.lastPlayedTitle.isEmpty {
-                        SettingsDivider()
-                        AboutDetailRow(label: "Most Recent Game", value: viewModel.playtimeStatistics.lastPlayedTitle, copyValue: viewModel.playtimeStatistics.lastPlayedTitle, copiedKey: $copiedKey)
-                    }
-                }
-            }
-        }
-    }
-
-    private var profilePrivacyCard: some View {
-        SettingsCard(title: "Profile & Privacy") {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Personal account details are masked by default.")
-                        .font(.settingsText(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("Reveal only when validating account state on your own machine.")
-                        .font(.settingsText(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.56))
-                }
-                Spacer()
-                SettingsRevealButton(revealed: revealSensitive) { revealSensitive.toggle() }
-            }
-            SettingsDivider()
-            AboutDetailRow(label: "Display Name", value: account.displayName, copyValue: account.displayName, copiedKey: $copiedKey)
-            SettingsDivider()
-            AboutDetailRow(label: "Email", value: displayedEmail, copyValue: viewModel.account.email, copiedKey: $copiedKey, copyDisabled: viewModel.account.email.isEmpty)
-            SettingsDivider()
-            AboutDetailRow(label: "User ID", value: displayedUserId, copyValue: account.userId, copiedKey: $copiedKey, copyDisabled: account.userId.isEmpty)
-        }
-    }
-
-    private var sessionCard: some View {
-        SettingsCard(title: "Session") {
-            SettingsFlowLayout(spacing: 10) {
-                AccountStatusTile(label: "Provider", value: account.providerName, positive: true)
-                AccountStatusTile(label: "Authorization", value: account.authorizationState, positive: account.isAuthorized)
-                AccountStatusTile(label: "Status", value: account.authStatus, positive: account.isLoggedIn)
-                AccountStatusTile(label: "Remember", value: account.rememberSession ? "Enabled" : "Off", positive: account.rememberSession)
-            }
-            SettingsDivider()
-            AboutDetailRow(label: "Preferred Region", value: route.displayValue, copyValue: route.copyValue, copiedKey: $copiedKey)
-            SettingsDivider()
-            AboutDetailRow(label: "Membership Usage", value: viewModel.subscriptionStatus.usageText, copyValue: viewModel.subscriptionStatus.usageText, copiedKey: $copiedKey)
-            SettingsDivider()
-            AboutDetailRow(label: "Last Login", value: dateText(viewModel.account.lastLoginAt), copyValue: dateText(viewModel.account.lastLoginAt), copiedKey: $copiedKey)
         }
     }
 
@@ -535,15 +452,7 @@ private struct AccountSettingsPage: View {
     }
 
     private var route: SettingsRouteSnapshot {
-        SettingsRouteSnapshot(regionUrl: viewModel.selectedSettingsRegionUrl, revealSensitive: revealSensitive)
-    }
-
-    private var displayedUserId: String {
-        revealSensitive ? account.userId : SettingsFormat.maskedIdentifier(account.userId)
-    }
-
-    private var displayedEmail: String {
-        revealSensitive ? viewModel.account.email : SettingsFormat.maskedEmail(viewModel.account.email)
+        SettingsRouteSnapshot(regionUrl: viewModel.selectedSettingsRegionUrl, revealSensitive: false)
     }
 
     private func savedNVIDIAAccountRow(_ savedAccount: LoginAccount) -> some View {
@@ -616,26 +525,6 @@ private struct AccountSettingsPage: View {
         return "\(account.providerName) account on \(account.membershipTier) membership. \(availability)."
     }
 
-    private var lastPlayedText: String {
-        guard let date = viewModel.playtimeStatistics.lastPlayedAt else { return "-" }
-        return dateText(date)
-    }
-
-    private func dateText(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
-    private func durationText(_ seconds: Double) -> String {
-        let totalMinutes = max(0, Int((seconds / 60).rounded()))
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        if hours > 0, minutes > 0 { return "\(hours)h \(minutes)m" }
-        if hours > 0 { return "\(hours)h" }
-        return "\(minutes)m"
-    }
 }
 
 private struct AccountHealthBadge: View {
@@ -726,31 +615,6 @@ private struct SettingsAccountAvatar: View {
     private var fallbackAvatar: some View {
         VendorResourceImage(name: "avatar_generic_118", fileExtension: "svg")
             .scaledToFill()
-    }
-}
-
-private struct AccountStatusTile: View {
-    let label: String
-    let value: String
-    let positive: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label.uppercased())
-                .font(.settingsText(size: 10, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(.white.opacity(0.44))
-            Text(value.isEmpty ? "Unknown" : value)
-                .font(.settingsText(size: 16, weight: .bold))
-                .foregroundStyle(positive ? SettingsTheme.accent : .white.opacity(0.78))
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(width: 188, height: 74, alignment: .leading)
-        .background(Color.white.opacity(positive ? 0.065 : 0.045), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(positive ? SettingsTheme.accent.opacity(0.32) : Color.white.opacity(0.08), lineWidth: 1) }
     }
 }
 
