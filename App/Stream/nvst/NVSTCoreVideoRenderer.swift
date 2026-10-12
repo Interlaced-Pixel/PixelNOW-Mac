@@ -318,7 +318,7 @@ public final class NVSTCoreVideoRenderer {
     }
 
     private func applyMetalFXState() {
-        videoView.isMetalFXEnabled = isMetalFXConfiguredByUser && (currentPresentationMode != .lowestLatency)
+        videoView.isMetalFXEnabled = isMetalFXConfiguredByUser
     }
 
     public func setMetalFXEnabled(_ enabled: Bool) {

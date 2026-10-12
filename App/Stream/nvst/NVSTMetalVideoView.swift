@@ -56,40 +56,44 @@ final class NVSTMetalFXUpscaler: NSObject {
     private var outputHeight = 0
     private var inputPixelFormat: MTLPixelFormat = .invalid
     private var outputPixelFormat: MTLPixelFormat = .invalid
-    private var neutralMotionTexture: (any MTLTexture)?
     private var disabledByCaptureScaler = false
-    private static let setMotionTextureSelector = NSSelectorFromString("setMotionTexture:")
-    private static let motionTextureFormatSelector = NSSelectorFromString("motionTextureFormat")
-    private static let motionTextureUsageSelector = NSSelectorFromString("motionTextureUsage")
+    private let deviceSupportFailure: String?
 
     public static var isSupportedOnCurrentDevice: Bool {
         isDeviceSupported(MTLCreateSystemDefaultDevice())
     }
 
     public static func isDeviceSupported(_ device: (any MTLDevice)? = MTLCreateSystemDefaultDevice()) -> Bool {
+        availabilityFailure(for: device) == nil
+    }
+
+    private static func availabilityFailure(for device: (any MTLDevice)?) -> String? {
 #if canImport(MetalFX)
-        guard let device, NSClassFromString("MTLFXSpatialScalerDescriptor") != nil else { return false }
+        guard let device else { return "Metal device unavailable" }
         if #available(macOS 13.0, *) {
             return MTLFXSpatialScalerDescriptor.supportsDevice(device)
+                ? nil
+                : "\(device.name) does not support MetalFX spatial scaling"
         }
-        return false
+        return "MetalFX requires macOS 13 or later"
 #else
-        return false
+        return "MetalFX framework unavailable in this build"
 #endif
     }
 
     init(device: (any MTLDevice)?) {
         self.device = device
+        deviceSupportFailure = Self.availabilityFailure(for: device)
         super.init()
     }
 
+    var unavailableReason: String? {
+        if disabledByCaptureScaler { return "MetalFX disabled under Xcode Metal capture" }
+        return deviceSupportFailure
+    }
+
     var isAvailable: Bool {
-#if canImport(MetalFX)
-        guard !disabledByCaptureScaler, let device else { return false }
-        return Self.isDeviceSupported(device)
-#else
-        return false
-#endif
+        unavailableReason == nil
     }
 
     func encodeTexture(
@@ -136,7 +140,6 @@ final class NVSTMetalFXUpscaler: NSObject {
             if scalerClassName.contains("CaptureMTLFXSpatialScaler") {
                 disabledByCaptureScaler = true
                 spatialScaler = nil
-                neutralMotionTexture = nil
                 inputWidth = 0
                 inputHeight = 0
                 outputWidth = 0
@@ -154,9 +157,6 @@ final class NVSTMetalFXUpscaler: NSObject {
                 fallback?.pointee = "MetalFX output texture usage unsupported"
                 return false
             }
-            guard configureMotionTextureIfNeeded(for: scaler, fallback: fallback) else {
-                return false
-            }
             scaler.colorTexture = sourceTexture
             scaler.outputTexture = destinationTexture
             scaler.inputContentWidth = sourceTexture.width
@@ -172,85 +172,6 @@ final class NVSTMetalFXUpscaler: NSObject {
 #endif
     }
 
-#if canImport(MetalFX)
-    @available(macOS 13.0, *)
-    private func configureMotionTextureIfNeeded(
-        for scaler: any MTLFXSpatialScaler,
-        fallback: AutoreleasingUnsafeMutablePointer<NSString?>?
-    ) -> Bool {
-        guard let scalerObject = scaler as AnyObject as? NSObject,
-              scalerObject.responds(to: Self.setMotionTextureSelector) else { return true }
-        let rawPixelFormat = Self.unsignedIntegerValue(from: scalerObject, selector: Self.motionTextureFormatSelector)
-        let pixelFormat = rawPixelFormat.flatMap { MTLPixelFormat(rawValue: $0) } ?? .rg16Float
-        let rawUsage = Self.unsignedIntegerValue(from: scalerObject, selector: Self.motionTextureUsageSelector) ?? MTLTextureUsage.shaderRead.rawValue
-        let usage = MTLTextureUsage(rawValue: rawUsage).union(.shaderRead)
-        guard let motionTexture = reusableNeutralMotionTexture(width: inputWidth, height: inputHeight, pixelFormat: pixelFormat, usage: usage) else {
-            fallback?.pointee = "MetalFX motion texture allocation failed"
-            return false
-        }
-        Self.setObjectValue(motionTexture as AnyObject, on: scalerObject, selector: Self.setMotionTextureSelector)
-        return true
-    }
-
-    private static func unsignedIntegerValue(from object: NSObject, selector: Selector) -> UInt? {
-        guard object.responds(to: selector), let method = object.method(for: selector) else { return nil }
-        typealias Getter = @convention(c) (AnyObject, Selector) -> UInt
-        return unsafeBitCast(method, to: Getter.self)(object, selector)
-    }
-
-    private static func setObjectValue(_ value: AnyObject, on object: NSObject, selector: Selector) {
-        guard object.responds(to: selector), let method = object.method(for: selector) else { return }
-        typealias Setter = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
-        unsafeBitCast(method, to: Setter.self)(object, selector, value)
-    }
-
-    private func reusableNeutralMotionTexture(
-        width: Int,
-        height: Int,
-        pixelFormat: MTLPixelFormat,
-        usage: MTLTextureUsage
-    ) -> (any MTLTexture)? {
-        guard let device, width > 0, height > 0, let bytesPerPixel = Self.bytesPerPixel(for: pixelFormat) else { return nil }
-        let requiredUsage = usage.union(.shaderRead)
-        if neutralMotionTexture == nil ||
-            neutralMotionTexture?.width != width ||
-            neutralMotionTexture?.height != height ||
-            neutralMotionTexture?.pixelFormat != pixelFormat ||
-            neutralMotionTexture?.usage.isSuperset(of: requiredUsage) != true {
-            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: pixelFormat, width: width, height: height, mipmapped: false)
-            descriptor.usage = requiredUsage
-            descriptor.storageMode = .shared
-            guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
-            let bytesPerRow = width * bytesPerPixel
-            let zeroBytes = [UInt8](repeating: 0, count: bytesPerRow * height)
-            zeroBytes.withUnsafeBytes { bytes in
-                if let baseAddress = bytes.baseAddress {
-                    texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: baseAddress, bytesPerRow: bytesPerRow)
-                }
-            }
-            texture.label = "PixelNOW MetalFX neutral motion"
-            neutralMotionTexture = texture
-        }
-        return neutralMotionTexture
-    }
-
-    private static func bytesPerPixel(for pixelFormat: MTLPixelFormat) -> Int? {
-        switch pixelFormat {
-        case .r8Unorm, .r8Snorm, .r8Uint, .r8Sint:
-            return 1
-        case .r16Unorm, .r16Snorm, .r16Uint, .r16Sint, .r16Float, .rg8Unorm, .rg8Snorm, .rg8Uint, .rg8Sint:
-            return 2
-        case .r32Uint, .r32Sint, .r32Float, .rg16Unorm, .rg16Snorm, .rg16Uint, .rg16Sint, .rg16Float, .rgba8Unorm, .rgba8Unorm_srgb, .rgba8Snorm, .rgba8Uint, .rgba8Sint, .bgra8Unorm, .bgra8Unorm_srgb:
-            return 4
-        case .rg32Uint, .rg32Sint, .rg32Float, .rgba16Unorm, .rgba16Snorm, .rgba16Uint, .rgba16Sint, .rgba16Float:
-            return 8
-        case .rgba32Uint, .rgba32Sint, .rgba32Float:
-            return 16
-        default:
-            return nil
-        }
-    }
-#endif
 }
 
 final class NVSTPixelBufferHolder: @unchecked Sendable {
@@ -569,7 +490,6 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     public var onPresentationFormat: ((OSType, String, Bool) -> Void)?
 
     private var intermediateSourceTexture: (any MTLTexture)?
-    private var intermediateOutputTexture: (any MTLTexture)?
 
     public var isMetalFXEnabled = false {
         didSet {
@@ -712,7 +632,6 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         metalView.isPaused = true
         metalView.delegate = nil
         intermediateSourceTexture = nil
-        intermediateOutputTexture = nil
         enhancedPixelBufferPool = nil
         enhancedFrameSink = nil
         onMetalFXStateChanged = nil
@@ -903,14 +822,8 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                usage: [.shaderRead, .shaderWrite, .renderTarget],
                label: "NVSTMetalVideoView Source"
            ),
-           let outputTexture = reusableTexture(
-               &intermediateOutputTexture,
-               width: outputWidth,
-               height: outputHeight,
-               pixelFormat: desiredFormat,
-               usage: [.shaderRead, .shaderWrite, .renderTarget],
-               label: "NVSTMetalVideoView Output"
-           ) {
+           currentDrawable.texture.pixelFormat == desiredFormat {
+            let outputTexture = currentDrawable.texture
             let filteredImage = enhancedImage(sourceImage)
             let flippedImage = filteredImage
                 .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
@@ -924,8 +837,6 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             )
             var fallback: NSString?
             if upscaler.encodeTexture(sourceTexture, toTexture: outputTexture, commandBuffer: commandBuffer, fallback: &fallback) {
-                copyTexture(from: outputTexture, to: currentDrawable.texture, commandBuffer: commandBuffer)
-
                 if let enhancedSink = enhancedFrameSink,
                    let device = metalView.device,
                    let enhancedBuffer = makeEnhancedPixelBuffer(width: outputWidth, height: outputHeight),
@@ -966,7 +877,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             if !isMetalFXEnabled {
                 updateMetalFXState(.disabled)
             } else if !upscaler.isAvailable {
-                updateMetalFXState(.unsupported(reason: "Device or capture incompatible"))
+                updateMetalFXState(.unsupported(reason: upscaler.unavailableReason ?? "MetalFX unavailable"))
             } else {
                 updateMetalFXState(.standby(
                     input: CGSize(width: sourceWidth, height: sourceHeight),
