@@ -44,6 +44,10 @@ extension NvstBundle {
                 }
                 guard named == 0 else { throw BundleError.transport(String(cString: strerror(errno))) }
                 audio = try NvstBundleAudio(channels: channelCount, playout: playout)
+                audio?.onFailure = { [weak self] reason in
+                    guard let self else { return }
+                    self.queue.async { [weak self] in self?.fail("Audio decoder failed: \(reason)") }
+                }
                 if let microphone {
                     microphoneVolume = microphone.volume
                     microphoneCaptureEnabled = microphone.initiallyEnabled
@@ -121,6 +125,7 @@ extension NvstBundle {
             guard !closed, dtls != nil, sctp != nil, descriptor >= 0 else { throw BundleError.transport("Cannot start an unprepared or closed bundle") }
             guard !started else { return }
             try audioDevice?.start(microphone: microphoneNegotiated)
+            audio?.start()
             started = true
             let now = DispatchTime.now().uptimeNanoseconds
             handshakeDeadlineNanoseconds = now &+ min(handoff.timeoutMilliseconds, 120_000) * 1_000_000
@@ -135,6 +140,7 @@ extension NvstBundle {
     func closeLocked() {
         guard !closed else { return }
         closed = true
+        audio?.stop()
         audioDevice?.stop()
         audioDevice = nil
         microphoneSignal?.cancel()
@@ -333,8 +339,6 @@ extension NvstBundle {
             _ = sendPayload(NvstRemoteInput.heartbeat, stream: stream >= 0 ? UInt16(stream) : 0)
             nextHeartbeatNanoseconds = now &+ 2_000_000_000
         }
-        do { try audio?.process(at: now) }
-        catch { fail("Audio decoder failed: \(error.localizedDescription)"); return }
         if let due = nextAudioReportNanoseconds, due <= now {
             sendAudioReports(at: now)
             nextAudioReportNanoseconds = now &+ 1_000_000_000
@@ -346,7 +350,7 @@ extension NvstBundle {
         guard !closed else { return }
         let now = DispatchTime.now().uptimeNanoseconds
         var deadlines = [dtlsStartNanoseconds, nextPunchNanoseconds, nextHeartbeatNanoseconds,
-                         handshakeDeadlineNanoseconds, nextAudioReportNanoseconds, audio?.nextDeadline].compactMap { $0 }
+                         handshakeDeadlineNanoseconds, nextAudioReportNanoseconds].compactMap { $0 }
         for milliseconds in [dtls?.nextTimeoutMilliseconds() ?? -1, sctp?.nextTimeoutMilliseconds() ?? -1] where milliseconds >= 0 {
             deadlines.append(now &+ UInt64(milliseconds) * 1_000_000)
         }
