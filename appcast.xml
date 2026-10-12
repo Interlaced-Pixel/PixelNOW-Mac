@@ -6,6 +6,16 @@
         <description>PixelNOW macOS application updates</description>
         <language>en</language>
         <item>
+            <title>1.80</title>
+            <pubDate>Sun, 11 Oct 2026 23:24:24 -0500</pubDate>
+            <sparkle:version>80</sparkle:version>
+            <sparkle:shortVersionString>1.80</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/PixelNOW-1.80-macOS.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.80/PixelNOW-1.80-macOS.zip" length="12796700" type="application/octet-stream" sparkle:edSignature="xT+DhBfBuDp3aJMEkEYl0h+2vW25hbTTAq/XvkHFCyl+hgix52qRGCfmdTeMOw9EXcLKnKZ8862DfzJmp9txBQ=="/>
+        </item>
+        <item>
             <title>1.79</title>
             <pubDate>Sun, 11 Oct 2026 22:00:49 -0500</pubDate>
             <sparkle:version>79</sparkle:version>
