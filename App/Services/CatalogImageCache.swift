@@ -4,8 +4,10 @@
 //
 
 import AppKit
+import CoreImage
 import CryptoKit
 import Foundation
+import ImageIO
 import SwiftData
 
 struct CatalogCachedImageData: @unchecked Sendable {
@@ -22,6 +24,7 @@ actor CatalogImageCache {
     static let shared = CatalogImageCache()
 
     private let memoryCache = NSCache<NSURL, CatalogCachedImageBox>()
+    private let loadingArtworkCache = NSCache<NSString, CatalogCachedImageBox>()
     private let cacheDirectory: URL
     private var inFlightLoads: [URL: Task<CatalogCachedImageData?, Never>] = [:]
     private var prefetchTask: Task<Void, Never>?
@@ -38,6 +41,8 @@ actor CatalogImageCache {
         cacheDirectory = Self.defaultCacheDirectory()
         memoryCache.countLimit = 512
         memoryCache.totalCostLimit = 128 * 1024 * 1024
+        loadingArtworkCache.countLimit = 48
+        loadingArtworkCache.totalCostLimit = 192 * 1024 * 1024
         Self.ensureCacheDirectory(at: cacheDirectory)
     }
 
@@ -68,6 +73,25 @@ actor CatalogImageCache {
         return result
     }
 
+    func loadingArtwork(for url: URL, targetPixelSize: CGSize, focalPoint: CGPoint = CGPoint(x: 0.5, y: 0.5)) async -> CatalogCachedImageData? {
+        let width = max(1, Int(targetPixelSize.width.rounded()))
+        let height = max(1, Int(targetPixelSize.height.rounded()))
+        let focalX = min(max(focalPoint.x, 0), 1)
+        let focalY = min(max(focalPoint.y, 0), 1)
+        let key = "\(cacheKey(for: url))|\(width)x\(height)|\(Int(focalX * 1000))x\(Int(focalY * 1000))" as NSString
+        if let cached = loadingArtworkCache.object(forKey: key) { return cached.value }
+        guard let source = await image(for: url), !Task.isCancelled else { return nil }
+        guard let processed = await Self.processLoadingArtwork(
+            source.data,
+            targetWidth: width,
+            targetHeight: height,
+            focalX: focalX,
+            focalY: focalY
+        ), !Task.isCancelled else { return nil }
+        loadingArtworkCache.setObject(CatalogCachedImageBox(value: processed), forKey: key, cost: width * height * 4)
+        return processed
+    }
+
     func statistics() -> CatalogImageCacheStatistics {
         ensureMetadataIndex()
         return CatalogImageCacheStatistics(entryCount: metadataIndex?.count ?? 0, totalBytes: storedByteCount)
@@ -78,6 +102,7 @@ actor CatalogImageCache {
             try FileManager.default.removeItem(at: cacheDirectory)
             ensureCacheDirectory()
             memoryCache.removeAllObjects()
+            loadingArtworkCache.removeAllObjects()
             prefetchQueue.removeAll()
             queuedPrefetchURLs.removeAll()
             prefetchTask?.cancel()
@@ -135,6 +160,62 @@ actor CatalogImageCache {
             return stored.imageData
         }
         return await downloadAndStoreImage(for: url, eTag: "", lastModified: "")
+    }
+
+    private nonisolated static func processLoadingArtwork(
+        _ data: Data,
+        targetWidth: Int,
+        targetHeight: Int,
+        focalX: CGFloat,
+        focalY: CGFloat
+    ) async -> CatalogCachedImageData? {
+        await Task.detached(priority: .userInitiated) {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+                return nil
+            }
+
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            let orientation = (properties?[kCGImagePropertyOrientation] as? NSNumber)?.int32Value ?? 1
+            var image = CIImage(cgImage: cgImage).oriented(forExifOrientation: orientation)
+            let orientedExtent = image.extent.integral
+            guard orientedExtent.width > 0, orientedExtent.height > 0 else { return nil }
+            image = image.transformed(by: CGAffineTransform(translationX: -orientedExtent.minX, y: -orientedExtent.minY))
+
+            let targetAspect = CGFloat(targetWidth) / CGFloat(targetHeight)
+            let sourceAspect = image.extent.width / image.extent.height
+            let cropWidth = sourceAspect > targetAspect ? image.extent.height * targetAspect : image.extent.width
+            let cropHeight = sourceAspect > targetAspect ? image.extent.height : image.extent.width / targetAspect
+            let originX = min(max(image.extent.width * focalX - cropWidth * 0.5, 0), image.extent.width - cropWidth)
+            let originY = min(max(image.extent.height * focalY - cropHeight * 0.5, 0), image.extent.height - cropHeight)
+            let crop = CGRect(x: originX, y: originY, width: cropWidth, height: cropHeight)
+            image = image
+                .cropped(to: crop)
+                .transformed(by: CGAffineTransform(translationX: -originX, y: -originY))
+
+            let scale = CGFloat(targetWidth) / cropWidth
+            guard let lanczos = CIFilter(name: "CILanczosScaleTransform") else { return nil }
+            lanczos.setValue(image, forKey: kCIInputImageKey)
+            lanczos.setValue(scale, forKey: kCIInputScaleKey)
+            lanczos.setValue(1.0, forKey: kCIInputAspectRatioKey)
+            guard var scaled = lanczos.outputImage else { return nil }
+            let expectedExtent = CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
+            scaled = scaled.cropped(to: expectedExtent)
+
+            if let sharpen = CIFilter(name: "CISharpenLuminance") {
+                sharpen.setValue(scaled, forKey: kCIInputImageKey)
+                sharpen.setValue(0.28, forKey: kCIInputSharpnessKey)
+                sharpen.setValue(0.6, forKey: kCIInputRadiusKey)
+                if let sharpened = sharpen.outputImage { scaled = sharpened.cropped(to: expectedExtent) }
+            }
+
+            let context = CIContext(options: [.useSoftwareRenderer: false])
+            guard let output = context.createCGImage(scaled, from: expectedExtent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else {
+                return nil
+            }
+            let processedImage = NSImage(cgImage: output, size: NSSize(width: targetWidth, height: targetHeight))
+            return CatalogCachedImageData(data: data, image: processedImage)
+        }.value
     }
 
     private func loadStoredImage(for url: URL) -> StoredImage? {
