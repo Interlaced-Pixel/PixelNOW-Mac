@@ -12,7 +12,7 @@
             <sparkle:shortVersionString>1.80</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/PixelNOW-1.80-macOS.md</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/PixelNOW-1.80-macOS.md</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.80/PixelNOW-1.80-macOS.zip" length="12796700" type="application/octet-stream" sparkle:edSignature="xT+DhBfBuDp3aJMEkEYl0h+2vW25hbTTAq/XvkHFCyl+hgix52qRGCfmdTeMOw9EXcLKnKZ8862DfzJmp9txBQ=="/>
         </item>
         <item>
@@ -22,7 +22,7 @@
             <sparkle:shortVersionString>1.79</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/PixelNOW-1.79-macOS.md</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/PixelNOW-1.79-macOS.md</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.79/PixelNOW-1.79-macOS.zip" length="12794331" type="application/octet-stream" sparkle:edSignature="adHmzziKD+8QjM7j9rGsppVjpjehFX/o3cjlM5FzK7BohgAZ8L06Ao3BIUj/c/aBBmWQ/fiqx0uihX4HAqAMCg=="/>
         </item>
         <item>
@@ -32,26 +32,7 @@
             <sparkle:shortVersionString>1.78</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# PixelNOW 1.78
-
-## Native NVST streaming
-
-- Align stale-session recovery and resume allocation with the vendor request flow.
-- Surface live launch diagnostics for faster diagnosis of stream startup failures.
-- Preserve negotiated video precision and bound presentation pacing.
-- Own the native NVST bundle and CoreAudio lifecycle directly, with native stream settings and recording media paths.
-- Remove retired WebRTC runtime artifacts and legacy build paths.
-
-## Updates and packaging
-
-- Replace the custom updater with Sparkle 2 and publish a signed appcast feed.
-- Package the privileged AWDL helper and gate AWDL control by stream activity.
-- Remove the disabled remote co-op stack and its unused deployment assets.
-
-## Qualification note
-
-This archive passed Release compilation, code-sign verification, Sparkle framework validation, native NVST bundle validation, and archive extraction checks. It was signed with the available Apple Development identity and was not notarized because Developer ID and notarization credentials were unavailable on the release machine.
-]]></description>
+            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/PixelNOW-1.78-macOS.md</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.78/PixelNOW-1.78-macOS.zip" length="12718657" type="application/octet-stream" sparkle:edSignature="ZLRbcnFs/xsm93v3zM0YiMnZTBRu2TTb273sTSyArRhcjwagMAAhNmk8Pr3M29/UKVnq+jWMV+q4ER80v/9JBw=="/>
         </item>
     </channel>

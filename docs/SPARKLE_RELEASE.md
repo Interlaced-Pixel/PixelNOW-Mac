@@ -10,7 +10,7 @@ Run Sparkle's `generate_keys` tool on the release Mac. Keep the private Ed25519 
 
 1. Increment `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` together.
 2. Create a signed and notarized `PixelNOW-<version>-macOS.zip` containing only `PixelNOW.app`.
-3. Place the archive and matching release notes in a private local update-archive directory.
+3. Keep the matching `PixelNOW-<version>-macOS.md` release notes in `sparkle/`. Place a copy of the archive and release notes in a private local update-archive directory for generation.
 4. Run Sparkle's appcast generator, writing the output to `appcast.xml`:
 
 ```sh
@@ -18,7 +18,8 @@ scripts/generate-sparkle-appcast.sh \
   /path/to/Sparkle/bin \
   /path/to/update-archives \
   appcast.xml \
-  https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.78/
+  https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v<version>/ \
+  https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/
 ```
 
 5. Verify the generated enclosure URL, `sparkle:edSignature`, archive length, version, minimum macOS requirement, and release notes.
