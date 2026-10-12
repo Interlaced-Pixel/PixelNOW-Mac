@@ -106,9 +106,6 @@ public struct NativeMediaStreamProfile: Equatable, Sendable {
     public var showStreamMicToggle: Bool
     public var microphoneShortcutEnabled: Bool
     public var upscalingMode: Int
-    public var upscalingSharpness: Int
-    public var upscalingDenoise: Int
-    public var upscalingTargetHeight: Int
     public var suppressInputWhenInactive: Bool
     public var directMouseInput: Bool
     public var antiAFKMouseMovementEnabled: Bool
@@ -148,9 +145,6 @@ public struct NativeMediaStreamProfile: Equatable, Sendable {
                 showStreamMicToggle: Bool = true,
                 microphoneShortcutEnabled: Bool = true,
                 upscalingMode: Int = 0,
-                upscalingSharpness: Int = 10,
-                upscalingDenoise: Int = 0,
-                upscalingTargetHeight: Int = 2160,
                 suppressInputWhenInactive: Bool = true,
                 directMouseInput: Bool = true,
                 antiAFKMouseMovementEnabled: Bool = false,
@@ -189,9 +183,6 @@ public struct NativeMediaStreamProfile: Equatable, Sendable {
         self.showStreamMicToggle = showStreamMicToggle
         self.microphoneShortcutEnabled = microphoneShortcutEnabled
         self.upscalingMode = upscalingMode
-        self.upscalingSharpness = upscalingSharpness
-        self.upscalingDenoise = upscalingDenoise
-        self.upscalingTargetHeight = upscalingTargetHeight
         self.suppressInputWhenInactive = suppressInputWhenInactive
         self.directMouseInput = directMouseInput
         self.antiAFKMouseMovementEnabled = antiAFKMouseMovementEnabled
@@ -236,9 +227,6 @@ public struct NativeMediaResolvedStreamSettings: Equatable, Sendable {
     public var showStreamMicToggle: Bool
     public var microphoneShortcutEnabled: Bool
     public var upscalingMode: Int
-    public var upscalingSharpness: Int
-    public var upscalingDenoise: Int
-    public var upscalingTargetHeight: Int
     public var suppressInputWhenInactive: Bool
     public var directMouseInput: Bool
     public var antiAFKMouseMovementEnabled: Bool
@@ -281,9 +269,6 @@ public struct NativeMediaResolvedStreamSettings: Equatable, Sendable {
             "showStreamMicToggle": showStreamMicToggle,
             "microphoneShortcutEnabled": microphoneShortcutEnabled,
             "upscalingMode": upscalingMode,
-            "upscalingSharpness": upscalingSharpness,
-            "upscalingDenoise": upscalingDenoise,
-            "upscalingTargetHeight": upscalingTargetHeight,
             "suppressInputWhenInactive": suppressInputWhenInactive,
             "directMouseInput": directMouseInput,
             "antiAFKMouseMovementEnabled": antiAFKMouseMovementEnabled,
@@ -346,9 +331,6 @@ public enum NativeMediaStreamSettingsResolver {
             showStreamMicToggle: profile.showStreamMicToggle,
             microphoneShortcutEnabled: profile.microphoneShortcutEnabled,
             upscalingMode: upscalingMode,
-            upscalingSharpness: profile.upscalingSharpness,
-            upscalingDenoise: profile.upscalingDenoise,
-            upscalingTargetHeight: profile.upscalingTargetHeight,
             suppressInputWhenInactive: profile.suppressInputWhenInactive,
             directMouseInput: profile.directMouseInput,
             antiAFKMouseMovementEnabled: profile.antiAFKMouseMovementEnabled,

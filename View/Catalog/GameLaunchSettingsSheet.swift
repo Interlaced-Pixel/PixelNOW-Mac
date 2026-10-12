@@ -468,33 +468,6 @@ struct GameLaunchSettingsSheet: View {
                 ))
                 .toggleStyle(SwitchToggleStyle(tint: Color.pixelNowGreen))
 
-                if profile.upscalingMode == StreamPreferences.upscalingModeValueMetalFX {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Sharpness").font(.caption).foregroundStyle(.white.opacity(0.7))
-                            Spacer()
-                            Text("\(profile.upscalingSharpness)").font(.caption.monospaced()).foregroundStyle(.white)
-                        }
-                        Slider(value: Binding(
-                            get: { Double(profile.upscalingSharpness) },
-                            set: { profile.upscalingSharpness = Int($0); saveCurrentProfile() }
-                        ), in: 0...15, step: 1)
-                        .tint(Color.pixelNowGreen)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Noise Reduction").font(.caption).foregroundStyle(.white.opacity(0.7))
-                            Spacer()
-                            Text("\(profile.upscalingDenoise)").font(.caption.monospaced()).foregroundStyle(.white)
-                        }
-                        Slider(value: Binding(
-                            get: { Double(profile.upscalingDenoise) },
-                            set: { profile.upscalingDenoise = Int($0); saveCurrentProfile() }
-                        ), in: 0...20, step: 1)
-                        .tint(Color.pixelNowGreen)
-                    }
-                }
             }
 
             Divider().background(Color.white.opacity(0.08))

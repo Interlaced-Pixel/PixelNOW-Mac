@@ -1258,17 +1258,13 @@ private struct ResolutionUpscalingSettingsPage: View {
             SettingsCard(title: "MetalFX Upscaling") {
                 SettingsToggleRow(
                     title: "MetalFX Upscaling",
-                    subtitle: viewModel.isMetalFXHardwareSupported ? "Spatial upscaling for Apple Silicon with automatic fallback." : "MetalFX spatial scaling is unavailable on this hardware (requires Apple Silicon / macOS 13+).",
+                    subtitle: viewModel.isMetalFXHardwareSupported ? "Spatial upscaling to 4K with automatic fallback." : "MetalFX spatial scaling is unavailable on this hardware (requires macOS 13+ and a supported GPU).",
                     isOn: viewModel.streamProfile.upscalingMode == StreamPreferences.upscalingModeValueMetalFX
                 ) { enabled in viewModel.setUpscalingModeIndex(enabled ? 1 : 0) }
                 SettingsDivider()
-                SettingsInfoRow(label: "Hardware Status", value: viewModel.isMetalFXHardwareSupported ? "Supported (Apple Silicon)" : "Unsupported")
+                SettingsInfoRow(label: "Hardware Status", value: viewModel.isMetalFXHardwareSupported ? "Supported" : "Unsupported")
                 SettingsDivider()
-                SettingsInfoRow(label: "Target", value: "Display Native")
-                SettingsDivider()
-                SettingsSliderRow(title: "Clarity", valueText: "\(viewModel.streamProfile.upscalingSharpness)", value: Double(viewModel.streamProfile.upscalingSharpness), range: 0...15, action: viewModel.setUpscalingSharpness)
-                SettingsDivider()
-                SettingsSliderRow(title: "Noise Reduction", valueText: "\(viewModel.streamProfile.upscalingDenoise)", value: Double(viewModel.streamProfile.upscalingDenoise), range: 0...20, action: viewModel.setUpscalingDenoise)
+                SettingsInfoRow(label: "Target", value: "3840 × 2160")
             }
 
         }

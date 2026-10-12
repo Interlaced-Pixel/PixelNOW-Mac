@@ -174,6 +174,11 @@ final class NVSTMetalFXUpscaler: NSObject {
 
 }
 
+private enum NVSTMetalFXOutputResolution {
+    static let width = 3840
+    static let height = 2160
+}
+
 final class NVSTPixelBufferHolder: @unchecked Sendable {
     private enum QueueMode {
         case immediate, fixed, timestamp, adaptive, variableRefresh
@@ -490,6 +495,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     public var onPresentationFormat: ((OSType, String, Bool) -> Void)?
 
     private var intermediateSourceTexture: (any MTLTexture)?
+    private var intermediateUpscaledTexture: (any MTLTexture)?
 
     public var isMetalFXEnabled = false {
         didSet {
@@ -508,8 +514,6 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var enhancedPixelBufferPoolWidth = 0
     private var enhancedPixelBufferPoolHeight = 0
     private var enhancedPixelBufferPoolFormat: OSType = 0
-    private var enhancementSharpness = 10
-    private var enhancementDenoise = 0
 
     public init(frame frameRect: NSRect, targetFps: Int32) {
         self.targetFps = min(max(Int(targetFps), 30), 240)
@@ -567,23 +571,28 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         displayLink = nil
         if let window {
             let link = displayLink(target: self, selector: #selector(displayTick(_:)))
-            let maximum = Float(window.screen?.maximumFramesPerSecond ?? targetFps)
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(Float(targetFps), maximum),
-                maximum: maximum, preferred: maximum)
+            configureDisplayLink(link, for: window.screen)
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
         updateDrawableSize()
     }
 
+    private func configureDisplayLink(_ link: CADisplayLink, for screen: NSScreen?) {
+        let screenMaximum = max(1, screen?.maximumFramesPerSecond ?? targetFps)
+        let frameRate = Float(min(targetFps, screenMaximum))
+        let currentRange = link.preferredFrameRateRange
+        guard currentRange.minimum != frameRate || currentRange.maximum != frameRate
+            || currentRange.preferred != frameRate else { return }
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: frameRate,
+            maximum: frameRate,
+            preferred: frameRate
+        )
+    }
+
     @objc private func displayTick(_ link: CADisplayLink) {
-        if let screen = window?.screen {
-            let maximum = Float(screen.maximumFramesPerSecond)
-            if link.preferredFrameRateRange.maximum != maximum {
-                link.preferredFrameRateRange = CAFrameRateRange(minimum: min(Float(targetFps), maximum),
-                    maximum: maximum, preferred: maximum)
-            }
-        }
+        configureDisplayLink(link, for: window?.screen)
         let duration = link.targetTimestamp - link.timestamp
         if duration.isFinite, duration > 0 {
             let screen = window?.screen
@@ -616,11 +625,6 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         updateDrawableSize()
     }
 
-    public func configureEnhancement(sharpness: Int, denoise: Int) {
-        enhancementSharpness = min(max(sharpness, 0), 15)
-        enhancementDenoise = min(max(denoise, 0), 20)
-    }
-
     public func configurePresentation(mode: PixelNOWVideoPresentationMode) {
         bufferHolder.configure(mode: mode)
     }
@@ -632,6 +636,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         metalView.isPaused = true
         metalView.delegate = nil
         intermediateSourceTexture = nil
+        intermediateUpscaledTexture = nil
         enhancedPixelBufferPool = nil
         enhancedFrameSink = nil
         onMetalFXStateChanged = nil
@@ -800,18 +805,36 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
         let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
         let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
-        let outputWidth = currentDrawable.texture.width
-        let outputHeight = currentDrawable.texture.height
+        let drawableWidth = currentDrawable.texture.width
+        let drawableHeight = currentDrawable.texture.height
 
-        guard sourceWidth > 0, sourceHeight > 0, outputWidth > 0, outputHeight > 0 else {
+        guard sourceWidth > 0, sourceHeight > 0, drawableWidth > 0, drawableHeight > 0 else {
             lifecycle?.discard(decoded: true)
             holder.finish(ticket)
             return
         }
 
-        let isScalingUp = outputWidth >= sourceWidth && outputHeight >= sourceHeight
-            && (outputWidth > sourceWidth || outputHeight > sourceHeight)
+        let targetWidth = NVSTMetalFXOutputResolution.width
+        let targetHeight = NVSTMetalFXOutputResolution.height
+        let isScalingUp = sourceWidth <= targetWidth && sourceHeight <= targetHeight
+            && (sourceWidth < targetWidth || sourceHeight < targetHeight)
         let shouldUpscale = isMetalFXEnabled && upscaler.isAvailable && isScalingUp
+        let usesDrawableForUpscaling = shouldUpscale && drawableWidth == targetWidth && drawableHeight == targetHeight
+        let upscaledTexture: (any MTLTexture)?
+        if shouldUpscale {
+            upscaledTexture = usesDrawableForUpscaling
+                ? currentDrawable.texture
+                : reusableTexture(
+                    &intermediateUpscaledTexture,
+                    width: targetWidth,
+                    height: targetHeight,
+                    pixelFormat: desiredFormat,
+                    usage: [.shaderRead, .shaderWrite, .renderTarget],
+                    label: "NVSTMetalVideoView 4K Output"
+                )
+        } else {
+            upscaledTexture = nil
+        }
 
         if shouldUpscale,
            let sourceTexture = reusableTexture(
@@ -822,10 +845,9 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                usage: [.shaderRead, .shaderWrite, .renderTarget],
                label: "NVSTMetalVideoView Source"
            ),
-           currentDrawable.texture.pixelFormat == desiredFormat {
-            let outputTexture = currentDrawable.texture
-            let filteredImage = enhancedImage(sourceImage)
-            let flippedImage = filteredImage
+           let outputTexture = upscaledTexture,
+           outputTexture.pixelFormat == desiredFormat {
+            let flippedImage = sourceImage
                 .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
                 .transformed(by: CGAffineTransform(translationX: 0, y: CGFloat(sourceHeight)))
             ciContext.render(
@@ -839,12 +861,12 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
             if upscaler.encodeTexture(sourceTexture, toTexture: outputTexture, commandBuffer: commandBuffer, fallback: &fallback) {
                 if let enhancedSink = enhancedFrameSink,
                    let device = metalView.device,
-                   let enhancedBuffer = makeEnhancedPixelBuffer(width: outputWidth, height: outputHeight),
+                   let enhancedBuffer = makeEnhancedPixelBuffer(width: targetWidth, height: targetHeight),
                    let ioSurface = CVPixelBufferGetIOSurface(enhancedBuffer) {
                     let textureDesc = MTLTextureDescriptor.texture2DDescriptor(
                         pixelFormat: desiredFormat,
-                        width: outputWidth,
-                        height: outputHeight,
+                        width: targetWidth,
+                        height: targetHeight,
                         mipmapped: false
                     )
                     textureDesc.usage = [.shaderRead, .shaderWrite, .renderTarget]
@@ -863,8 +885,39 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
                 updateMetalFXState(.active(
                     input: CGSize(width: sourceWidth, height: sourceHeight),
-                    output: CGSize(width: outputWidth, height: outputHeight)
+                    output: CGSize(width: targetWidth, height: targetHeight)
                 ))
+
+                if !usesDrawableForUpscaling {
+                    guard let upscaledImage = CIImage(mtlTexture: outputTexture, options: [.colorSpace: colorSpace]) else {
+                        updateMetalFXState(.fallback(reason: "4K output texture could not be displayed"))
+                        let fallbackImage = sourceImage.transformed(by: CGAffineTransform(
+                            scaleX: CGFloat(drawableWidth) / CGFloat(sourceWidth),
+                            y: CGFloat(drawableHeight) / CGFloat(sourceHeight)
+                        ))
+                        ciContext.render(
+                            fallbackImage,
+                            to: currentDrawable.texture,
+                            commandBuffer: commandBuffer,
+                            bounds: CGRect(x: 0, y: 0, width: drawableWidth, height: drawableHeight),
+                            colorSpace: colorSpace
+                        )
+                        present(currentDrawable, with: commandBuffer, lifecycle: lifecycle)
+                        commandBuffer.commit()
+                        return
+                    }
+                    let displayedImage = upscaledImage.transformed(by: CGAffineTransform(
+                        scaleX: CGFloat(drawableWidth) / CGFloat(targetWidth),
+                        y: CGFloat(drawableHeight) / CGFloat(targetHeight)
+                    ))
+                    ciContext.render(
+                        displayedImage,
+                        to: currentDrawable.texture,
+                        commandBuffer: commandBuffer,
+                        bounds: CGRect(x: 0, y: 0, width: drawableWidth, height: drawableHeight),
+                        colorSpace: colorSpace
+                    )
+                }
 
                 present(currentDrawable, with: commandBuffer, lifecycle: lifecycle)
                 commandBuffer.commit()
@@ -878,25 +931,24 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                 updateMetalFXState(.disabled)
             } else if !upscaler.isAvailable {
                 updateMetalFXState(.unsupported(reason: upscaler.unavailableReason ?? "MetalFX unavailable"))
-            } else {
+            } else if isScalingUp {
+                updateMetalFXState(.fallback(reason: "4K MetalFX output texture unavailable"))
+            } else if sourceWidth == targetWidth && sourceHeight == targetHeight {
                 updateMetalFXState(.standby(
                     input: CGSize(width: sourceWidth, height: sourceHeight),
-                    output: CGSize(width: outputWidth, height: outputHeight)
+                    output: CGSize(width: targetWidth, height: targetHeight)
                 ))
+            } else {
+                updateMetalFXState(.fallback(reason: "Source resolution exceeds 4K target"))
             }
         }
 
-        // Fallback / disabled / standby render path.
-        // When MetalFX is in standby (enabled but same dimensions), skip the
-        // enhancement filters — they add GPU work with no upscaling benefit.
-        let isStandby = isMetalFXEnabled && !shouldUpscale
-        let renderImage = isStandby ? sourceImage : enhancedImage(sourceImage)
-        let renderBounds = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
-        let scaleX = CGFloat(outputWidth) / CGFloat(sourceWidth)
-        let scaleY = CGFloat(outputHeight) / CGFloat(sourceHeight)
+        let renderBounds = CGRect(x: 0, y: 0, width: drawableWidth, height: drawableHeight)
+        let scaleX = CGFloat(drawableWidth) / CGFloat(sourceWidth)
+        let scaleY = CGFloat(drawableHeight) / CGFloat(sourceHeight)
         let scaledImage = (scaleX == 1.0 && scaleY == 1.0)
-            ? renderImage
-            : renderImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            ? sourceImage
+            : sourceImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
         ciContext.render(scaledImage, to: currentDrawable.texture, commandBuffer: commandBuffer, bounds: renderBounds, colorSpace: colorSpace)
         present(currentDrawable, with: commandBuffer, lifecycle: lifecycle)
         commandBuffer.commit()
@@ -913,20 +965,4 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
         }
     }
 
-    private func enhancedImage(_ image: CIImage) -> CIImage {
-        guard enhancementSharpness > 0 || enhancementDenoise > 0 else { return image }
-        var result = image
-        if enhancementDenoise > 0, let filter = CIFilter(name: "CINoiseReduction") {
-            filter.setValue(result, forKey: kCIInputImageKey)
-            filter.setValue(Float(enhancementDenoise) / 20.0 * 0.04, forKey: "inputNoiseLevel")
-            filter.setValue((1.0 - Float(enhancementDenoise) / 20.0) * 0.5, forKey: "inputSharpness")
-            if let output = filter.outputImage { result = output }
-        }
-        if enhancementSharpness > 0, let filter = CIFilter(name: "CISharpenLuminance") {
-            filter.setValue(result, forKey: kCIInputImageKey)
-            filter.setValue(Float(enhancementSharpness) / 15.0 * 0.4, forKey: "inputSharpness")
-            if let output = filter.outputImage { result = output }
-        }
-        return result
-    }
 }

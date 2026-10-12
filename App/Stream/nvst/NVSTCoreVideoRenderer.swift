@@ -333,17 +333,6 @@ public final class NVSTCoreVideoRenderer {
         }
     }
 
-    public func setVideoEnhancement(mode: Int,
-                                    sharpness: Int,
-                                    denoise: Int,
-                                    targetHeight: Int,
-                                    pillarboxFillMode: Int,
-                                    pillarboxFillDim: Int,
-                                    pillarboxFillColor: Int) {
-        videoView.configureEnhancement(sharpness: sharpness, denoise: denoise)
-        setMetalFXEnabled(mode == StreamPreferences.upscalingModeValueMetalFX)
-    }
-
     func writeOffscreenRenderSnapshot(to url: URL) -> CGSize? {
         sink.writeLatestFrameJPEG(to: url)
     }

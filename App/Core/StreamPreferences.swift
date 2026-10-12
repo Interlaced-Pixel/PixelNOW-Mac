@@ -90,16 +90,6 @@ public struct StreamUpscalingModeOption: Equatable, Sendable {
     }
 }
 
-public struct StreamUpscalingTargetOption: Equatable, Sendable {
-    public var label: String
-    public var height: Int
-
-    public init(label: String, height: Int) {
-        self.label = label
-        self.height = height
-    }
-}
-
 public struct StreamTransportModeOption: Equatable, Sendable {
     public var label: String
     public var value: String
@@ -240,10 +230,6 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var prefilterModel = 4
     public var upscalingModeIndex = 0
     public var upscalingMode = 0
-    public var upscalingTargetIndex = 1
-    public var upscalingTargetHeight = 2160
-    public var upscalingSharpness = 10
-    public var upscalingDenoise = 0
     public var recordingVideoBitrateMbps = 0
     public var recordingAudioBitrateKbps = 160
     public var recordingEnhancedVideoEnabled = true
@@ -285,7 +271,6 @@ public struct StreamPreferenceProfile: Equatable, Sendable {
     public var bitrate = StreamPreferences.bitrateOptions[2]
     public var colorQuality = StreamPreferences.colorQualityOptions[0]
     public var upscalingModeOption = StreamPreferences.upscalingModeOptions[0]
-    public var upscalingTargetOption = StreamPreferences.upscalingTargetOptions[1]
 
     public var allowsStreamingCustomization: Bool {
         streamingQualityProfileIndex == 0
@@ -354,10 +339,6 @@ public enum StreamPreferences {
     ]
     public static let upscalingModeValueOff: Int = 0
     public static let upscalingModeValueMetalFX: Int = 3
-    public static let upscalingTargetOptions = [
-        StreamUpscalingTargetOption(label: "2K", height: 1440),
-        StreamUpscalingTargetOption(label: "4K", height: 2160)
-    ]
     public static let microphoneModeOptions = [
         StreamMicrophoneModeOption(label: "Disabled", value: "disabled"),
         StreamMicrophoneModeOption(label: "Push-to-Talk", value: "push-to-talk"),
@@ -366,7 +347,6 @@ public enum StreamPreferences {
 
     private static let nvClientId = GFNClientMetadata.clientId
     private static let nvCloudVariablesClientVersion = GFNClientMetadata.appVersion
-    private static let defaultUpscalingTargetIndex = 1
     private static let maxConcurrentRegionMeasurements = 4
     private static let k = Keys.self
 
@@ -438,9 +418,6 @@ public enum StreamPreferences {
         Keys.sdrColorSpaceIndex,
         Keys.hdrColorSpaceIndex,
         Keys.upscalingModeIndex,
-        Keys.upscalingTargetIndex,
-        Keys.upscalingSharpness,
-        Keys.upscalingDenoise,
         Keys.recordingVideoBitrateMbps,
         Keys.recordingAudioBitrateKbps,
         Keys.recordingEnhancedVideoEnabled,
@@ -1088,21 +1065,14 @@ public enum StreamPreferences {
     public static func saveSDRColorSpaceIndex(_ value: Int) { storage.set(clamp(value, 0, colorSpaceOptions.count - 1), forKey: k.sdrColorSpaceIndex) }
     public static func saveHDRColorSpaceIndex(_ value: Int) { storage.set(clamp(value, 0, colorSpaceOptions.count - 1), forKey: k.hdrColorSpaceIndex) }
     public static func saveUpscalingModeIndex(_ value: Int) { storage.set(normalizedUpscalingModeIndex(value), forKey: k.upscalingModeIndex) }
-    public static func saveUpscalingTargetIndex(_: Int) { storage.set(defaultUpscalingTargetIndex, forKey: k.upscalingTargetIndex) }
-    public static func saveUpscalingSharpness(_ value: Int) { storage.set(clamp(value, 0, 15), forKey: k.upscalingSharpness) }
-    public static func saveUpscalingDenoise(_ value: Int) { storage.set(clamp(value, 0, 20), forKey: k.upscalingDenoise) }
-    public static func saveUpscalingSettings(mode: Int, sharpness: Int, denoise: Int, forGame appId: String = "") {
+    public static func saveUpscalingMode(_ mode: Int, forGame appId: String = "") {
         let modeIndex = normalizedUpscalingModeIndex(forMode: mode)
-        let sharpness = clamp(sharpness, 0, 15)
-        let denoise = clamp(denoise, 0, 20)
         if !appId.isEmpty, var profile = loadProfile(forGame: appId) {
-            applyUpscalingSettings(to: &profile, modeIndex: modeIndex, sharpness: sharpness, denoise: denoise)
+            applyUpscalingMode(to: &profile, modeIndex: modeIndex)
             saveProfile(forGame: appId, profile: profile)
             return
         }
         storage.set(modeIndex, forKey: k.upscalingModeIndex)
-        storage.set(sharpness, forKey: k.upscalingSharpness)
-        storage.set(denoise, forKey: k.upscalingDenoise)
     }
     public static func saveRecordingVideoBitrateMbps(_ value: Int) { storage.set(clamp(value, 0, 200), forKey: k.recordingVideoBitrateMbps) }
     public static func saveRecordingAudioBitrateKbps(_ value: Int) { storage.set(clamp(value, 64, 320), forKey: k.recordingAudioBitrateKbps) }
@@ -1192,9 +1162,6 @@ public enum StreamPreferences {
         profile.upscalingModeIndex = storedUpscalingModeIndex(dictionary)
         profile.upscalingModeOption = upscalingModeOptions[profile.upscalingModeIndex]
         profile.upscalingMode = profile.upscalingModeOption.value
-        applyDefaultUpscalingTarget(&profile)
-        profile.upscalingSharpness = clampedInt(dictionary, k.upscalingSharpness, 10, 16)
-        profile.upscalingDenoise = clampedInt(dictionary, k.upscalingDenoise, 0, 21)
         profile.recordingVideoBitrateMbps = clampedInt(dictionary, k.recordingVideoBitrateMbps, 0, 201)
         profile.recordingAudioBitrateKbps = Int(clampedDouble(dictionary, k.recordingAudioBitrateKbps, 160, 64, 320).rounded())
         profile.recordingEnhancedVideoEnabled = bool(value(dictionary, k.recordingEnhancedVideoEnabled), true)
@@ -1250,9 +1217,6 @@ public enum StreamPreferences {
             k.sdrColorSpaceIndex: profile.sdrColorSpaceIndex,
             k.hdrColorSpaceIndex: profile.hdrColorSpaceIndex,
             k.upscalingModeIndex: profile.upscalingModeIndex,
-            k.upscalingTargetIndex: profile.upscalingTargetIndex,
-            k.upscalingSharpness: profile.upscalingSharpness,
-            k.upscalingDenoise: profile.upscalingDenoise,
             k.recordingVideoBitrateMbps: profile.recordingVideoBitrateMbps,
             k.recordingAudioBitrateKbps: profile.recordingAudioBitrateKbps,
             k.recordingEnhancedVideoEnabled: profile.recordingEnhancedVideoEnabled,
@@ -1462,13 +1426,6 @@ public enum StreamPreferences {
         storage.set(preset.powerSaverEnabled, forKey: k.powerSaverEnabled)
     }
 
-    private static func applyDefaultUpscalingTarget(_ profile: inout StreamPreferenceProfile) {
-        let index = clamp(defaultUpscalingTargetIndex, 0, upscalingTargetOptions.count - 1)
-        profile.upscalingTargetIndex = index
-        profile.upscalingTargetOption = upscalingTargetOptions[index]
-        profile.upscalingTargetHeight = profile.upscalingTargetOption.height
-    }
-
     private static func storedUpscalingModeIndex(_ dictionary: [String: Any]?) -> Int {
         normalizedUpscalingModeIndex(int(value(dictionary, k.upscalingModeIndex), 0))
     }
@@ -1489,14 +1446,11 @@ public enum StreamPreferences {
         }
     }
 
-    private static func applyUpscalingSettings(to profile: inout StreamPreferenceProfile, modeIndex: Int, sharpness: Int, denoise: Int) {
+    private static func applyUpscalingMode(to profile: inout StreamPreferenceProfile, modeIndex: Int) {
         let modeIndex = clamp(modeIndex, 0, upscalingModeOptions.count - 1)
         profile.upscalingModeIndex = modeIndex
         profile.upscalingModeOption = upscalingModeOptions[modeIndex]
         profile.upscalingMode = profile.upscalingModeOption.value
-        applyDefaultUpscalingTarget(&profile)
-        profile.upscalingSharpness = clamp(sharpness, 0, 15)
-        profile.upscalingDenoise = clamp(denoise, 0, 20)
     }
 
     private static func storedPreferenceValue(_ key: String) -> Any? {
@@ -1948,9 +1902,6 @@ public enum StreamPreferences {
         static let sdrColorSpaceIndex = "PixelNOW.Stream.SDRColorSpaceIndex"
         static let hdrColorSpaceIndex = "PixelNOW.Stream.HDRColorSpaceIndex"
         static let upscalingModeIndex = "PixelNOW.Stream.UpscalingModeIndex"
-        static let upscalingTargetIndex = "PixelNOW.Stream.UpscalingTargetIndex"
-        static let upscalingSharpness = "PixelNOW.Stream.UpscalingSharpness"
-        static let upscalingDenoise = "PixelNOW.Stream.UpscalingDenoise"
         static let recordingVideoBitrateMbps = "PixelNOW.Stream.RecordingVideoBitrateMbps"
         static let recordingAudioBitrateKbps = "PixelNOW.Stream.RecordingAudioBitrateKbps"
         static let recordingEnhancedVideoEnabled = "PixelNOW.Stream.RecordingEnhancedVideoEnabled"
@@ -1996,9 +1947,6 @@ public final class StreamViewPreferenceSnapshot: NSObject {
     @objc public let fallbackToLogicalResolution: Bool
     @objc public let upscalingModeIndex: Int
     @objc public let upscalingMode: Int
-    @objc public let upscalingTargetHeight: Int
-    @objc public let upscalingSharpness: Int
-    @objc public let upscalingDenoise: Int
     @objc public let streamWidth: Int
     @objc public let streamHeight: Int
     @objc public let recordingEnhancedVideoEnabled: Bool
@@ -2018,9 +1966,6 @@ public final class StreamViewPreferenceSnapshot: NSObject {
         fallbackToLogicalResolution = profile.fallbackToLogicalResolution
         upscalingModeIndex = profile.upscalingModeIndex
         upscalingMode = profile.upscalingMode
-        upscalingTargetHeight = profile.upscalingTargetHeight
-        upscalingSharpness = profile.upscalingSharpness
-        upscalingDenoise = profile.upscalingDenoise
         streamWidth = profile.resolution.width
         streamHeight = profile.resolution.height
         recordingEnhancedVideoEnabled = profile.recordingEnhancedVideoEnabled
@@ -2069,13 +2014,6 @@ public final class StreamViewPreferences: NSObject {
         StreamPreferences.saveUpscalingModeIndex(index)
     }
 
-    @objc public static func saveUpscalingSharpness(_ sharpness: Int) {
-        StreamPreferences.saveUpscalingSharpness(sharpness)
-    }
-
-    @objc public static func saveUpscalingDenoise(_ denoise: Int) {
-        StreamPreferences.saveUpscalingDenoise(denoise)
-    }
 }
 
 private extension StreamResolutionOption {

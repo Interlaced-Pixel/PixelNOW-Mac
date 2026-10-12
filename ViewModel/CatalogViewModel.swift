@@ -1832,23 +1832,8 @@ final class CatalogViewModel: ObservableObject {
         loadSettingsPreferences()
     }
 
-    func setUpscalingSharpness(_ value: Double) {
-        StreamPreferences.saveUpscalingSharpness(Int(value.rounded()))
-        loadSettingsPreferences()
-    }
-
-    func setUpscalingDenoise(_ value: Double) {
-        StreamPreferences.saveUpscalingDenoise(Int(value.rounded()))
-        loadSettingsPreferences()
-    }
-
     var isMetalFXHardwareSupported: Bool {
         NVSTMetalFXUpscaler.isSupportedOnCurrentDevice
-    }
-
-    func setUpscalingTargetIndex(_ index: Int) {
-        StreamPreferences.saveUpscalingTargetIndex(index)
-        loadSettingsPreferences()
     }
 
     func setL4SEnabled(_ enabled: Bool) {
