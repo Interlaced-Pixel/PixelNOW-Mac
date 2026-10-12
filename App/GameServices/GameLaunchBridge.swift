@@ -208,7 +208,14 @@ public final class GameLaunchBridge {
         var seen = Set<String>()
 
         func append(_ value: String) {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains("img.nvidiagrid.net") {
+                trimmed = trimmed.replacingOccurrences(
+                    of: #";w=\d+"#,
+                    with: ";w=1920",
+                    options: .regularExpression
+                )
+            }
             guard !trimmed.isEmpty, !seen.contains(trimmed) else { return }
             seen.insert(trimmed)
             imageUrls.append(trimmed)
@@ -219,12 +226,13 @@ public final class GameLaunchBridge {
             for value in game.imageUrlsByType[key.lowercased()] ?? [] { append(value) }
         }
 
+        appendValues(forKey: "MARQUEE_HERO_IMAGE")
+        appendValues(forKey: "HERO_IMAGE")
+        appendValues(forKey: "FEATURE_IMAGE")
+        appendValues(forKey: "WIDE_IMAGE")
+        append(game.heroImageUrl)
         appendValues(forKey: "SCREENSHOTS")
         for value in game.screenshotUrls { append(value) }
-        appendValues(forKey: "HERO_IMAGE")
-        appendValues(forKey: "MARQUEE_HERO_IMAGE")
-        appendValues(forKey: "FEATURE_IMAGE")
-        append(game.heroImageUrl)
         append(game.imageUrl)
 
         var metadata: [String: String] = [:]

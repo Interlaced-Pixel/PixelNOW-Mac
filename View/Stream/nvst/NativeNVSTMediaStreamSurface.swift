@@ -10,11 +10,11 @@ public typealias NativeNVSTMediaStreamEndCallback = @MainActor @Sendable (_ succ
 enum NativeNVSTMediaStreamTheme {
     static let accent = Color(red: 0.08, green: 0.48, blue: 0.98)
     static let accentSoft = Color(red: 0.35, green: 0.68, blue: 1.0)
-    static let appBar = Color.black.opacity(0.25)
-    static let surface = Color.black.opacity(0.25)
-    static let panel = Color.black.opacity(0.25)
-    static let surfaceRaised = Color.black.opacity(0.25)
-    static let divider = Color.white.opacity(0.12)
+    static let appBar = Color.black.opacity(0.90)
+    static let surface = Color.black.opacity(0.84)
+    static let panel = Color.black.opacity(0.62)
+    static let surfaceRaised = Color.black.opacity(0.78)
+    static let divider = Color.white.opacity(0.14)
     static let textPrimary = Color.white
     static let textSecondary = Color.white.opacity(0.80)
     static let textTertiary = Color.white.opacity(0.60)
@@ -48,7 +48,7 @@ enum NativeNVSTMediaStreamTheme {
     }
 
     static func dockWidth(for width: CGFloat) -> CGFloat {
-        min(344, max(268, width * 0.72))
+        min(340, max(248, width * 0.68))
     }
 }
 
@@ -120,12 +120,17 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 10) {
-                    Text(title)
-                        .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
-                        .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
-                        .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("IN STREAM")
+                            .font(.nativeNVSTStreamNvidia(size: 8, weight: .bold))
+                            .tracking(1.1)
+                            .foregroundStyle(Color.pixelNowGreen)
+                        Text(title)
+                            .font(.nativeNVSTStreamNvidia(size: 12, weight: .bold))
+                            .foregroundStyle(NativeNVSTMediaStreamTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     Spacer(minLength: 0)
                     Button(action: closeAction) {
                         Image(systemName: "xmark")
@@ -168,8 +173,9 @@ struct NativeNVSTStreamUnifiedSidebar<Content: View>: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 9)
             }
-            .frame(width: NativeNVSTMediaStreamTheme.dockWidth(for: proxy.size.width), height: proxy.size.height, alignment: .topLeading)
-            .background(Color.black.opacity(0.25))
+            .frame(width: min(NativeNVSTMediaStreamTheme.dockWidth(for: proxy.size.width), proxy.size.width), height: proxy.size.height, alignment: .topLeading)
+            .background(Color.black.opacity(0.88))
+            .shadow(color: .black.opacity(0.30), radius: 20, x: 8)
             .overlay(alignment: .trailing) {
                 Rectangle().fill(NativeNVSTMediaStreamTheme.specularVerticalBorder).frame(width: 1)
             }
@@ -201,7 +207,7 @@ struct NativeNVSTStreamHUDSection<Content: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.black.opacity(0.25))
+        .background(Color.black.opacity(0.54))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -246,7 +252,7 @@ struct NativeNVSTStreamHUDMetricCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-        .background(Color.black.opacity(0.25))
+        .background(Color.black.opacity(0.48))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -366,6 +372,7 @@ struct NativeNVSTMediaStreamSurface: View {
     @State private var endEventTask: Task<Void, Never>?
     @State private var nativeView: NativeNVSTStreamView?
     @State private var loadingStepIndex = -1
+    @State private var loadingProgress: StreamProgress?
     @State private var isConnected = false
     @State private var isEnding = false
     @State private var didEnd = false
@@ -422,8 +429,11 @@ struct NativeNVSTMediaStreamSurface: View {
             } else if !isConnected {
                 NativeNVSTStreamLaunchLoadingScreen(
                     title: configuration.title,
-                    stage: NativeNVSTStreamLaunchLoadingStage.label(stepIndex: loadingStepIndex),
-                    artworkURL: configuration.nativeNVSTLoadingArtworkURL
+                    stage: NativeNVSTStreamLaunchLoadingStage.label(stepIndex: loadingProgress?.currentStepIndex ?? loadingStepIndex, queuePosition: loadingProgress?.queuePosition),
+                    message: loadingProgress?.message ?? "Preparing your stream...",
+                    artworkURL: configuration.nativeNVSTLoadingArtworkURL,
+                    currentStepIndex: loadingProgress?.currentStepIndex ?? loadingStepIndex,
+                    queuePosition: loadingProgress?.queuePosition
                 ) { EmptyView() }
             }
         }
@@ -580,6 +590,7 @@ struct NativeNVSTMediaStreamSurface: View {
                 let session = try await path.start(configuration: configuration) { progress in
                     await MainActor.run {
                         loadingStepIndex = progress.currentStepIndex
+                        loadingProgress = progress
                         onProgress?(progress)
                     }
                 }
@@ -1838,7 +1849,7 @@ struct NativeNVSTMediaStreamSurface: View {
 
     private var nativeHUDControlsPanel: some View {
         NativeNVSTStreamHUDSection(label: "CONTROLS", spacing: 8) {
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 42, maximum: 58), spacing: 8)], alignment: .leading, spacing: 8) {
                 if showStreamMicToggle {
                     NativeNVSTStreamHUDActionRow(
                         title: microphoneEnabled ? "Mute microphone" : "Unmute microphone",

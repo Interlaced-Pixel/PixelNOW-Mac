@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import SwiftUI
 import Combine
 
@@ -34,27 +35,35 @@ extension PreparedLaunchConfiguration {
 struct NativeNVSTStreamLaunchLoadingScreen<Accessory: View>: View {
     let title: String
     let stage: String
+    let message: String
     let artworkURL: URL?
+    let currentStepIndex: Int
     let queuePosition: Int?
     let accessoryPresented: Bool
     let cancelAction: (() -> Void)?
     private let accessory: Accessory
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
     @State private var diagnosticsPresented = false
     @State private var diagnosticText = ""
+    @State private var artwork: NSImage?
+    @State private var loadedArtworkURL: String?
     private let diagnosticRefreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     init(title: String,
          stage: String,
+         message: String = "",
          artworkURL: URL?,
+         currentStepIndex: Int = -1,
          queuePosition: Int? = nil,
          accessoryPresented: Bool = false,
          cancelAction: (() -> Void)? = nil,
          @ViewBuilder accessory: () -> Accessory) {
         self.title = title.isEmpty ? "GeForce NOW" : title
         self.stage = stage
+        self.message = message
         self.artworkURL = artworkURL
+        self.currentStepIndex = currentStepIndex
         self.queuePosition = queuePosition
         self.accessoryPresented = accessoryPresented
         self.cancelAction = cancelAction
@@ -64,92 +73,62 @@ struct NativeNVSTStreamLaunchLoadingScreen<Accessory: View>: View {
     var body: some View {
         GeometryReader { proxy in
             let compact = min(proxy.size.width, proxy.size.height) < 620
+            let targetPixelSize = CGSize(
+                width: min(proxy.size.width * displayScale, 4096),
+                height: min(proxy.size.height * displayScale, 4096)
+            )
             ZStack {
                 Color.black
-                if let artworkURL {
-                    AsyncImage(url: artworkURL) { phase in
-                        if case .success(let image) = phase {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: proxy.size.width, height: proxy.size.height)
-                                .clipped()
-                        }
-                    }
+                if let artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
                 }
                 LinearGradient(
                     stops: [
-                        .init(color: .black.opacity(0.54), location: 0),
-                        .init(color: .black.opacity(0.20), location: 0.42),
-                        .init(color: .black.opacity(0.78), location: 1)
+                        .init(color: .black.opacity(0.08), location: 0),
+                        .init(color: .clear, location: 0.32),
+                        .init(color: .black.opacity(0.18), location: 0.58),
+                        .init(color: .black.opacity(0.80), location: 1)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                RadialGradient(
-                    colors: [Color.pixelNowBlue.opacity(0.18), .clear],
-                    center: .center,
-                    startRadius: 12,
-                    endRadius: compact ? 260 : 480
-                )
-                .blendMode(.screen)
-                VStack(spacing: compact ? 16 : 22) {
-                    Spacer(minLength: 24)
-                    if accessoryPresented {
+                if accessoryPresented {
+                    VStack {
+                        Spacer(minLength: 24)
                         accessory
                             .aspectRatio(16 / 9, contentMode: .fit)
                             .frame(maxWidth: 920, maxHeight: compact ? 300 : 520)
-                    } else {
-                        NativeNVSTStreamLaunchSignal(reduceMotion: reduceMotion)
-                            .frame(width: compact ? 68 : 84, height: compact ? 68 : 84)
-                    }
-                    VStack(spacing: 8) {
-                        Text(title)
-                            .font(.nvidia(size: compact ? 24 : 32, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                        HStack(spacing: 8) {
-                            Circle()
-                                .fill(Color.pixelNowGreen)
-                                .frame(width: 6, height: 6)
-                                .shadow(color: Color.pixelNowGreen, radius: 6)
-                            Text(stage.uppercased())
-                                .font(.nvidia(size: 11, weight: .bold))
-                                .tracking(1.5)
-                                .foregroundStyle(.white.opacity(0.72))
-                        }
-                    }
-                    if let queuePosition, queuePosition > 0 {
-                        Text("Position \(queuePosition)")
-                            .font(.nvidia(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 32)
-                            .background(.black.opacity(0.48), in: Capsule())
-                            .overlay(Capsule().stroke(Color.pixelNowGreen.opacity(0.38), lineWidth: 1))
-                    }
-                    if let cancelAction {
-                        Button("Cancel", action: cancelAction)
-                            .font(.nvidia(size: 12, weight: .bold))
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.white.opacity(0.68))
-                            .padding(.horizontal, 18)
-                            .frame(height: 34)
-                            .overlay(Capsule().stroke(.white.opacity(0.20), lineWidth: 1))
-                            .accessibilityLabel("Cancel stream launch")
-                    }
-                    Spacer(minLength: 24)
-                    if !accessoryPresented {
-                        VendorIndeterminateProgressBar()
-                            .frame(width: compact ? 190 : 280, height: 3)
-                            .padding(.bottom, compact ? 22 : 34)
+                        Spacer(minLength: 24)
                     }
                 }
-                .padding(.horizontal, compact ? 22 : 40)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
+            .task(id: artworkTaskKey(targetPixelSize: targetPixelSize)) {
+                guard let artworkURL else {
+                    artwork = nil
+                    loadedArtworkURL = nil
+                    return
+                }
+                if loadedArtworkURL != artworkURL.absoluteString {
+                    artwork = nil
+                    loadedArtworkURL = artworkURL.absoluteString
+                }
+                guard let original = await CatalogImageCache.shared.image(for: artworkURL), !Task.isCancelled else { return }
+                artwork = original.image
+                let result = await CatalogImageCache.shared.loadingArtwork(for: artworkURL, targetPixelSize: targetPixelSize)
+                guard !Task.isCancelled else { return }
+                artwork = result?.image ?? original.image
+            }
+            .overlay(alignment: .bottomLeading) {
+                launchStatusRail(compact: compact)
+                    .frame(maxWidth: compact ? 420 : 560, alignment: .leading)
+                    .padding(.horizontal, compact ? 22 : 48)
+                    .padding(.bottom, compact ? 26 : 42)
+            }
             .overlay(alignment: .bottomTrailing) {
                 VStack(alignment: .trailing, spacing: 8) {
                     if diagnosticsPresented {
@@ -189,6 +168,102 @@ struct NativeNVSTStreamLaunchLoadingScreen<Accessory: View>: View {
         }
     }
 
+    private func artworkTaskKey(targetPixelSize: CGSize) -> String {
+        let url = artworkURL?.absoluteString ?? "none"
+        return "\(url)|\(Int(targetPixelSize.width))x\(Int(targetPixelSize.height))"
+    }
+
+    private func launchStatusRail(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 8 : 11) {
+            HStack(alignment: .center, spacing: 10) {
+                if !accessoryPresented {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.pixelNowGreen)
+                        .frame(width: 17, height: 17)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.nvidia(size: compact ? 17 : 22, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(Color.pixelNowGreen)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: Color.pixelNowGreen.opacity(0.7), radius: 4)
+                        Text(stage.uppercased())
+                            .font(.nvidia(size: 10, weight: .bold))
+                            .tracking(1.2)
+                            .foregroundStyle(.white.opacity(0.82))
+                        if let queuePosition, queuePosition > 0 {
+                            Text("· QUEUE \(queuePosition)")
+                                .font(.nvidia(size: 10, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundStyle(.white.opacity(0.70))
+                        }
+                    }
+                }
+                Spacer(minLength: 8)
+                if let cancelAction {
+                    Button("Cancel", action: cancelAction)
+                        .font(.nvidia(size: 11, weight: .bold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white.opacity(0.90))
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(.black.opacity(0.32), in: Capsule())
+                        .overlay(Capsule().stroke(.white.opacity(0.30), lineWidth: 1))
+                        .accessibilityLabel("Cancel stream launch")
+                }
+            }
+            if !message.isEmpty {
+                Text(message)
+                    .font(.nvidia(size: compact ? 10 : 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.74))
+                    .lineLimit(2)
+            }
+            HStack(spacing: 4) {
+                ForEach(StreamLaunchStep.allCases, id: \.rawValue) { step in
+                    Capsule()
+                        .fill(step.rawValue <= currentStepIndex ? Color.pixelNowGreen : Color.white.opacity(0.30))
+                        .frame(height: 3)
+                        .overlay(alignment: .leading) {
+                            if step.rawValue == currentStepIndex && currentStepIndex < StreamLaunchStep.connected.rawValue {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.85))
+                                    .frame(width: 14, height: 3)
+                                    .offset(x: 0)
+                            }
+                        }
+                }
+            }
+            .accessibilityHidden(true)
+            if accessoryPresented {
+                Text("SPONSORED MESSAGE")
+                    .font(.nvidia(size: 9, weight: .bold))
+                    .tracking(1.1)
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+        }
+        .padding(.top, compact ? 12 : 16)
+        .padding(.horizontal, compact ? 13 : 17)
+        .padding(.bottom, compact ? 12 : 15)
+        .background(.black.opacity(0.40), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(Color.pixelNowGreen.opacity(0.90))
+                .frame(width: 2)
+                .padding(.vertical, 10)
+        }
+        .shadow(color: .black.opacity(0.26), radius: 16, y: 7)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). \(stage). \(message)")
+        .accessibilityValue("Launch step \(max(0, currentStepIndex + 1)) of \(StreamLaunchStep.allCases.count)")
+    }
+
     private func diagnosticPanel(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -216,37 +291,6 @@ struct NativeNVSTStreamLaunchLoadingScreen<Accessory: View>: View {
         .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.pixelNowGreen.opacity(0.42), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
-    }
-}
-
-private struct NativeNVSTStreamLaunchSignal: View {
-    let reduceMotion: Bool
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            let cycle = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.4) / 2.4
-            let rotation = reduceMotion ? 0 : cycle * 360
-            ZStack {
-                Circle()
-                    .fill(Color.pixelNowGreen.opacity(0.12))
-                    .blur(radius: 14)
-                Circle()
-                    .stroke(.white.opacity(0.15), lineWidth: 1)
-                Circle()
-                    .trim(from: 0.06, to: 0.70)
-                    .stroke(Color.pixelNowGreen, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(rotation))
-                Circle()
-                    .trim(from: 0.12, to: 0.42)
-                    .stroke(.white.opacity(0.64), style: StrokeStyle(lineWidth: 1, lineCap: .round))
-                    .padding(9)
-                    .rotationEffect(.degrees(-rotation * 0.72))
-                Circle()
-                    .fill(Color.pixelNowGreen)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: Color.pixelNowGreen, radius: 8)
-            }
-        }
     }
 }
 

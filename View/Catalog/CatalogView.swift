@@ -321,10 +321,10 @@ private struct VendorLaunchFlowOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.82)
+            Color.black.opacity(0.62)
                 .ignoresSafeArea()
             RadialGradient(
-                colors: [Color.pixelNowGreen.opacity(0.20), .clear],
+                colors: [Color.pixelNowGreen.opacity(0.12), .clear],
                 center: .top,
                 startRadius: 20,
                 endRadius: 620
@@ -602,7 +602,9 @@ private struct VendorStreamLaunchLoadingOverlay: View {
         NativeNVSTStreamLaunchLoadingScreen(
             title: title,
             stage: viewModel.activeStreamAdPlayback == nil ? NativeNVSTStreamLaunchLoadingStage.label(stepIndex: progress?.currentStepIndex ?? -1, queuePosition: queuePosition) : "Sponsored break",
+            message: progress?.message ?? "Preparing your stream...",
             artworkURL: configuration?.nativeNVSTLoadingArtworkURL,
+            currentStepIndex: progress?.currentStepIndex ?? -1,
             queuePosition: queuePosition,
             accessoryPresented: accessoryPresented,
             cancelAction: cancelAction
