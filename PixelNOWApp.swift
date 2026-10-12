@@ -1,5 +1,4 @@
 import AppKit
-import Sparkle
 import SwiftUI
 import SwiftData
 
@@ -81,7 +80,7 @@ struct PixelNOWApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates...") {
-                    AppDelegate.requestApplicationUpdateCheck()
+                    UpdateCenter.shared.checkForUpdates()
                 }
             }
             CommandMenu("Stream") {
@@ -105,11 +104,6 @@ struct PixelNOWApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let awdlController = AWDLController()
-    private lazy var updaterController = SPUStandardUpdaterController(
-        startingUpdater: false,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
-    )
     private var streamShortcutMonitor: Any?
     private var isCompletingUserApprovedTermination = false
 
@@ -131,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info(.app, "NSApplication did finish launching")
         awdlController.start()
         installStreamShortcutMonitor()
-        startApplicationUpdateChecks()
+        UpdateCenter.shared.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -243,33 +237,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         return nil
-    }
-
-    static func requestApplicationUpdateCheck() {
-        (NSApp.delegate as? AppDelegate)?.updaterController.checkForUpdates(nil)
-    }
-
-    static func setAutomaticApplicationUpdateChecksEnabled(_ enabled: Bool) {
-        (NSApp.delegate as? AppDelegate)?.updaterController.updater.automaticallyChecksForUpdates = enabled
-    }
-
-    static var automaticApplicationUpdateChecksEnabled: Bool {
-        (NSApp.delegate as? AppDelegate)?.updaterController.updater.automaticallyChecksForUpdates ?? false
-    }
-
-    private func startApplicationUpdateChecks() {
-        migrateLegacyUpdatePreferenceIfNeeded()
-#if DEBUG
-        updaterController.updater.automaticallyChecksForUpdates = false
-#endif
-        updaterController.startUpdater()
-    }
-
-    private func migrateLegacyUpdatePreferenceIfNeeded() {
-        let defaults = UserDefaults.standard
-        guard defaults.object(forKey: UpdatePreferences.legacyAutomaticUpdateChecksEnabledKey) != nil else { return }
-        updaterController.updater.automaticallyChecksForUpdates = defaults.bool(forKey: UpdatePreferences.legacyAutomaticUpdateChecksEnabledKey)
-        defaults.removeObject(forKey: UpdatePreferences.legacyAutomaticUpdateChecksEnabledKey)
     }
 
     private func presentAlert(_ alert: NSAlert, completion: ((NSApplication.ModalResponse) -> Void)? = nil) {

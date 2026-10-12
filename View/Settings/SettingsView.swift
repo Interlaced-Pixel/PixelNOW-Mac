@@ -1617,8 +1617,8 @@ private struct SystemCapabilityRow: View {
 
 private struct AboutSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
+    @ObservedObject private var updateCenter = UpdateCenter.shared
     @State private var copiedKey = ""
-    @State private var automaticUpdateChecksEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1669,14 +1669,15 @@ private struct AboutSettingsPage: View {
                 SettingsDivider()
                 AboutDetailRow(label: "macOS", value: operatingSystemVersion, copyValue: operatingSystemVersion, copiedKey: $copiedKey)
                 SettingsDivider()
-                SettingsToggleRow(title: "Automatic Update Checks", subtitle: automaticUpdateChecksSubtitle, isOn: automaticUpdateChecksEnabled) { enabled in
-                    automaticUpdateChecksEnabled = enabled
-                    AppDelegate.setAutomaticApplicationUpdateChecksEnabled(enabled)
+                SettingsToggleRow(title: "Automatic Update Checks", subtitle: automaticUpdateChecksSubtitle, isOn: updateCenter.automaticChecksEnabled) { enabled in
+                    updateCenter.setAutomaticChecksEnabled(enabled)
                 }
+                SettingsDivider()
+                UpdateStatusNotice(status: updateCenter.status, notice: updateCenter.lastNotice, lastCheckedAt: updateCenter.lastCheckedAt)
                 SettingsDivider()
                 HStack(spacing: 10) {
                     SettingsActionButton(title: "CHECK FOR UPDATES") {
-                        AppDelegate.requestApplicationUpdateCheck()
+                        updateCenter.checkForUpdates()
                     }
                         Text("Check for newer signed PixelNOW builds.")
                         .font(.settingsText(size: 12, weight: .medium))
@@ -1708,10 +1709,7 @@ private struct AboutSettingsPage: View {
                 }
             }
         }
-        .onAppear {
-            viewModel.refreshCatalogImageCacheSummary()
-            automaticUpdateChecksEnabled = AppDelegate.automaticApplicationUpdateChecksEnabled
-        }
+        .onAppear { viewModel.refreshCatalogImageCacheSummary() }
     }
 
     private var account: SettingsAccountSnapshot {
@@ -1734,7 +1732,7 @@ private struct AboutSettingsPage: View {
         if UpdatePreferences.automaticUpdateChecksAreSuspendedForDebugging {
             return "Paused during debugging. Manual checks remain available."
         }
-        if automaticUpdateChecksEnabled {
+        if updateCenter.automaticChecksEnabled {
             return "Automatically check for new releases on Sparkle's schedule."
         }
         return "Manual checks only. Releases will not be checked automatically."
@@ -1762,6 +1760,51 @@ private struct AboutSettingsPage: View {
         copiedKey = key
     }
 
+}
+
+private struct UpdateStatusNotice: View {
+    let status: UpdateCenter.Status
+    let notice: String
+    let lastCheckedAt: Date?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if status.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(SettingsTheme.accent)
+                    .frame(width: 18, height: 18)
+            } else {
+                Image(systemName: status.symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(statusColor)
+                    .frame(width: 18, height: 18)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(status.title)
+                    .font(.settingsText(size: 13, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                Text(notice)
+                    .font(.settingsText(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let lastCheckedAt {
+                    Text("Last checked \(lastCheckedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.settingsText(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.38))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusColor: Color {
+        if case .failed = status { return Color.orange }
+        if case .upToDate = status { return SettingsTheme.accent }
+        return .white.opacity(0.72)
+    }
 }
 
 private struct AboutStatusPill: View {
