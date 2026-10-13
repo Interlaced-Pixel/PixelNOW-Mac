@@ -145,7 +145,7 @@ public final class NvstBundle: @unchecked Sendable {
     public var onGameAudioFrame: (@Sendable (UnsafeRawPointer?, UInt32, Double, UInt32) -> Void)?
     public var onMicrophoneAudioFrame: (@Sendable (UnsafeRawPointer?, UInt32, Double, UInt32) -> Void)?
     public var onMicrophoneLevel: (@Sendable (Double) -> Void)?
-    public var onTransportFailure: (@Sendable (String) -> Void)?
+    public var onTransportFailure: (@Sendable (NativeNVSTTransportFailure) -> Void)?
 
     public init(handoff: NVSTVideoHandoff, descriptor: Int32 = -1,
                 preferredLocalAddress: String? = NvstRoutedIPv4.discover(),

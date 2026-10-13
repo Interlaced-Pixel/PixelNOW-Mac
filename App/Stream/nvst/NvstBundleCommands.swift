@@ -22,7 +22,27 @@ extension NvstBundle {
             case .message:
                 receiveMessage(Data(event.payload), stream: event.stream)
             case .aborted:
-                fail("SCTP aborted: " + String(event.description))
+                let failureName = switch event.failureKind {
+                case .none: "unknown"
+                case .tooManyRetries: "too-many-retries"
+                case .notConnected: "not-connected"
+                case .parseFailed: "parse-failed"
+                case .wrongSequence: "wrong-sequence"
+                case .peerReported: "peer-reported"
+                case .protocolViolation: "protocol-violation"
+                case .resourceExhaustion: "resource-exhaustion"
+                case .unsupportedOperation: "unsupported-operation"
+                default: "unknown"
+                }
+                let failure = NativeNVSTTransportFailure(
+                    message: "SCTP aborted (DCSCTP_\(failureName)): \(String(event.description))",
+                    result: NativeNVSTTerminationValue(
+                        code: Int32(event.failureKind.rawValue),
+                        name: "DCSCTP_\(failureName.uppercased().replacingOccurrences(of: "-", with: "_"))"
+                    ),
+                    recoveryClassification: event.failureKind == .tooManyRetries ? .transientNetwork : .permanent
+                )
+                fail(failure)
                 return
             case .closed:
                 fail("SCTP association closed")

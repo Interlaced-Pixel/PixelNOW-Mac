@@ -171,11 +171,15 @@ extension NvstBundle {
     }
 
     func fail(_ reason: String) {
+        fail(NativeNVSTTransportFailure(message: reason, recoveryClassification: .permanent))
+    }
+
+    func fail(_ failure: NativeNVSTTransportFailure) {
         guard terminalFailure == nil, !closed else { return }
-        terminalFailure = reason
-        logger?("NVST native transport failed: \(reason)")
+        terminalFailure = failure.message
+        logger?("NVST native transport failed: \(failure.message)")
         closeLocked()
-        onTransportFailure?(reason)
+        onTransportFailure?(failure)
     }
 
     func drainSocket() {

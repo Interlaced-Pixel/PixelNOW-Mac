@@ -79,7 +79,8 @@ extension NVSTCoreTransport {
         }
         receiver.onDiagnostic = { message in logger?("NVST \(message)") }
 
-        receiver.onDrop = { _ in }
+        let dropCounters = videoDropCounters
+        receiver.onDrop = { drop in dropCounters.record(drop) }
         receiver.onBoundSSRC = { [weak self] ssrc in
             Task { [weak self] in
                 await self?.feedbackSender?.updateMediaSSRC(ssrc)
@@ -214,10 +215,10 @@ extension NVSTCoreTransport {
                                        logger: (@Sendable (String) -> Void)?) {
         bundleGeneration = bundleGeneration &+ 1
         let generation = bundleGeneration
-        bundle.onTransportFailure = { [weak self] message in
+        bundle.onTransportFailure = { [weak self] failure in
             Task {
                 guard await self?.bundleGeneration == generation else { return }
-                await self?.reportBundleFailure(message)
+                await self?.reportBundleFailure(failure)
             }
         }
         bundle.onInputProtocolNegotiated = { [weak self] version in
@@ -812,8 +813,8 @@ extension NVSTCoreTransport {
         if let ssrc = receiver.stats.boundSSRC { sender.updateMediaSSRC(ssrc) }
     }
 
-    func reportBundleFailure(_ message: String) {
-        terminationContinuation?.yield(.transportFailed(NativeNVSTTransportFailure(message: message, recoveryClassification: .permanent)))
+    func reportBundleFailure(_ failure: NativeNVSTTransportFailure) {
+        terminationContinuation?.yield(.transportFailed(failure))
     }
 
     func reportFatalDecodeError(_ message: String) {
