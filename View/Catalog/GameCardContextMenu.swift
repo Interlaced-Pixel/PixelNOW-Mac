@@ -90,6 +90,9 @@ struct GameCardContextMenuContent: View {
                     Button("1440p @ 120 FPS") { applyResolutionPreset(width: 2560, height: 1440, fps: 120) }
                     Button("4K @ 60 FPS") { applyResolutionPreset(width: 3840, height: 2160, fps: 60) }
                     Button("4K @ 120 FPS") { applyResolutionPreset(width: 3840, height: 2160, fps: 120) }
+                    Button("5K @ 120 FPS") { applyResolutionPreset(width: 5120, height: 2880, fps: 120) }
+                    Button("UW 5K @ 120 FPS") { applyResolutionPreset(width: 5120, height: 2160, fps: 120) }
+                    Button("1080p @ 360 FPS") { applyResolutionPreset(width: 1920, height: 1080, fps: 360) }
                 } label: {
                     Label(
                         profile.streamingQualityProfileIndex == 0
@@ -280,7 +283,12 @@ struct GameCardContextMenuContent: View {
 
     private func applyResolutionPreset(width: Int, height: Int, fps: Int) {
         guard profile.streamingQualityProfileIndex == 0 else { return }
-        let aspectIndex = (width * 10 == height * 16) ? 1 : 0
+        let targetRatio = Double(width) / Double(height)
+        let aspectIndex = StreamPreferences.aspectOptions.indices.min { lhs, rhs in
+            let lhsRatio = Double(StreamPreferences.aspectOptions[lhs].widthRatio) / Double(StreamPreferences.aspectOptions[lhs].heightRatio)
+            let rhsRatio = Double(StreamPreferences.aspectOptions[rhs].widthRatio) / Double(StreamPreferences.aspectOptions[rhs].heightRatio)
+            return abs(lhsRatio - targetRatio) < abs(rhsRatio - targetRatio)
+        } ?? 0
         profile.aspectIndex = aspectIndex
         profile.aspect = StreamPreferences.aspectOptions[aspectIndex]
         let resolutions = StreamPreferences.resolutionOptions(forAspect: aspectIndex)

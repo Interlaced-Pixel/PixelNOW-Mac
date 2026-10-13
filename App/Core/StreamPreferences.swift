@@ -293,7 +293,7 @@ public enum StreamPreferences {
         StreamAspectOption(label: "21:9", widthRatio: 21, heightRatio: 9),
         StreamAspectOption(label: "32:9", widthRatio: 32, heightRatio: 9)
     ]
-    public static let fpsOptions = [30, 60, 120, 240]
+    public static let fpsOptions = [30, 60, 90, 120, 240, 360]
     public static let codecOptions = [
         StreamCodecOption(label: "H264", value: "H264"),
         StreamCodecOption(label: "H265  Quality", value: "H265"),
@@ -409,6 +409,7 @@ public enum StreamPreferences {
         Keys.aspectIndex,
         Keys.resolutionIndex,
         Keys.fpsIndex,
+        Keys.fpsValue,
         Keys.codecIndex,
         Keys.bitrateIndex,
         Keys.colorQualityIndex,
@@ -445,9 +446,9 @@ public enum StreamPreferences {
 
     public static func resolutionOptions(forAspect aspectIndex: Int) -> [StreamResolutionOption] {
         switch aspectIndex {
-        case 0: return [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)].map(StreamResolutionOption.init)
+        case 0: return [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160), (5120, 2880)].map(StreamResolutionOption.init)
         case 1: return [(1280, 800), (1440, 900), (1680, 1050), (1920, 1200), (2560, 1600), (2880, 1800)].map(StreamResolutionOption.init)
-        case 2: return [(2560, 1080), (3440, 1440), (3840, 1600)].map(StreamResolutionOption.init)
+        case 2: return [(2560, 1080), (3440, 1440), (3840, 1600), (5120, 2160)].map(StreamResolutionOption.init)
         case 3: return [(3840, 1080), (5120, 1440)].map(StreamResolutionOption.init)
         default: return resolutionOptions(forAspect: 1)
         }
@@ -573,6 +574,15 @@ public enum StreamPreferences {
     }
 
     public static func fpsSupported(_ fps: Int, capabilities: StreamDeviceCapabilities) -> Bool {
+        fpsSupported(fps, resolution: nil, capabilities: capabilities)
+    }
+
+    public static func fpsSupported(_ fps: Int, resolution: StreamResolutionOption?, capabilities: StreamDeviceCapabilities) -> Bool {
+        guard fps <= 360 else { return false }
+        if fps > 120, let resolution,
+           (resolution.width > 2560 || resolution.height > 1440) {
+            return false
+        }
         if fps <= 60 { return true }
         if capabilities.maxDisplayRefreshRate <= 0 { return true }
         return fps <= max(60, capabilities.maxDisplayRefreshRate)
@@ -617,8 +627,8 @@ public enum StreamPreferences {
             result.codecIndex = firstSupportedCodecIndex(capabilities)
             result.codec = codecOptions[result.codecIndex]
         }
-        if !fpsSupported(result.fps, capabilities: capabilities) {
-            result.fpsIndex = nearestSupportedFpsIndex(result.fps, capabilities)
+        if !fpsSupported(result.fps, resolution: result.resolution, capabilities: capabilities) {
+            result.fpsIndex = nearestSupportedFpsIndex(result.fps, resolution: result.resolution, capabilities)
             result.fps = fpsOptions[result.fpsIndex]
         }
         if result.colorQualityIndex < 0 || result.colorQualityIndex >= colorQualityOptions.count || !colorQualitySupported(result.colorQuality, codec: result.codec, capabilities: capabilities) {
@@ -1044,7 +1054,11 @@ public enum StreamPreferences {
     }
 
     public static func saveResolutionIndex(_ value: Int) { storage.set(clamp(value, 0, resolutionOptions(forAspect: loadProfile().aspectIndex).count - 1), forKey: k.resolutionIndex) }
-    public static func saveFpsIndex(_ value: Int) { storage.set(clamp(value, 0, fpsOptions.count - 1), forKey: k.fpsIndex) }
+    public static func saveFpsIndex(_ value: Int) {
+        let index = clamp(value, 0, fpsOptions.count - 1)
+        storage.set(index, forKey: k.fpsIndex)
+        storage.set(fpsOptions[index], forKey: k.fpsValue)
+    }
     public static func saveCodecIndex(_ value: Int) { storage.set(clamp(value, 0, codecOptions.count - 1), forKey: k.codecIndex) }
     public static func saveBitrateIndex(_ value: Int) { storage.set(clamp(value, 0, bitrateOptions.count - 1), forKey: k.bitrateIndex) }
     public static func saveColorQualityIndex(_ value: Int) { storage.set(clamp(value, 0, colorQualityOptions.count - 1), forKey: k.colorQualityIndex) }
@@ -1134,8 +1148,17 @@ public enum StreamPreferences {
         let resolutions = resolutionOptions(forAspect: profile.aspectIndex)
         profile.resolutionIndex = clampedInt(dictionary, k.resolutionIndex, defaultResolutionIndex(forAspect: profile.aspectIndex), resolutions.count)
         profile.resolution = resolutions[profile.resolutionIndex]
-        profile.fpsIndex = clampedInt(dictionary, k.fpsIndex, 1, fpsOptions.count)
-        profile.fps = fpsOptions[profile.fpsIndex]
+        let rawFpsValue = dictionary?[k.fpsValue] ?? (dictionary == nil ? storedPreferenceValue(k.fpsValue) : nil)
+        let savedFpsValue = int(rawFpsValue, Int.min)
+        if let savedFpsIndex = fpsOptions.firstIndex(of: savedFpsValue) {
+            profile.fpsIndex = savedFpsIndex
+            profile.fps = savedFpsValue
+        } else {
+            let legacyFpsOptions = [30, 60, 120, 240]
+            let legacyFpsIndex = clampedInt(dictionary, k.fpsIndex, 1, legacyFpsOptions.count)
+            profile.fps = legacyFpsOptions[legacyFpsIndex]
+            profile.fpsIndex = fpsOptions.firstIndex(of: profile.fps) ?? 1
+        }
         profile.codecIndex = clampedInt(dictionary, k.codecIndex, 0, codecOptions.count)
         profile.codec = codecOptions[profile.codecIndex]
         profile.bitrateIndex = clampedInt(dictionary, k.bitrateIndex, 2, bitrateOptions.count)
@@ -1206,6 +1229,7 @@ public enum StreamPreferences {
             k.aspectIndex: profile.aspectIndex,
             k.resolutionIndex: profile.resolutionIndex,
             k.fpsIndex: profile.fpsIndex,
+            k.fpsValue: profile.fps,
             k.codecIndex: profile.codecIndex,
             k.bitrateIndex: profile.bitrateIndex,
             k.colorQualityIndex: profile.colorQualityIndex,
@@ -1249,10 +1273,10 @@ public enum StreamPreferences {
         return codecOptions.firstIndex(where: { codecSupported($0, capabilities: capabilities) }) ?? 0
     }
 
-    private static func nearestSupportedFpsIndex(_ requestedFps: Int, _ capabilities: StreamDeviceCapabilities) -> Int {
+    private static func nearestSupportedFpsIndex(_ requestedFps: Int, resolution: StreamResolutionOption, _ capabilities: StreamDeviceCapabilities) -> Int {
         var fallbackIndex = 0
         var fallbackFps = fpsOptions.first ?? 60
-        for (index, fps) in fpsOptions.enumerated() where fpsSupported(fps, capabilities: capabilities) && fps <= requestedFps && fps >= fallbackFps {
+        for (index, fps) in fpsOptions.enumerated() where fpsSupported(fps, resolution: resolution, capabilities: capabilities) && fps <= requestedFps && fps >= fallbackFps {
             fallbackIndex = index
             fallbackFps = fps
         }
@@ -1314,7 +1338,7 @@ public enum StreamPreferences {
             return StreamingQualityPreset(
                 aspectIndex: safeAspect,
                 resolutionIndex: presetResolutionIndex(forQualityIndex: 2, aspectIndex: safeAspect),
-                fpsIndex: 2,
+                fpsIndex: 3,
                 codecIndex: 3,
                 bitrateIndex: 2,
                 colorQualityIndex: 0,
@@ -1412,7 +1436,9 @@ public enum StreamPreferences {
         let resolutionIndex = clamp(preset.resolutionIndex, 0, resolutionOptions(forAspect: aspectIndex).count - 1)
         storage.set(aspectIndex, forKey: k.aspectIndex)
         storage.set(resolutionIndex, forKey: k.resolutionIndex)
-        storage.set(clamp(preset.fpsIndex, 0, fpsOptions.count - 1), forKey: k.fpsIndex)
+        let fpsIndex = clamp(preset.fpsIndex, 0, fpsOptions.count - 1)
+        storage.set(fpsIndex, forKey: k.fpsIndex)
+        storage.set(fpsOptions[fpsIndex], forKey: k.fpsValue)
         storage.set(clamp(preset.codecIndex, 0, codecOptions.count - 1), forKey: k.codecIndex)
         storage.set(clamp(preset.bitrateIndex, 0, bitrateOptions.count - 1), forKey: k.bitrateIndex)
         storage.set(clamp(preset.colorQualityIndex, 0, colorQualityOptions.count - 1), forKey: k.colorQualityIndex)
@@ -1891,6 +1917,7 @@ public enum StreamPreferences {
         static let aspectIndex = "PixelNOW.Stream.AspectIndex"
         static let resolutionIndex = "PixelNOW.Stream.ResolutionIndex"
         static let fpsIndex = "PixelNOW.Stream.FpsIndex"
+        static let fpsValue = "PixelNOW.Stream.FpsValue"
         static let codecIndex = "PixelNOW.Stream.CodecIndex"
         static let bitrateIndex = "PixelNOW.Stream.BitrateIndex"
         static let colorQualityIndex = "PixelNOW.Stream.ColorQualityIndex"

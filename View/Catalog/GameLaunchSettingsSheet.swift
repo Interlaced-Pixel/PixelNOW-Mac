@@ -305,7 +305,7 @@ struct GameLaunchSettingsSheet: View {
                     )) {
                         ForEach(StreamPreferences.fpsOptions.indices, id: \.self) { idx in
                             let fps = StreamPreferences.fpsOptions[idx]
-                            let supported = StreamPreferences.fpsSupported(fps, capabilities: deviceCapabilities)
+                            let supported = StreamPreferences.fpsSupported(fps, resolution: profile.resolution, capabilities: deviceCapabilities)
                             Text("\(fps) FPS\(supported ? "" : " (Exceeds Display)")").tag(idx)
                         }
                     }
