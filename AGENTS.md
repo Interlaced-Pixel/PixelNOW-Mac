@@ -16,7 +16,7 @@ These rules override speed, scope reduction, and momentum. They apply to every t
 3. **Requirement traceability.** Before any commit, push, or completion report, include a requirement-by-requirement status table: Requirement | Status | Evidence.
 4. **Explicit gates only.** Do not commit or push unless the user explicitly asked for it in that task, except where this file's commit standards apply to completed work the user already requested be finished end-to-end.
 5. **Verify, do not assume.** A green build is not proof that every requirement is satisfied. Re-check the original instruction list before declaring done.
-6. **Always manually verify code.** After implementing changes, verify the work builds correctly or functions as expected before concluding the task.
+6. **Always manually verify code.** After implementing changes, use task-appropriate verification. Run builds only when the user explicitly requests them or a task-specific repository workflow requires them; never build just to establish a baseline or add reassurance.
 7. **Follow instructions to the letter.** User instructions are mandatory constraints, not suggestions. Do not reinterpret them into a smaller task without explicit approval.
 8. **Granular, ordered commits.** Follow the multi-commit, dependency-ordered, detailed commit standards. Never create single monolithic commits for multi-phase or multi-domain work.
 
@@ -32,10 +32,14 @@ Execute every task in this order:
 - This repository has **no automated test suite**. Do not recreate `Tests/`, `PixelNOWTests`, or CI test jobs unless the user explicitly asks.
 - **Never run tests** (`xcodebuild test`, `swift test`, CI test jobs, or equivalent) unless the user explicitly asks to run tests in that task.
 - **Never add tests** unless the user explicitly asks for tests.
-- Builds (`xcodebuild build`) are fine when needed to verify compilation.
+
+# Build Execution Policy
+- For read-only work, including code reviews, audits, investigations, and codebase questions, do not run project builds, including baseline builds. Inspect the source directly.
+- Run a build only when the user explicitly requests one or a task-specific repository workflow requires it, such as the commit or release verification gates below.
+- Do not start a broad baseline build merely because the build command is available or as optional reassurance.
 
 # Build Artifact Discipline
-- For this Xcode project, use Xcode/XcodeBuildMCP only for builds and runs. Do not use SwiftPM commands as build/test/run shortcuts unless the user explicitly overrides this instruction for a specific task.
+- When a build or run is authorized by the Build Execution Policy, use Xcode/XcodeBuildMCP for this Xcode project. Do not use SwiftPM commands as build/test/run shortcuts unless the user explicitly overrides this instruction for a specific task.
 - Run SwiftPM commands from the repository root unless a task explicitly requires otherwise.
 - Use `--scratch-path .build/shared` for SwiftPM commands that generate build state, including `swift build` and `swift run`. Do not run `swift test` unless the user explicitly requests it.
 - Do not run package-local SwiftPM commands that create package-specific `.build` directories. Use the root `Package.swift` with the shared scratch path instead.
