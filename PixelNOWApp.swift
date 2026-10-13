@@ -103,7 +103,6 @@ struct PixelNOWApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let awdlController = AWDLController()
     private var streamShortcutMonitor: Any?
     private var isCompletingUserApprovedTermination = false
 
@@ -123,14 +122,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info(.app, "NSApplication did finish launching")
-        awdlController.start()
         installStreamShortcutMonitor()
         UpdateCenter.shared.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         Log.info(.app, "NSApplication will terminate")
-        awdlController.stop()
         NativeNVSTMediaStreamLifecycle.drainForTermination()
         for window in NSApp.windows where window.isVisible && !window.styleMask.contains(.fullScreen) {
             window.saveFrame(usingName: "PixelNOWMainWindow")

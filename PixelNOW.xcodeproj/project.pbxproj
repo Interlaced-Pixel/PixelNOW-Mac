@@ -26,10 +26,6 @@
 		A00000000000000000000003 /* PixelNOWApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* PixelNOWApp.swift */; };
 		C00000000000000000000001 /* NVSTNative.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C00000000000000000000003 /* NVSTNative.framework */; };
 		C00000000000000000000002 /* NVSTNative.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C00000000000000000000003 /* NVSTNative.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		D00000000000000000000002 /* AWDLMonitor.m in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000008 /* AWDLMonitor.m */; };
-		D00000000000000000000003 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000009 /* main.m */; };
-		D00000000000000000000004 /* PixelNOWAWDLHelper in Copy AWDL Helper */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000A /* PixelNOWAWDLHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		D00000000000000000000005 /* com.interlacedpixel.pixelnow.AWDLHelper.plist in Copy AWDL Helper Plist */ = {isa = PBXBuildFile; fileRef = D0000000000000000000000B /* com.interlacedpixel.pixelnow.AWDLHelper.plist */; };
 		E00000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000000002 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -40,13 +36,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = C00000000000000000000006;
 			remoteInfo = NVSTNativeBuild;
-		};
-		D00000000000000000000006 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 7729CE6E2FDEDAB300D5C9D5 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = D0000000000000000000000C;
-			remoteInfo = PixelNOWAWDLHelper;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -62,28 +51,6 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D00000000000000000000010 /* Copy AWDL Helper */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 6;
-			files = (
-				D00000000000000000000004 /* PixelNOWAWDLHelper in Copy AWDL Helper */,
-			);
-			name = "Copy AWDL Helper";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		D00000000000000000000011 /* Copy AWDL Helper Plist */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LaunchDaemons;
-			dstSubfolderSpec = 1;
-			files = (
-				D00000000000000000000005 /* com.interlacedpixel.pixelnow.AWDLHelper.plist in Copy AWDL Helper Plist */,
-			);
-			name = "Copy AWDL Helper Plist";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -92,11 +59,6 @@
 		A00000000000000000000002 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = "<group>"; };
 		A00000000000000000000004 /* PixelNOWApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelNOWApp.swift; sourceTree = "<group>"; };
 		C00000000000000000000003 /* NVSTNative.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = NVSTNative.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		D00000000000000000000007 /* AWDLHelperProtocol.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AWDLHelperProtocol.h; sourceTree = "<group>"; };
-		D00000000000000000000008 /* AWDLMonitor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AWDLMonitor.m; sourceTree = "<group>"; };
-		D00000000000000000000009 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
-		D0000000000000000000000A /* PixelNOWAWDLHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = PixelNOWAWDLHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		D0000000000000000000000B /* com.interlacedpixel.pixelnow.AWDLHelper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = com.interlacedpixel.pixelnow.AWDLHelper.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -158,24 +120,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D00000000000000000000013 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		7722EC92307BB20F00757871 /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				D0000000000000000000000A /* PixelNOWAWDLHelper */,
-			);
-			name = "Recovered References";
-			sourceTree = "<group>";
-		};
 		7729CE6D2FDEDAB300D5C9D5 = {
 			isa = PBXGroup;
 			children = (
@@ -188,9 +135,7 @@
 				A00000000000000000000004 /* PixelNOWApp.swift */,
 				7729CE922FE1000000D5C9D5 /* AppIntents.framework */,
 				C00000000000000000000003 /* NVSTNative.framework */,
-				D0000000000000000000000F /* AWDLHelper */,
 				7729CE772FDEDAB300D5C9D5 /* Products */,
-				7722EC92307BB20F00757871 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -200,17 +145,6 @@
 				7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		D0000000000000000000000F /* AWDLHelper */ = {
-			isa = PBXGroup;
-			children = (
-				D00000000000000000000007 /* AWDLHelperProtocol.h */,
-				D00000000000000000000008 /* AWDLMonitor.m */,
-				D00000000000000000000009 /* main.m */,
-				D0000000000000000000000B /* com.interlacedpixel.pixelnow.AWDLHelper.plist */,
-			);
-			path = AWDLHelper;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -223,8 +157,6 @@
 				7729CE722FDEDAB300D5C9D5 /* Sources */,
 				7729CE732FDEDAB300D5C9D5 /* Frameworks */,
 				7729CE892FDEDAB500D5C9D5 /* Embed Frameworks */,
-				D00000000000000000000010 /* Copy AWDL Helper */,
-				D00000000000000000000011 /* Copy AWDL Helper Plist */,
 				7729CE742FDEDAB300D5C9D5 /* Resources */,
 				A00000000000000000000501 /* Generate Build Metadata */,
 			);
@@ -232,7 +164,6 @@
 			);
 			dependencies = (
 				C00000000000000000000005 /* PBXTargetDependency */,
-				D00000000000000000000014 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7729CE782FDEDAB300D5C9D5 /* App */,
@@ -248,22 +179,6 @@
 			productName = PixelNOW;
 			productReference = 7729CE762FDEDAB300D5C9D5 /* PixelNOW.app */;
 			productType = "com.apple.product-type.application";
-		};
-		D0000000000000000000000C /* PixelNOWAWDLHelper */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = D00000000000000000000016 /* Build configuration list for PBXNativeTarget "PixelNOWAWDLHelper" */;
-			buildPhases = (
-				D00000000000000000000012 /* Sources */,
-				D00000000000000000000013 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = PixelNOWAWDLHelper;
-			productName = PixelNOWAWDLHelper;
-			productReference = D0000000000000000000000A /* PixelNOWAWDLHelper */;
-			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -299,7 +214,6 @@
 			targets = (
 				7729CE752FDEDAB300D5C9D5 /* PixelNOW */,
 				C00000000000000000000006 /* NVSTNativeBuild */,
-				D0000000000000000000000C /* PixelNOWAWDLHelper */,
 			);
 		};
 /* End PBXProject section */
@@ -368,15 +282,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D00000000000000000000012 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				D00000000000000000000002 /* AWDLMonitor.m in Sources */,
-				D00000000000000000000003 /* main.m in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -385,31 +290,7 @@
 			target = C00000000000000000000006 /* NVSTNativeBuild */;
 			targetProxy = C00000000000000000000004 /* PBXContainerItemProxy */;
 		};
-		D00000000000000000000014 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = D0000000000000000000000C /* PixelNOWAWDLHelper */;
-			targetProxy = D00000000000000000000006 /* PBXContainerItemProxy */;
-		};
 /* End PBXTargetDependency section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		E00000000000000000000002 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-/* End XCSwiftPackageProductDependency section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		7729CE812FDEDAB500D5C9D5 /* Debug */ = {
@@ -643,36 +524,6 @@
 			};
 			name = Release;
 		};
-		D00000000000000000000017 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ARCHS = arm64;
-				CODE_SIGN_STYLE = Automatic;
-				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
-				DEVELOPMENT_TEAM = MPZW7ERR2D;
-				ENABLE_HARDENED_RUNTIME = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.interlacedpixel.pixelnow.AWDLHelper;
-				PRODUCT_NAME = PixelNOWAWDLHelper;
-				SDKROOT = macosx;
-			};
-			name = Debug;
-		};
-		D00000000000000000000018 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ARCHS = arm64;
-				CODE_SIGN_STYLE = Automatic;
-				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
-				DEVELOPMENT_TEAM = MPZW7ERR2D;
-				ENABLE_HARDENED_RUNTIME = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				PRODUCT_BUNDLE_IDENTIFIER = com.interlacedpixel.pixelnow.AWDLHelper;
-				PRODUCT_NAME = PixelNOWAWDLHelper;
-				SDKROOT = macosx;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -703,16 +554,26 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		D00000000000000000000016 /* Build configuration list for PBXNativeTarget "PixelNOWAWDLHelper" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				D00000000000000000000017 /* Debug */,
-				D00000000000000000000018 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E00000000000000000000002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E00000000000000000000003 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7729CE6E2FDEDAB300D5C9D5 /* Project object */;
 }

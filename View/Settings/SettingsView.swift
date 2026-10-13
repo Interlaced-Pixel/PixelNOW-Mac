@@ -2400,30 +2400,17 @@ private struct RecordingSettingsPage: View {
 
 private struct NetworkSettingsPage: View {
     @ObservedObject var viewModel: CatalogViewModel
-    @AppStorage(AWDLPreferences.enabledKey) private var awdlControlEnabled = false
 
     var body: some View {
         let qualityLocked = !viewModel.streamingQualityProfileAllowsCustomization
         let lockedSubtitle = "Managed by \(viewModel.streamProfile.streamingQualityProfileOption.label) profile. Set to Custom to edit."
         VStack(alignment: .leading, spacing: 16) {
             ServerLocationSettingsPage(viewModel: viewModel)
-            
+
             SettingsCard(title: "Transport & Power") {
                 SettingsToggleRow(title: "L4S Congestion Control", subtitle: qualityLocked ? lockedSubtitle : "Reduce queuing delay and packet jitter on supported networks.", isOn: viewModel.streamProfile.enableL4S, isLocked: qualityLocked, action: viewModel.setL4SEnabled)
                 SettingsDivider()
                 SettingsToggleRow(title: "Prevent Display Sleep", subtitle: "Keep displays awake during active stream sessions.", isOn: viewModel.streamProfile.preventDisplaySleepWhileStreaming, action: viewModel.setPreventDisplaySleepWhileStreaming)
-            }
-
-            SettingsCard(title: "Wi-Fi Latency") {
-                SettingsToggleRow(
-                    title: "Disable AWDL During Streams",
-                    subtitle: "Reduce Wi-Fi latency spikes by disabling AirDrop and Continuity only while a stream is active.",
-                    isOn: awdlControlEnabled,
-                    action: { enabled in
-                        awdlControlEnabled = enabled
-                        AWDLPreferences.setEnabled(enabled)
-                    }
-                )
             }
         }
     }
