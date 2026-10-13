@@ -262,13 +262,15 @@ extension NvstVideoToolboxDecoder {
 
         mutating func readUvlc() -> UInt32? {
             var leadingZeros = 0
-            while let bit = readBits(1), bit == 0 {
-                leadingZeros += 1
-                if leadingZeros > 32 { return nil }
+            while true {
+                guard let bit = readBits(1) else { return nil }
+                if bit == 1 { break }
+                leadingZeros = min(32, leadingZeros + 1)
             }
             if leadingZeros == 0 { return 0 }
+            if leadingZeros == 32 { return UInt32.max }
             guard let value = readBits(leadingZeros) else { return nil }
-            return (1 << leadingZeros) - 1 + value
+            return ((UInt32(1) << leadingZeros) - 1) + value
         }
     }
 

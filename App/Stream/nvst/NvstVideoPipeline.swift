@@ -64,6 +64,8 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         public var frameAcksSent = 0
         public var frameAckFailures = 0
         public var frameAckQueueDrops = 0
+        public var decodeQueueDrops = 0
+        public var waitingForKeyframeDrops = 0
         public var pacingReportsSent = 0
         public var pacingReportFailures = 0
         public var missingParameterSetFrames = 0
@@ -99,13 +101,23 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     private let qosManager: NvstQosManager?
     let queue = DispatchQueue(label: "com.interlacedpixel.pixelnow.nvst.decode", qos: .userInitiated)
     let lock = NSLock()
+    private let maximumQueuedDecodeFrames: Int
+    private let maximumConcurrentDecodes: Int
     var bundle: NvstBundle?
     private var counters = Counters()
     private var loggedSlowFrames = 0
     private var consecutiveDecodeFailures = 0
     private var isStopped = false
-    private var pendingFrames = 0
+    private var pendingDecodeUnits: [QueuedDecodeUnit] = []
+    private var isDecodeDrainScheduled = false
+    private var isAwaitingKeyframe = false
+    private var keyframeRequestOutstanding = false
     private var recentDecodeDurations: [Double] = []
+
+    private struct QueuedDecodeUnit {
+        let unit: NvstAccessUnit
+        let enqueuedAt: UInt64
+    }
 
     private struct PendingCompletion {
         let unit: NvstAccessUnit
@@ -140,6 +152,8 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         self.decoder = decoder
         self.clock = clock
         self.displayIntervalMicroseconds = displayVsyncMicroseconds
+        maximumQueuedDecodeFrames = max(1, Int(framePacingConfiguration.maximumQueuedFrames))
+        maximumConcurrentDecodes = min(3, max(1, Int(framePacingConfiguration.maximumQueuedFrames)))
         self.feedbackConfiguration = feedbackConfiguration
         self.framePacingConfiguration = framePacingConfiguration
         self.logger = logger
@@ -207,9 +221,45 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         let enqueued = DispatchTime.now().uptimeNanoseconds
         lock.lock()
         guard !isStopped else { lock.unlock(); return }
-        pendingFrames += 1
         lock.unlock()
-        queue.async { [weak self] in self?.process(unit, enqueuedAt: enqueued) }
+        mediaSink?(unit)
+
+        lock.lock()
+        guard !isStopped else { lock.unlock(); return }
+        if isAwaitingKeyframe {
+            guard unit.isKeyframe else {
+                counters.waitingForKeyframeDrops += 1
+                lock.unlock()
+                return
+            }
+            isAwaitingKeyframe = false
+            keyframeRequestOutstanding = false
+        }
+
+        var shouldRequestKeyframe = false
+        if pendingDecodeUnits.count >= maximumQueuedDecodeFrames {
+            counters.decodeQueueDrops += pendingDecodeUnits.count
+            pendingDecodeUnits.removeAll(keepingCapacity: true)
+            if !unit.isKeyframe {
+                counters.decodeQueueDrops += 1
+                isAwaitingKeyframe = true
+                if !keyframeRequestOutstanding {
+                    keyframeRequestOutstanding = true
+                    shouldRequestKeyframe = true
+                }
+                lock.unlock()
+                if shouldRequestKeyframe {
+                    logger?("NVST decode backlog overflow; waiting for a keyframe")
+                    onKeyframeNeeded()
+                }
+                return
+            }
+        }
+
+        pendingDecodeUnits.append(QueuedDecodeUnit(unit: unit, enqueuedAt: enqueued))
+        let shouldScheduleDrain = scheduleDecodeDrainLocked()
+        lock.unlock()
+        if shouldScheduleDrain { scheduleDecodeDrainOnQueue() }
     }
 
     public func submitFrameStatistics(frameIndex: UInt32, statistics: NvstFrameReceiveStatistics.Snapshot) {
@@ -275,14 +325,51 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         pendingCompletions.removeAll()
         terminalStatistics.removeAll()
         pendingFrameAcknowledgements.removeAll()
+        pendingDecodeUnits.removeAll()
+        isDecodeDrainScheduled = false
+        isAwaitingKeyframe = false
+        keyframeRequestOutstanding = false
         lastStatisticsFrame = nil
         lock.unlock()
         for lifecycle in lifecycles { lifecycle.discard(decoded: false) }
     }
 
+    private func scheduleDecodeDrainLocked() -> Bool {
+        guard !isStopped, !pendingDecodeUnits.isEmpty,
+              pendingCompletions.count < maximumConcurrentDecodes,
+              !isDecodeDrainScheduled else { return false }
+        isDecodeDrainScheduled = true
+        return true
+    }
+
+    private func scheduleDecodeDrainOnQueue() {
+        queue.async { [weak self] in self?.drainPendingDecodeUnits() }
+    }
+
+    private func scheduleDecodeDrain() {
+        lock.lock()
+        let shouldSchedule = scheduleDecodeDrainLocked()
+        lock.unlock()
+        if shouldSchedule { scheduleDecodeDrainOnQueue() }
+    }
+
+    private func drainPendingDecodeUnits() {
+        while true {
+            lock.lock()
+            guard !isStopped, !pendingDecodeUnits.isEmpty,
+                  pendingCompletions.count < maximumConcurrentDecodes else {
+                isDecodeDrainScheduled = false
+                lock.unlock()
+                return
+            }
+            let queued = pendingDecodeUnits.removeFirst()
+            lock.unlock()
+            process(queued.unit, enqueuedAt: queued.enqueuedAt)
+        }
+    }
+
     private func process(_ unit: NvstAccessUnit, enqueuedAt: UInt64) {
         lock.lock()
-        pendingFrames = max(0, pendingFrames - 1)
         let stopped = isStopped
         lock.unlock()
         guard !stopped else { return }
@@ -290,7 +377,6 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         let started = DispatchTime.now().uptimeNanoseconds
         var timings = StageTimings()
         timings.hop = Self.milliseconds(from: enqueuedAt, to: started)
-        mediaSink?(unit)
 
         lock.lock()
         guard !isStopped else { lock.unlock(); return }
@@ -384,6 +470,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         timings.decode = Self.milliseconds(from: entry.startedAt, to: decodedAt)
 
         record(timings, frameNumber: entry.unit.frameIndex, unit: entry.unit)
+        scheduleDecodeDrain()
     }
 
     private func handleFrameTerminal(operationID: UInt64, snapshot: NvstVideoFrameLifecycle.Snapshot) {
@@ -454,7 +541,11 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     }
 
     private func requestKeyframeThrottled() {
-        onKeyframeNeeded()
+        lock.lock()
+        let shouldRequest = !isStopped && !keyframeRequestOutstanding
+        if shouldRequest { keyframeRequestOutstanding = true }
+        lock.unlock()
+        if shouldRequest { onKeyframeNeeded() }
     }
 
     private func record(_ timings: StageTimings, frameNumber: UInt32, unit: NvstAccessUnit) {
