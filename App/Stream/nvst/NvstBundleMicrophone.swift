@@ -2,6 +2,12 @@ import CxxStdlib
 import Foundation
 import NVSTNative
 
+private enum NvstMicrophoneDrainLimits {
+    static let audioFramesPerPacket = 480
+    static let referencePacketsPerDrain = 4
+    static let capturePacketsPerDrain = 4
+}
+
 extension NvstBundle: NvstCoreAudioDeviceOwner {
     func handleGameAudioFrame(_ buffers: UnsafeRawPointer?, frameCount: UInt32, sampleRate: Double, channels: UInt32) {
         onGameAudioFrame?(buffers, frameCount, sampleRate, channels)
@@ -29,7 +35,8 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
             return
         }
         var referenceFrames = 0
-        while referenceFrames < 64, let samples = renderReference.readCapture(frames: 480) {
+        while referenceFrames < NvstMicrophoneDrainLimits.referencePacketsPerDrain,
+              let samples = renderReference.readCapture(frames: NvstMicrophoneDrainLimits.audioFramesPerPacket) {
             let processed = samples.withUnsafeBufferPointer { microphoneProcessor?.processRender($0.baseAddress, $0.count) == true }
             guard processed else {
                 if !closed { fail("Microphone render-reference processing failed") }
@@ -38,7 +45,8 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
             referenceFrames += 1
         }
         var drained = 0
-        while drained < 32, var samples = capture.readCapture(frames: 480) {
+        while drained < NvstMicrophoneDrainLimits.capturePacketsPerDrain,
+              var samples = capture.readCapture(frames: NvstMicrophoneDrainLimits.audioFramesPerPacket) {
             let now = DispatchTime.now().uptimeNanoseconds
             if microphoneClockNanoseconds == nil {
                 microphoneClockNanoseconds = now
@@ -58,7 +66,9 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
             for index in samples.indices {
                 samples[index] = Int16(min(max(Double(samples[index]) * microphoneVolume, Double(Int16.min)), Double(Int16.max)))
             }
-            let encoded = samples.withUnsafeBufferPointer { microphoneEncoder?.encode($0.baseAddress, $0.count, 480) }
+            let encoded = samples.withUnsafeBufferPointer {
+                microphoneEncoder?.encode($0.baseAddress, $0.count, UInt32(NvstMicrophoneDrainLimits.audioFramesPerPacket))
+            }
             guard let encoded, !encoded.empty() else {
                 fail("Microphone Opus encoding failed: \(String(microphoneEncoder?.errorDescription() ?? std.string()))")
                 return
@@ -93,10 +103,13 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
             if previousMicrophonePayloads.count > Int(handoff.microphoneRedundancyPackets) {
                 previousMicrophonePayloads.removeFirst(previousMicrophonePayloads.count - Int(handoff.microphoneRedundancyPackets))
             }
-            microphoneTimestamp &+= 480
+            microphoneTimestamp &+= UInt32(NvstMicrophoneDrainLimits.audioFramesPerPacket)
             drained += 1
         }
-        if capture.availableFrames >= 480 { microphoneSignal?.add(data: 1) }
+        if renderReference.availableFrames >= NvstMicrophoneDrainLimits.audioFramesPerPacket ||
+            capture.availableFrames >= NvstMicrophoneDrainLimits.audioFramesPerPacket {
+            microphoneSignal?.add(data: 1)
+        }
     }
 
     @discardableResult
