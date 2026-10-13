@@ -18,7 +18,7 @@ enum UpdatePreferences {
 struct PixelNOWApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    let sharedModelContainer: ModelContainer
+    let sharedModelContainer: ModelContainer?
 
     init() {
         AppPreferenceStorage.standard.synchronize()
@@ -26,11 +26,11 @@ struct PixelNOWApp: App {
         Log.info(.app, "PixelNOW application initializing")
         let container = Self.makeModelContainer()
         sharedModelContainer = container
-        CatalogImageCache.shared.configure(container: container)
+        if let container { CatalogImageCache.shared.configure(container: container) }
         Log.info(.app, "PixelNOW application initialization completed")
     }
 
-    private static func makeModelContainer() -> ModelContainer {
+    private static func makeModelContainer() -> ModelContainer? {
         let schema = Schema([
             LoginAccount.self,
             LoginSession.self,
@@ -44,38 +44,29 @@ struct PixelNOWApp: App {
             Log.info(.app, "SwiftData model container created")
             return container
         } catch {
-            Log.error(.app, "SwiftData container open failed: \(error.localizedDescription). Resetting the local login store after the userId unique-key migration.")
-            removeStoreFiles(at: modelConfiguration.url)
+            Log.error(.app, "SwiftData persistent container unavailable: \(error.localizedDescription). Falling back to in-memory storage; local account and cache data remain untouched.")
+            let inMemoryConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
             do {
-                let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
-                Log.warning(.app, "SwiftData store was reset; remembered NVIDIA sessions will be rebuilt from the token vault if present.")
+                let container = try ModelContainer(for: schema, configurations: [inMemoryConfiguration])
+                Log.warning(.app, "SwiftData is using in-memory storage for this session")
                 return container
             } catch {
-                Log.fatal(.app, "Could not create SwiftData model container: \(error.localizedDescription)")
-                fatalError("Could not create ModelContainer: \(error)")
+                Log.fatal(.app, "Could not create in-memory SwiftData container: \(error.localizedDescription)")
+                return nil
             }
-        }
-    }
-
-    private static func removeStoreFiles(at url: URL) {
-        let fileManager = FileManager.default
-        let directory = url.deletingLastPathComponent()
-        let prefix = url.deletingPathExtension().lastPathComponent
-        guard let items = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            try? fileManager.removeItem(at: url)
-            return
-        }
-        for item in items where item.lastPathComponent.hasPrefix(prefix) {
-            try? fileManager.removeItem(at: item)
         }
     }
 
     var body: some Scene {
         Window("PixelNOW", id: "main") {
-            ContentView()
+            if let sharedModelContainer {
+                ContentView()
+                    .modelContainer(sharedModelContainer)
+            } else {
+                PersistenceUnavailableView()
+            }
         }
         .defaultSize(width: 1100, height: 720)
-        .modelContainer(sharedModelContainer)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appInfo) {
@@ -98,6 +89,24 @@ struct PixelNOWApp: App {
                 .keyboardShortcut("k", modifiers: .command)
             }
         }
+    }
+}
+
+private struct PersistenceUnavailableView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "externaldrive.badge.exclamationmark")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text("PixelNOW could not open local storage")
+                .font(.title3.weight(.semibold))
+            Text("Your saved accounts and cache were left untouched. Restart PixelNOW after resolving the storage issue.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 440)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
