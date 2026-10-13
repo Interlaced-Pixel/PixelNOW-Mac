@@ -638,6 +638,16 @@ extension NativeNVSTStreamingPath {
         await mediaSession.finish()
         var metadata = ["transport": "nvst"]
         metadata.merge(diagnostics) { current, _ in current }
+        if case .transportFailed(let failure) = termination {
+            metadata["transportFailureClassification"] = switch failure.recoveryClassification {
+            case .transientNetwork: "transient-network"
+            case .permanent: "permanent"
+            }
+            if let result = failure.result {
+                metadata["transportFailureCode"] = String(result.code)
+                metadata["transportFailureName"] = result.name ?? "-"
+            }
+        }
         let report = StreamReport(title: activeSession.title, success: reason != .failed, reason: reason, message: message, durationSeconds: durationSeconds, metadata: metadata)
         state = .ended(report)
         publish(report)

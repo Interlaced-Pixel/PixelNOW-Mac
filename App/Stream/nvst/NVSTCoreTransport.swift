@@ -98,9 +98,36 @@ final class NvstInputState: @unchecked Sendable {
     }
 }
 
+final class NvstVideoDropCounters: @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [String: UInt64] = [:]
+
+    func record(_ drop: NvstReceiveDrop) {
+        let key: String = switch drop {
+        case .reassembly: "reassembly"
+        case .unprotectFailed: "srtp-authentication"
+        case .replayed: "replay"
+        case .malformedPacket: "malformed-packet"
+        case .unexpectedSSRC: "unexpected-ssrc"
+        case .staleSequence: "stale-sequence"
+        case .duplicateSequence: "duplicate-sequence"
+        }
+        lock.lock()
+        counts[key, default: 0] &+= 1
+        lock.unlock()
+    }
+
+    var snapshot: [String: UInt64] {
+        lock.lock()
+        defer { lock.unlock() }
+        return counts
+    }
+}
+
 public actor NVSTCoreTransport: NativeNVSTTransport {
     nonisolated let activeBundleHolder = NvstActiveBundleHolder()
     nonisolated let inputState = NvstInputState()
+    nonisolated let videoDropCounters = NvstVideoDropCounters()
 
     public static var forcesLegacyPath: Bool {
         ProcessInfo.processInfo.environment["PIXELNOW_NVST_LEGACY_ANNOUNCE"] == "1"
@@ -534,7 +561,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
     public func diagnosticMetadata() async -> [String: String] {
         let stats = receiver?.stats
-        return [
+        var metadata: [String: String] = [
             "transport": "nvst-bifrost-free",
             "nvidiaLibraries": "none",
             "rtspSession": session?.sessionIdentifier ?? "-",
@@ -556,6 +583,16 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
             "hdrMode": lastHdrMode?.summary ?? "-",
             "bundle": bundle?.diagnosticSummary ?? "-",
         ]
+        metadata["unprotectFailedPackets"] = String(stats?.unprotectFailedPackets ?? 0)
+        metadata["replayRejectedPackets"] = String(stats?.replayRejectedPackets ?? 0)
+        metadata["latePackets"] = String(stats?.latePackets ?? 0)
+        metadata["duplicatePackets"] = String(stats?.duplicatePackets ?? 0)
+        metadata["abandonedFrames"] = String(stats?.abandonedFrames ?? 0)
+        metadata["decodeFailureStatus"] = decoder?.failureStatusSummary ?? "-"
+        for (reason, count) in videoDropCounters.snapshot {
+            metadata["videoDrop.\(reason)"] = String(count)
+        }
+        return metadata
     }
 
     public func sendRecoveryMode(enabled: Bool) async {
