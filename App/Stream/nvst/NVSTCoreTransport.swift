@@ -172,6 +172,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     private var connection: NativeNVSTTransportConnection?
     var terminationContinuation: AsyncStream<NativeNVSTTransportTermination>.Continuation?
     private var terminationStream: AsyncStream<NativeNVSTTransportTermination>?
+    var controlKeepAliveFailureCount = 0
     var lastHandoff: NVSTVideoHandoff?
     private var heartbeatTask: Task<Void, Never>?
     var controlKeepAliveTask: Task<Void, Never>?

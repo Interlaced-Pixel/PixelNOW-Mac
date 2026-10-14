@@ -211,7 +211,7 @@ public struct NativeNVSTSessionTermination: Equatable, Sendable {
     }
 
     public var permitsSameSessionRecovery: Bool {
-        isResumable && isSessionAlive && NativeNVSTRecoveryPolicy.isTransient(reason) && NativeNVSTRecoveryPolicy.isTransient(extendedResult)
+        isResumable && isSessionAlive && !isPause
     }
 
     /// A paused session is not an ended session: the cloud session must survive so the

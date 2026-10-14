@@ -346,6 +346,7 @@ extension NVSTCoreTransport {
 
     func startControlKeepAlive() {
         guard !isTornDown, controlKeepAliveTask == nil else { return }
+        controlKeepAliveFailureCount = 0
         logger?("NVST control keepalive started (\(Int(NvstStreamingCommand.pingBackIntervalSeconds))s)")
         controlKeepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -795,7 +796,20 @@ extension NVSTCoreTransport {
 
         let value = receiver?.stats.framesEmitted ?? 0
         let sent = bundle.sendControl(.pingBackAck(streamValue: UInt32(truncatingIfNeeded: value)))
-        if !sent { logger?("NVST control keepalive write failed") }
+        guard !sent else {
+            controlKeepAliveFailureCount = 0
+            return
+        }
+        controlKeepAliveFailureCount += 1
+        logger?("NVST control keepalive write failed (\(controlKeepAliveFailureCount)/3)")
+        guard controlKeepAliveFailureCount >= 3 else { return }
+        controlKeepAliveTask?.cancel()
+        controlKeepAliveTask = nil
+        terminationContinuation?.yield(.transportFailed(NativeNVSTTransportFailure(
+            message: "NVST control keepalive failed three consecutive times.",
+            result: NativeNVSTTerminationValue(code: Int32(bitPattern: 0x80040009), name: NvstResult.name(for: 0x80040009)),
+            recoveryClassification: .transientNetwork
+        )))
     }
 
     func beginVideoHolePunch() {
