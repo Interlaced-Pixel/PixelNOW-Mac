@@ -1,5 +1,9 @@
 import Foundation
 
+enum SessionResumeFailureClassification: String, Sendable {
+    case staleSession
+}
+
 private final class SessionStopCompletion: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Error?, Never>?
@@ -168,6 +172,7 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
             selectedStore: configuration.selectedStore,
             resumeSessionID: session.id,
             resumeServer: session.serverAddress,
+            resumeSessionRequestDataJSON: configuration.resumeSessionRequestDataJSON,
             metadata: configuration.metadata
         )
         return try await startNativeNVSTSession(configuration: recoveryConfiguration)
@@ -323,13 +328,8 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
     }
 
     private static func isStaleResume(_ error: StreamSessionError) -> Bool {
-        guard case .sessionAllocationFailed(let message) = error else { return false }
-        let normalized = message.lowercased()
-        return normalized.contains("no longer resumable")
-            || normalized.contains("no longer reusable")
-            || normalized.contains("not resumable")
-            || normalized.contains("not reusable")
-            || normalized.contains("stale_active_session")
+        guard case .staleResume = error else { return false }
+        return true
     }
 
     private func createSession(configuration: PreparedLaunchConfiguration, settings: [String: Any]) async throws -> AllocatedStreamSession {
@@ -343,7 +343,8 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
                         sessionID: self.string(info["sessionId"]),
                         applicationID: applicationID.isEmpty ? configuration.applicationID : applicationID,
                         serverAddress: self.string(info["serverIp"]),
-                        isResumable: self.bool(info["isResumable"])
+                        isResumable: self.bool(info["isResumable"]),
+                        resumeSessionRequestDataJSON: self.string(info["resumeSessionRequestDataJSON"])
                     )))
                 } else {
                     continuation.resume(throwing: StreamSessionError.sessionAllocationFailed(error.isEmpty ? "Unable to allocate stream session." : error))
@@ -355,9 +356,11 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
     private func claimSession(configuration: PreparedLaunchConfiguration, settings: [String: Any]) async throws -> AllocatedStreamSession {
         let isResume = !configuration.resumeSessionID.isEmpty
         return try await withCheckedThrowingContinuation { continuation in
-            SessionManager.shared.claimSession(sessionId: configuration.resumeSessionID, serverIp: configuration.resumeServer, appId: configuration.applicationID, settings: settings, recoveryMode: isResume) { success, info, error in
+            SessionManager.shared.claimSession(sessionId: configuration.resumeSessionID, serverIp: configuration.resumeServer, appId: configuration.applicationID, settings: settings, sessionRequestDataJSON: configuration.resumeSessionRequestDataJSON, recoveryMode: isResume) { success, info, error in
                 if success {
                     continuation.resume(returning: AllocatedStreamSession(info))
+                } else if info["resumeFailureClassification"] as? String == SessionResumeFailureClassification.staleSession.rawValue {
+                    continuation.resume(throwing: StreamSessionError.staleResume(error.isEmpty ? "This GeForce NOW session is no longer resumable." : error))
                 } else {
                     continuation.resume(throwing: StreamSessionError.sessionAllocationFailed(error.isEmpty ? "Unable to resume stream session." : error))
                 }
@@ -742,6 +745,7 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
             selectedStore: configuration.selectedStore,
             resumeSessionID: configuration.resumeSessionID,
             resumeServer: configuration.resumeServer,
+            resumeSessionRequestDataJSON: configuration.resumeSessionRequestDataJSON,
             metadata: configuration.metadata
         )
     }
@@ -1037,6 +1041,7 @@ private struct AllocatedSessionAd: Equatable, Sendable {
 
 public enum StreamSessionError: LocalizedError, Sendable {
     case activeSessionConflict(StreamSessionConflict)
+    case staleResume(String)
     case sessionAllocationFailed(String)
     case sessionStopFailed(String)
     case signalingFailed(String)
@@ -1048,7 +1053,7 @@ public enum StreamSessionError: LocalizedError, Sendable {
             conflict.isResumable
                 ? "A GeForce NOW session is already active. Resume it or end it before launching another game."
                 : "A GeForce NOW session is already active. End it before launching another game."
-        case .sessionAllocationFailed(let message), .sessionStopFailed(let message), .signalingFailed(let message):
+        case .staleResume(let message), .sessionAllocationFailed(let message), .sessionStopFailed(let message), .signalingFailed(let message):
             message
         case .signalingUnavailable:
             "Signaling is not connected."

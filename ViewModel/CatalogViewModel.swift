@@ -1227,6 +1227,7 @@ final class CatalogViewModel: ObservableObject {
             selectedStore: configuration.selectedStore,
             resumeSessionID: configuration.resumeSessionID,
             resumeServer: configuration.resumeServer,
+            resumeSessionRequestDataJSON: configuration.resumeSessionRequestDataJSON,
             metadata: metadata
         )
     }
@@ -1269,6 +1270,7 @@ final class CatalogViewModel: ObservableObject {
                 selectedStore: "",
                 resumeSessionID: conflict.sessionID,
                 resumeServer: conflict.serverAddress,
+                resumeSessionRequestDataJSON: conflict.resumeSessionRequestDataJSON,
                 metadata: replacementConfiguration.metadata
             )
             : nil

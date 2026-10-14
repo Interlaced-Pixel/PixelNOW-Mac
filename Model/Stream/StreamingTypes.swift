@@ -226,12 +226,14 @@ public struct StreamSessionConflict: Equatable, Sendable {
     public let applicationID: String
     public let serverAddress: String
     public let isResumable: Bool
+    public let resumeSessionRequestDataJSON: String
 
-    public init(sessionID: String, applicationID: String, serverAddress: String, isResumable: Bool = false) {
+    public init(sessionID: String, applicationID: String, serverAddress: String, isResumable: Bool = false, resumeSessionRequestDataJSON: String = "") {
         self.sessionID = sessionID
         self.applicationID = applicationID
         self.serverAddress = serverAddress
         self.isResumable = isResumable
+        self.resumeSessionRequestDataJSON = resumeSessionRequestDataJSON
     }
 
     public var reportMetadata: [String: String] {

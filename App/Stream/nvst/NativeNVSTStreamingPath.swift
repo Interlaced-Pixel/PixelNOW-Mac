@@ -720,7 +720,9 @@ extension NativeNVSTStreamingPath {
         await transport.resetForRecovery()
         guard activeSession?.id == session.id, !Task.isCancelled else { return false }
         do {
-            let refreshed = try await sessionProvider.recoverNativeNVSTSession(configuration: configuration, session: session)
+            let resumeParameters = Self.sessionRequestDataJSON(from: activeAllocation?.rawSessionJSON)
+            let recoveryConfiguration = resumeParameters.map { configuration.replacingResumeSessionRequestDataJSON($0) } ?? configuration
+            let refreshed = try await sessionProvider.recoverNativeNVSTSession(configuration: recoveryConfiguration, session: session)
             guard refreshed.session.id == session.id, refreshed.session.applicationID == session.applicationID else {
                 throw NativeNVSTError.invalidSession("Native NVST recovery returned a different cloud session.")
             }
@@ -739,5 +741,16 @@ extension NativeNVSTStreamingPath {
             await transport.resetForRecovery()
         }
         return false
+    }
+
+    private static func sessionRequestDataJSON(from rawSessionJSON: String?) -> String? {
+        guard let rawSessionJSON,
+              let data = rawSessionJSON.data(using: .utf8),
+              let session = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let requestData = session["sessionRequestData"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(requestData),
+              let requestDataData = try? JSONSerialization.data(withJSONObject: requestData),
+              let json = String(data: requestDataData, encoding: .utf8) else { return nil }
+        return json
     }
 }

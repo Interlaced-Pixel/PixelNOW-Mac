@@ -209,7 +209,6 @@ final class SessionManager: NSObject, @unchecked Sendable {
             completion(false, "No access token")
             return
         }
-        clearPersistedActiveSessionId(sessionId)
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: currentStreamingBaseUrl(), serverIP: serverIp)
         guard let request = CloudMatchRequestFactory.stopSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: token, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, "Invalid stop session URL")
@@ -217,7 +216,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
         }
         nonisolated(unsafe) let completion = completion
         let networkStart = NetworkLog.start(request, operation: "cloudmatch.stopSession")
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             NetworkLog.finish(operation: "cloudmatch.stopSession", startedAt: networkStart, data: data, response: response, error: error)
             if let error {
                 completion(false, error.localizedDescription)
@@ -228,6 +227,14 @@ final class SessionManager: NSObject, @unchecked Sendable {
                 completion(false, "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0): \(body)")
                 return
             }
+            if let data,
+               let json = CloudMatchResponseParser.jsonDictionary(data),
+               json["requestStatus"] != nil,
+               !CloudMatchResponseParser.requestSucceeded(json) {
+                completion(false, CloudMatchResponseParser.requestStatusError(data: data, fallback: "Unable to end the active session."))
+                return
+            }
+            self?.clearPersistedActiveSessionId(sessionId)
             completion(true, "")
         }.resume()
     }
@@ -328,7 +335,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
         }.resume()
     }
 
-    func claimSession(sessionId: String, serverIp: String, appId: String, settings: [String: Any], recoveryMode: Bool, completion: @escaping (Bool, [String: Any], String) -> Void) {
+    func claimSession(sessionId: String, serverIp: String, appId: String, settings: [String: Any], sessionRequestDataJSON: String, recoveryMode: Bool, completion: @escaping (Bool, [String: Any], String) -> Void) {
         guard let launchAppId = LaunchAppId.resolve(appId) else {
             Log.warning(.launch, "Refusing claim with invalid appId=\(escapedLogString(appId.trimmingCharacters(in: .whitespacesAndNewlines))) sessionId=\(escapedLogString(sessionId))")
             completion(false, [:], "This game does not include a launchable GeForce NOW app id.")
@@ -373,15 +380,14 @@ final class SessionManager: NSObject, @unchecked Sendable {
                 if (http?.statusCode ?? 0) >= 400 || (statusCode != 0 && statusCode != 1 && preClaimStatus == 0) {
                     let body = String(data: data, encoding: .utf8) ?? ""
                     if let staleMessage = CloudMatchResponseParser.staleActiveSessionClaimMessage(data) {
-                        self.clearPersistedActiveSessionId(sessionId)
-                        completion(false, [:], staleMessage)
+                        self.completeStaleSessionResume(completion, message: staleMessage)
                         return
                     }
                     if let limitedModeMessage = CloudMatchResponseParser.limitedModeStreamingMessage(data) {
                         completion(false, [:], limitedModeMessage)
                         return
                     }
-                    completion(false, [:], "STALE_ACTIVE_SESSION: validation HTTP \(http?.statusCode ?? 0): \(body)")
+                    completion(false, [:], "Unable to validate the active GeForce NOW session: HTTP \(http?.statusCode ?? 0): \(body)")
                     return
                 }
             } else {
@@ -402,15 +408,15 @@ final class SessionManager: NSObject, @unchecked Sendable {
                     break
                 case .finished:
                     self.clearPersistedActiveSessionId(sessionId)
-                    completion(false, [:], "This GeForce NOW session is no longer resumable. End it and launch again.")
+                    self.completeStaleSessionResume(completion, message: "This GeForce NOW session is no longer resumable. End it and launch again.")
                     return
                 }
             }
-            self.sendClaimSession(sessionId: sessionId, serverIp: serverIp, appId: launchAppId, settings: claimSettings, token: token, deviceId: deviceId, clientId: clientId, completion: completion)
+            self.sendClaimSession(sessionId: sessionId, serverIp: serverIp, appId: launchAppId, settings: claimSettings, sessionRequestDataJSON: sessionRequestDataJSON, token: token, deviceId: deviceId, clientId: clientId, completion: completion)
         }.resume()
     }
 
-    private func sendClaimSession(sessionId: String, serverIp: String, appId: ResolvedLaunchAppId, settings: [String: Any], token: String, deviceId: String, clientId: String, completion: @escaping (Bool, [String: Any], String) -> Void) {
+    private func sendClaimSession(sessionId: String, serverIp: String, appId: ResolvedLaunchAppId, settings: [String: Any], sessionRequestDataJSON: String, token: String, deviceId: String, clientId: String, completion: @escaping (Bool, [String: Any], String) -> Void) {
         let capabilities = StreamPreferences.loadDeviceCapabilities()
         let hdrEnabled = bool(settings["enableHdr"]) && capabilities.hdrDisplaySupported
         let transportMode = "nvst"
@@ -460,6 +466,9 @@ final class SessionManager: NSObject, @unchecked Sendable {
         if let transport = sessionTransportPolicy(settings) {
             sessionRequestData["transport"] = transport
         }
+        if let storedSessionRequestData = savedSessionRequestData(from: sessionRequestDataJSON, expectedAppId: appId.intValue) {
+            sessionRequestData = storedSessionRequestData
+        }
         let payload: [String: Any] = [
             "action": 2,
             "data": "RESUME",
@@ -504,8 +513,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
                     return
                 }
                 if let staleMessage = CloudMatchResponseParser.staleActiveSessionClaimMessage(data) {
-                    self.clearPersistedActiveSessionId(sessionId)
-                    completion(false, [:], staleMessage)
+                    self.completeStaleSessionResume(completion, message: staleMessage)
                     return
                 }
                 if let limitedModeMessage = CloudMatchResponseParser.limitedModeStreamingMessage(data) {
@@ -524,8 +532,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
                     return
                 }
                 if let staleMessage = CloudMatchResponseParser.staleActiveSessionClaimMessage(data) {
-                    self.clearPersistedActiveSessionId(sessionId)
-                    completion(false, [:], staleMessage)
+                    self.completeStaleSessionResume(completion, message: staleMessage)
                     return
                 }
                 if let limitedModeMessage = CloudMatchResponseParser.limitedModeStreamingMessage(data) {
@@ -538,6 +545,18 @@ final class SessionManager: NSObject, @unchecked Sendable {
             let claimProfile = (json["session"] as? [String: Any]).map { self.negotiatedStreamProfile(from: $0) } ?? [:]
             self.pollClaimSession(sessionId: sessionId, serverIp: serverIp, deviceId: deviceId, clientId: clientId, headers: headers, initialProfile: claimProfile, completion: completion)
         }.resume()
+    }
+
+    private func savedSessionRequestData(from json: String, expectedAppId: Int) -> [String: Any]? {
+        guard !json.isEmpty,
+              let data = json.data(using: .utf8),
+              let requestData = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              int(requestData["appId"]) == expectedAppId else { return nil }
+        return requestData
+    }
+
+    private func completeStaleSessionResume(_ completion: @escaping (Bool, [String: Any], String) -> Void, message: String) {
+        completion(false, ["resumeFailureClassification": SessionResumeFailureClassification.staleSession.rawValue], message)
     }
 
     private func pollClaimSession(sessionId: String, serverIp: String, deviceId: String, clientId: String, headers: CloudMatchClientHeaders, initialProfile: [String: Any], completion: @escaping (Bool, [String: Any], String) -> Void) {
@@ -570,6 +589,8 @@ final class SessionManager: NSObject, @unchecked Sendable {
             context.complete(true, info, "")
         } else if canContinuePollingActiveSessionStatus(status) {
             context.retry(after: pollDelay(attempt), attempt: attempt + 1)
+        } else if CloudMatchSessionState(rawValue: status) == .finished {
+            context.completeStale("This GeForce NOW session is no longer resumable. End it and launch again.")
         } else {
             context.complete(false, [:], "Session in terminal error state")
         }
@@ -805,6 +826,7 @@ final class SessionManager: NSObject, @unchecked Sendable {
                 "gpuType": descriptor.gpuType,
                 "streamingBaseUrl": descriptor.streamingBaseURL,
                 "signalingUrl": descriptor.signalingURL,
+                "resumeSessionRequestDataJSON": descriptor.sessionRequestDataJSON,
             ]
         }
     }
@@ -905,6 +927,10 @@ private final class PollClaimSessionContext: @unchecked Sendable {
 
     func complete(_ success: Bool, _ session: [String: Any], _ error: String) {
         completion(success, session, error)
+    }
+
+    func completeStale(_ message: String) {
+        completion(false, ["resumeFailureClassification": SessionResumeFailureClassification.staleSession.rawValue], message)
     }
 }
 

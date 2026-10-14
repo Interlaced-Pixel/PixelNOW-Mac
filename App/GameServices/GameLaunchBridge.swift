@@ -20,9 +20,10 @@ public struct PreparedLaunchConfiguration: Identifiable, Equatable, Sendable {
     public let selectedStore: String
     public let resumeSessionID: String
     public let resumeServer: String
+    public let resumeSessionRequestDataJSON: String
     public let metadata: [String: String]
 
-    public init(id: UUID = UUID(), title: String, applicationID: String, accessToken: String, accountLinked: Bool, selectedStore: String, resumeSessionID: String = "", resumeServer: String = "", metadata: [String: String] = [:]) {
+    public init(id: UUID = UUID(), title: String, applicationID: String, accessToken: String, accountLinked: Bool, selectedStore: String, resumeSessionID: String = "", resumeServer: String = "", resumeSessionRequestDataJSON: String = "", metadata: [String: String] = [:]) {
         self.id = id
         self.title = title
         self.applicationID = applicationID
@@ -31,11 +32,27 @@ public struct PreparedLaunchConfiguration: Identifiable, Equatable, Sendable {
         self.selectedStore = selectedStore
         self.resumeSessionID = resumeSessionID
         self.resumeServer = resumeServer
+        self.resumeSessionRequestDataJSON = resumeSessionRequestDataJSON
         self.metadata = metadata
     }
 
     public var resumesExistingSession: Bool {
         !resumeSessionID.isEmpty && !resumeServer.isEmpty
+    }
+
+    func replacingResumeSessionRequestDataJSON(_ json: String) -> PreparedLaunchConfiguration {
+        PreparedLaunchConfiguration(
+            id: id,
+            title: title,
+            applicationID: applicationID,
+            accessToken: accessToken,
+            accountLinked: accountLinked,
+            selectedStore: selectedStore,
+            resumeSessionID: resumeSessionID,
+            resumeServer: resumeServer,
+            resumeSessionRequestDataJSON: json,
+            metadata: metadata
+        )
     }
 
     var progressConfiguration: StreamLaunchConfiguration {
@@ -127,23 +144,26 @@ public final class GameLaunchBridge {
         )
         let streamingBaseUrl = StreamPreferences.loadSelectedStreamingBaseUrl(forGame: appId)
         let gameBox = GameLaunchBridgeSendableValue(game)
-        ActiveSessionService.fetchActiveSessions(accessToken: token, streamingBaseUrl: streamingBaseUrl) { [weak self] ok, sessions, _ in
+        ActiveSessionService.fetchActiveSessions(accessToken: token, streamingBaseUrl: streamingBaseUrl) { [weak self] ok, sessions, error in
             let sessionsBox = GameLaunchBridgeSendableValue(sessions)
             Task { @MainActor in
                 guard let self else { return }
                 let game = gameBox.value
                 let sessions = sessionsBox.value
-                if ok {
-                    let matchingSessions = sessions.filter { self.activeSession($0, matches: game, appId: appId) }
-                    if let requestedSession = matchingSessions.first(where: \.isResumable) ?? matchingSessions.first {
-                        completion(true, "A GeForce NOW session is already active for \(title).", self.activeSessionPlan(activeSession: requestedSession, activeTitle: title, fallbackAppId: appId, token: token, launchMetadata: launchMetadata, replacement: replacement))
-                        return
-                    }
-                    if let activeSession = sessions.first(where: \.isResumable) ?? sessions.first {
-                        let activeTitle = activeSession.appId > 0 ? "App ID \(activeSession.appId)" : "Current Stream"
-                        completion(true, "Another GeForce NOW session is already active.", self.activeSessionPlan(activeSession: activeSession, activeTitle: activeTitle, fallbackAppId: appId, token: token, launchMetadata: launchMetadata, replacement: replacement))
-                        return
-                    }
+                guard ok else {
+                    let detail = error.isEmpty ? "unknown error" : error
+                    completion(false, "Unable to check for active GeForce NOW sessions: \(detail)", nil)
+                    return
+                }
+                let matchingSessions = sessions.filter { self.activeSession($0, matches: game, appId: appId) }
+                if let requestedSession = matchingSessions.first(where: \.isResumable) ?? matchingSessions.first {
+                    completion(true, "A GeForce NOW session is already active for \(title).", self.activeSessionPlan(activeSession: requestedSession, activeTitle: title, fallbackAppId: appId, token: token, launchMetadata: launchMetadata, replacement: replacement))
+                    return
+                }
+                if let activeSession = sessions.first(where: \.isResumable) ?? sessions.first {
+                    let activeTitle = activeSession.appId > 0 ? "App ID \(activeSession.appId)" : "Current Stream"
+                    completion(true, "Another GeForce NOW session is already active.", self.activeSessionPlan(activeSession: activeSession, activeTitle: activeTitle, fallbackAppId: appId, token: token, launchMetadata: launchMetadata, replacement: replacement))
+                    return
                 }
 
                 completion(true, "Launching \(title)...", .ready(replacement))
@@ -162,6 +182,7 @@ public final class GameLaunchBridge {
             selectedStore: "",
             resumeSessionID: isResumable ? activeSession.sessionId : "",
             resumeServer: isResumable ? activeSession.serverIp : "",
+            resumeSessionRequestDataJSON: isResumable ? activeSession.sessionRequestDataJSON : "",
             metadata: launchMetadata
         )
         return .activeSession(active: active, resume: resume, replacement: replacement)

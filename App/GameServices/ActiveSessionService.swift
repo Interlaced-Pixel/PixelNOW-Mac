@@ -10,18 +10,20 @@ final class ActiveSessionObject: NSObject {
     let serverIp: String
     let streamingBaseUrl: String
     let signalingUrl: String
+    let sessionRequestDataJSON: String
 
     var isResumable: Bool {
         CloudMatchSessionState(rawValue: status)?.isVendorResumable == true
     }
 
-    init(sessionId: String, appId: Int, status: Int, serverIp: String, streamingBaseUrl: String, signalingUrl: String) {
+    init(sessionId: String, appId: Int, status: Int, serverIp: String, streamingBaseUrl: String, signalingUrl: String, sessionRequestDataJSON: String) {
         self.sessionId = sessionId
         self.appId = appId
         self.status = status
         self.serverIp = serverIp
         self.streamingBaseUrl = streamingBaseUrl
         self.signalingUrl = signalingUrl
+        self.sessionRequestDataJSON = sessionRequestDataJSON
         super.init()
     }
 }
@@ -87,7 +89,6 @@ enum ActiveSessionService {
             completion(false, "No session id")
             return
         }
-        clearPersistedActiveSessionId(sessionId)
         let base = CloudMatchRequestFactory.resolvedSessionBaseURL(streamingBaseURL: streamingBaseUrl, serverIP: serverIp)
         guard let request = CloudMatchRequestFactory.stopSessionRequest(baseURLString: base, sessionId: sessionId, accessToken: accessToken, deviceId: DeviceIdentity.stableCloudmatchDeviceId()) else {
             completion(false, "Invalid stop session URL")
@@ -112,7 +113,10 @@ enum ActiveSessionService {
                 completion(false, CloudMatchResponseParser.requestStatusError(data: data, fallback: "Unable to end the active session."))
                 return
             }
-            waitForTermination(accessToken: accessToken, sessionId: sessionId, streamingBaseUrl: streamingBaseUrl, attempt: 0, completion: completion)
+            waitForTermination(accessToken: accessToken, sessionId: sessionId, streamingBaseUrl: streamingBaseUrl, attempt: 0) { success, error in
+                if success { Self.clearPersistedActiveSessionId(sessionId) }
+                completion(success, error)
+            }
         }.resume()
     }
 
@@ -138,7 +142,7 @@ enum ActiveSessionService {
 
     private static func activeSession(from dictionary: [String: Any], streamingBaseUrl: String) -> ActiveSessionObject? {
         guard let descriptor = CloudMatchActiveSessionParser.descriptor(from: dictionary, streamingBaseURL: streamingBaseUrl) else { return nil }
-        return ActiveSessionObject(sessionId: descriptor.sessionId, appId: descriptor.appId, status: descriptor.status, serverIp: descriptor.resumeServer, streamingBaseUrl: descriptor.streamingBaseURL, signalingUrl: descriptor.signalingURL)
+        return ActiveSessionObject(sessionId: descriptor.sessionId, appId: descriptor.appId, status: descriptor.status, serverIp: descriptor.resumeServer, streamingBaseUrl: descriptor.streamingBaseURL, signalingUrl: descriptor.signalingURL, sessionRequestDataJSON: descriptor.sessionRequestDataJSON)
     }
 
     private static func normalizedBaseURL(_ value: String) -> String {
