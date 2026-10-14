@@ -37,6 +37,14 @@ private struct CatalogSettingsPreferencesSnapshot: Sendable {
     let microphoneDeviceOptions: [StreamMicrophoneDeviceOption]
 }
 
+private struct LibraryRefreshRequest: Sendable {
+    let generation: Int
+    let forceRefresh: Bool
+    let accountIdentifier: String?
+    let providerIdentifier: String
+    let locale: String
+}
+
 @MainActor
 enum CatalogLaunchFlowState: Equatable {
     case idle
@@ -146,6 +154,12 @@ final class CatalogViewModel: ObservableObject {
     @Published var selectedFilterIds: [String] = []
     @Published var isLoading = false
     @Published var isLoadingPanels = false
+    @Published private(set) var isLoadingLibrary = false
+    @Published private(set) var isRefreshingLibrary = false
+    @Published private(set) var isLibrarySnapshotStale = false
+    @Published private(set) var isLibraryPartiallyLoaded = false
+    @Published private(set) var librarySnapshotUpdatedAt: Date?
+    @Published private(set) var libraryRefreshError = ""
     @Published var errorMessage = ""
     @Published var launchMessage = ""
     @Published var actionMessage = ""
@@ -197,6 +211,7 @@ final class CatalogViewModel: ObservableObject {
     @Published var playtimeStatistics = CatalogPlaytimeStatistics.empty
     @Published var subscriptionStatus = CatalogSubscriptionStatus.unavailable
     static let maxFavoritesLimit = 5
+    private static let libraryCacheFreshSeconds: TimeInterval = 15 * 60
     @Published var favoriteGameIdentities: Set<String> = []
     @Published var favoriteGames: [CatalogGameObject] = []
     @Published var favoriteReplacementCandidate: CatalogGameObject?
@@ -234,7 +249,9 @@ final class CatalogViewModel: ObservableObject {
     private var panelLoadHadFailure = false
     private var panelReloadRequested = false
     private var hasLoadedLibrary = false
-    private var isLoadingLibrary = false
+    private var libraryRequestInFlight = false
+    private var libraryLoadGeneration = 0
+    private var libraryHasSnapshotForCurrentLoad = false
     private var libraryReloadRequested = false
     private var hasLoadedSettingsAccountData = false
     private var isLoadingSettingsAccountData = false
@@ -382,7 +399,7 @@ final class CatalogViewModel: ObservableObject {
     }
 
     var isCatalogRefreshInProgress: Bool {
-        isLoading || isLoadingPanels
+        isLoading || isLoadingPanels || isRefreshingLibrary
     }
 
     var selectedSortLabel: String {
@@ -430,13 +447,17 @@ final class CatalogViewModel: ObservableObject {
 
     private func loadCatalogDataAfterProviderConfiguration(forceCatalogRefresh: Bool = false) async {
         configureCatalogService()
+        let libraryRefreshRequest: LibraryRefreshRequest?
+        if selectedMainPage == .games, selectedCatalogDestination == .library {
+            libraryRefreshRequest = await prepareLibraryLoad(forceRefresh: forceCatalogRefresh)
+        } else {
+            libraryRefreshRequest = nil
+        }
         await configureCatalogProviderEndpoint()
         if selectedMainPage == .games, selectedCatalogDestination == .home, !isBrowseMode {
             loadPanels(forceRefresh: forceCatalogRefresh)
         }
-        if selectedMainPage == .games, selectedCatalogDestination == .library {
-            loadLibrary(forceRefresh: forceCatalogRefresh)
-        }
+        if let libraryRefreshRequest { startLibraryRefresh(libraryRefreshRequest) }
         loadFavorites()
         loadSubscriptionStatus()
         if selectedMainPage == .settings {
@@ -2032,35 +2053,141 @@ final class CatalogViewModel: ObservableObject {
     }
 
     private func loadLibrary(forceRefresh: Bool = false) {
-        guard !isLoadingLibrary else {
-            if forceRefresh { libraryReloadRequested = true }
-            return
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let request = await self.prepareLibraryLoad(forceRefresh: forceRefresh) else { return }
+            self.configureCatalogService()
+            self.startLibraryRefresh(request)
         }
-        guard forceRefresh || !hasLoadedLibrary else { return }
-        isLoadingLibrary = true
-        configureCatalogService()
-        let selfBox = CatalogWeakObject(self)
-        GameServiceSwiftAdapter.fetchLibraryGameObjects(forceRefresh: forceRefresh) { success, games, error in
-            let gamesBox = CatalogSendableValue(games)
-            Task { @MainActor in
-                guard let self = selfBox.value else { return }
-                self.isLoadingLibrary = false
-                if success {
-                    self.hasLoadedLibrary = true
-                    let ownedGames = gamesBox.value.filter { $0.isInLibrary || Self.gameHasOwnedVariant($0) }
-                    self.libraryGames = ownedGames.isEmpty && !gamesBox.value.isEmpty ? gamesBox.value : ownedGames
-                    self.clearCatalogSearchTextCache()
-                    for game in self.libraryGames {
-                        game.isInLibrary = true
-                    }
-                } else if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty {
-                    self.errorMessage = error.isEmpty ? "Unable to load your library." : error
+    }
+
+    private func prepareLibraryLoad(forceRefresh: Bool) async -> LibraryRefreshRequest? {
+        if libraryRequestInFlight {
+            if forceRefresh { libraryReloadRequested = true }
+            return nil
+        }
+        guard forceRefresh || !hasLoadedLibrary || isLibrarySnapshotStale || !libraryRefreshError.isEmpty else { return nil }
+
+        libraryRequestInFlight = true
+        libraryLoadGeneration += 1
+        let generation = libraryLoadGeneration
+        let userId = AccountStorageKeys.canonicalUserId(accountUserId: account.userId, sessionUserId: session.userId)
+        let providerIdentifier = session.idpId.isEmpty ? account.providerIdpId : session.idpId
+        let locale = GFNLocale.currentGFNCatalogLocale()
+        libraryHasSnapshotForCurrentLoad = !libraryGames.isEmpty
+        isLoadingLibrary = libraryGames.isEmpty
+        isRefreshingLibrary = true
+        isLibrarySnapshotStale = false
+        isLibraryPartiallyLoaded = false
+        libraryRefreshError = ""
+
+        var cachedSnapshot: CachedGameLibrary?
+        if let userId {
+            cachedSnapshot = await withCheckedContinuation { continuation in
+                GameDataCache.shared.loadLibrarySnapshotAsync(
+                    accountIdentifier: userId,
+                    providerIdentifier: providerIdentifier,
+                    locale: locale,
+                    maxAgeSeconds: Self.libraryCacheFreshSeconds
+                ) { snapshot in
+                    continuation.resume(returning: snapshot)
                 }
-                let reload = self.libraryReloadRequested
-                self.libraryReloadRequested = false
-                if reload { self.loadLibrary(forceRefresh: true) }
             }
         }
+        guard generation == libraryLoadGeneration else { return nil }
+
+        if let cachedSnapshot {
+            updateLibraryGames(cachedSnapshot.games.map(CatalogGameObject.init))
+            libraryHasSnapshotForCurrentLoad = !libraryGames.isEmpty
+            librarySnapshotUpdatedAt = cachedSnapshot.updatedAt
+            isLibrarySnapshotStale = !cachedSnapshot.isFresh
+            hasLoadedLibrary = true
+        }
+
+        let mustRefresh = forceRefresh || libraryReloadRequested || cachedSnapshot.map { !$0.isFresh } == true
+        if let cachedSnapshot, cachedSnapshot.isFresh, !mustRefresh {
+            finishLibraryLoad(generation: generation)
+            return nil
+        }
+
+        libraryReloadRequested = false
+        return LibraryRefreshRequest(
+            generation: generation,
+            forceRefresh: mustRefresh,
+            accountIdentifier: userId,
+            providerIdentifier: providerIdentifier,
+            locale: locale
+        )
+    }
+
+    private func startLibraryRefresh(_ request: LibraryRefreshRequest) {
+        let selfBox = CatalogWeakObject(self)
+        GameServiceSwiftAdapter.fetchLibraryGameObjects(
+            forceRefresh: request.forceRefresh,
+            progress: { games in
+                let gamesBox = CatalogSendableValue(games)
+                Task { @MainActor in
+                    guard let self = selfBox.value,
+                          request.generation == self.libraryLoadGeneration else { return }
+                    if !self.libraryHasSnapshotForCurrentLoad {
+                        self.updateLibraryGames(gamesBox.value)
+                        self.isLibraryPartiallyLoaded = true
+                    }
+                    self.isLoadingLibrary = self.libraryGames.isEmpty
+                }
+            },
+            completion: { success, games, error in
+                let gamesBox = CatalogSendableValue(games)
+                Task { @MainActor in
+                    guard let self = selfBox.value,
+                          request.generation == self.libraryLoadGeneration else { return }
+                    if success {
+                        self.updateLibraryGames(gamesBox.value)
+                        self.hasLoadedLibrary = true
+                        self.librarySnapshotUpdatedAt = Date()
+                        self.isLibrarySnapshotStale = false
+                        self.isLibraryPartiallyLoaded = false
+                        self.libraryRefreshError = ""
+                        if let userId = request.accountIdentifier {
+                            GameDataCache.shared.saveLibrarySnapshotAsync(
+                                accountIdentifier: userId,
+                                providerIdentifier: request.providerIdentifier,
+                                locale: request.locale,
+                                games: self.libraryGames.map(\.swiftValue)
+                            )
+                        }
+                    } else {
+                        self.libraryRefreshError = error.isEmpty ? "Unable to load your library." : error
+                        if self.libraryHasSnapshotForCurrentLoad {
+                            self.isLibrarySnapshotStale = true
+                        }
+                        if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty {
+                            self.errorMessage = self.libraryRefreshError
+                        }
+                    }
+                    self.finishLibraryLoad(generation: request.generation)
+                }
+            }
+        )
+    }
+
+    private func updateLibraryGames(_ games: [CatalogGameObject]) {
+        let ownedGames = games.filter { $0.isInLibrary || Self.gameHasOwnedVariant($0) }
+        libraryGames = ownedGames.isEmpty && !games.isEmpty ? games : ownedGames
+        clearCatalogSearchTextCache()
+        for game in libraryGames {
+            game.isInLibrary = true
+        }
+    }
+
+    private func finishLibraryLoad(generation: Int) {
+        guard generation == libraryLoadGeneration else { return }
+        libraryRequestInFlight = false
+        isLoadingLibrary = false
+        isRefreshingLibrary = false
+        let reload = libraryReloadRequested
+        libraryReloadRequested = false
+        if reload { loadLibrary(forceRefresh: true) }
     }
 
     private func loadFavorites() {
