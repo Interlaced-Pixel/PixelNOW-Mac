@@ -8,10 +8,12 @@ final class GameDataCache: NSObject, @unchecked Sendable {
 
     private static let catalogCacheVersion = 13
     private static let catalogDefinitionsCacheVersion = "v2"
+    private static let librarySnapshotVersion = 1
 
     private let rootPath: String
     private let catalogPath: String
     private let catalogDefinitionsPath: String
+    private let librariesPath: String
     private let imagePath: String
     private let ioQueue = DispatchQueue(label: "com.pixelnow.game-data-cache.io", qos: .utility)
 
@@ -22,10 +24,12 @@ final class GameDataCache: NSObject, @unchecked Sendable {
         rootPath = currentRootURL.path
         catalogPath = (rootPath as NSString).appendingPathComponent("catalog")
         catalogDefinitionsPath = (rootPath as NSString).appendingPathComponent("catalog-definitions")
+        librariesPath = (rootPath as NSString).appendingPathComponent("libraries")
         imagePath = (rootPath as NSString).appendingPathComponent("images")
         super.init()
         createCacheDirectory(catalogPath)
         createCacheDirectory(catalogDefinitionsPath)
+        createCacheDirectory(librariesPath)
         createCacheDirectory(imagePath)
     }
 
@@ -122,6 +126,85 @@ final class GameDataCache: NSObject, @unchecked Sendable {
     func removeCatalogAsync(key: String) {
         ioQueue.async { [self] in
             try? FileManager.default.removeItem(atPath: catalogFilePath(key: key))
+        }
+    }
+
+    func loadLibrarySnapshotAsync(
+        accountIdentifier: String,
+        providerIdentifier: String,
+        locale: String,
+        maxAgeSeconds: TimeInterval,
+        completion: @escaping @Sendable (CachedGameLibrary?) -> Void
+    ) {
+        guard let path = librarySnapshotFilePath(
+            accountIdentifier: accountIdentifier,
+            providerIdentifier: providerIdentifier,
+            locale: locale
+        ) else {
+            ioQueue.async { completion(nil) }
+            return
+        }
+        ioQueue.async { [self] in
+            guard let dictionary = readCacheDictionary(path: path, requireFreshness: false, maxAgeSeconds: 0),
+                  (dictionary["v"] as? NSNumber)?.intValue == Self.librarySnapshotVersion,
+                  let timestamp = (dictionary["ts"] as? NSNumber)?.doubleValue else {
+                completion(nil)
+                return
+            }
+            let games = (dictionary["g"] as? [Any] ?? [])
+                .map(gameInfo)
+                .filter { !$0.id.isEmpty && !$0.title.isEmpty }
+            let isInvalidated = (dictionary["invalidated"] as? NSNumber)?.boolValue ?? false
+            let isFresh = !isInvalidated && cacheDictionaryIsFresh(dictionary, maxAgeSeconds: maxAgeSeconds)
+            completion(CachedGameLibrary(
+                games: games,
+                updatedAt: Date(timeIntervalSince1970: timestamp),
+                isFresh: isFresh
+            ))
+        }
+    }
+
+    func saveLibrarySnapshotAsync(
+        accountIdentifier: String,
+        providerIdentifier: String,
+        locale: String,
+        games: [GameInfo]
+    ) {
+        guard let path = librarySnapshotFilePath(
+            accountIdentifier: accountIdentifier,
+            providerIdentifier: providerIdentifier,
+            locale: locale
+        ) else { return }
+        ioQueue.async { [self] in
+            createCacheDirectory((path as NSString).deletingLastPathComponent)
+            writeCacheDictionary(path: path, dictionary: [
+                "v": Self.librarySnapshotVersion,
+                "ts": Date().timeIntervalSince1970,
+                "g": games.map(gameDictionary),
+            ])
+        }
+    }
+
+    func invalidateLibrarySnapshotsAsync(accountIdentifier: String) {
+        guard let accountPath = libraryAccountDirectory(accountIdentifier: accountIdentifier) else { return }
+        ioQueue.async { [self] in
+            guard let urls = try? FileManager.default.contentsOfDirectory(
+                at: URL(fileURLWithPath: accountPath, isDirectory: true),
+                includingPropertiesForKeys: nil
+            ) else { return }
+            for url in urls where url.pathExtension == "bplist" {
+                guard let dictionary = readCacheDictionary(path: url.path, requireFreshness: false, maxAgeSeconds: 0),
+                      var payload = dictionary as? [String: Any] else { continue }
+                payload["invalidated"] = true
+                writeCacheDictionary(path: url.path, dictionary: payload)
+            }
+        }
+    }
+
+    func removeLibrarySnapshotsAsync(accountIdentifier: String) {
+        guard let accountPath = libraryAccountDirectory(accountIdentifier: accountIdentifier) else { return }
+        ioQueue.async {
+            try? FileManager.default.removeItem(atPath: accountPath)
         }
     }
 
@@ -227,6 +310,7 @@ final class GameDataCache: NSObject, @unchecked Sendable {
         }
         createCacheDirectory(catalogPath)
         createCacheDirectory(catalogDefinitionsPath)
+        createCacheDirectory(librariesPath)
         createCacheDirectory(imagePath)
         return removed
     }
@@ -256,6 +340,19 @@ final class GameDataCache: NSObject, @unchecked Sendable {
     private func catalogDefinitionsCacheKey(locale: String) -> String {
         let normalizedLocale = locale.isEmpty ? "default" : locale
         return sha256String("\(Self.catalogDefinitionsCacheVersion):\(normalizedLocale)")
+    }
+
+    private func libraryAccountDirectory(accountIdentifier: String) -> String? {
+        guard let accountIdentifier = AccountStorageKeys.requireUserId(accountIdentifier) else { return nil }
+        return (librariesPath as NSString).appendingPathComponent(sha256String("library-account-v1:\(accountIdentifier)"))
+    }
+
+    private func librarySnapshotFilePath(accountIdentifier: String, providerIdentifier: String, locale: String) -> String? {
+        guard let accountPath = libraryAccountDirectory(accountIdentifier: accountIdentifier) else { return nil }
+        let provider = providerIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedLocale = locale.isEmpty ? "default" : locale
+        let scope = "library-snapshot-v\(Self.librarySnapshotVersion):\(provider):\(normalizedLocale)"
+        return (accountPath as NSString).appendingPathComponent("\(sha256String(scope)).bplist")
     }
 
     private func imageFilePath(urlString: String) -> String {

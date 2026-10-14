@@ -248,6 +248,12 @@ public struct CatalogBrowseResult: Equatable, Sendable {
     public var sortOptions: [CatalogSortOption] = []
 }
 
+struct CachedGameLibrary: Sendable {
+    let games: [GameInfo]
+    let updatedAt: Date
+    let isFresh: Bool
+}
+
 @objc(CatalogFilterOptionObject)
 @objcMembers
 public final class CatalogFilterOptionObject: NSObject {
