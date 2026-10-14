@@ -384,14 +384,27 @@ final class GameService: @unchecked Sendable {
         return CatalogSortOption(id: defaultBrowseSortId, label: "A-Z", orderBy: "sortName:ASC")
     }
 
-    func fetchLibraryGames(forceRefresh: Bool = false, completion: @escaping CatalogCallback) {
+    func fetchLibraryGames(
+        forceRefresh: Bool = false,
+        progress: (@Sendable ([GameInfo]) -> Void)? = nil,
+        completion: @escaping CatalogCallback
+    ) {
         let accountIdentifier = userId
+        let requestAccessToken = accessToken
         let providerBaseUrl = providerStreamingBaseURL()
         let locale = Self.currentGFNCatalogLocale()
-        getServerVpcId(token: accessToken, providerStreamingBaseUrl: providerBaseUrl) { [weak self] resolvedVpcId in
+        getServerVpcId(token: requestAccessToken, providerStreamingBaseUrl: providerBaseUrl) { [weak self] resolvedVpcId in
             guard let self else { return }
-            self.fetchDefaultLibrarySort(locale: locale) { [weak self] selectedSort in
+            guard self.userId == accountIdentifier else {
+                self.dispatchCatalog(completion, false, [], "Account changed while loading your library.")
+                return
+            }
+            self.fetchDefaultLibrarySort(locale: locale, requestAccessToken: requestAccessToken) { [weak self] selectedSort in
                 guard let self else { return }
+                guard self.userId == accountIdentifier else {
+                    self.dispatchCatalog(completion, false, [], "Account changed while loading your library.")
+                    return
+                }
                 var result = CatalogBrowseResult()
                 result.selectedSortId = selectedSort.id
                 result.sortOptions = [selectedSort]
@@ -404,6 +417,12 @@ final class GameService: @unchecked Sendable {
                     sortId: selectedSort.id
                 )
                 let baseResult = result
+                let pageProgress: (@Sendable (CatalogBrowseResult) -> Void)?
+                if let progress {
+                    pageProgress = { browseResult in progress(browseResult.games) }
+                } else {
+                    pageProgress = nil
+                }
                 let fetchPages: @Sendable () -> Void = { [weak self] in
                     guard let self else { return }
                     self.fetchCatalogPages(
@@ -419,7 +438,10 @@ final class GameService: @unchecked Sendable {
                         initialCursor: "",
                         pageLimit: Self.maxCatalogPages,
                         cancellation: nil,
-                        deliveredCachedResult: AtomicFlag()
+                        deliveredCachedResult: AtomicFlag(),
+                        requestAccessToken: requestAccessToken,
+                        expectedAccountIdentifier: AccountStorageKeys.requireUserId(accountIdentifier),
+                        progress: pageProgress
                     ) { [weak self] success, browseResult, error in
                         self?.dispatchCatalog(completion, success, browseResult.games, error)
                     }
@@ -453,8 +475,9 @@ final class GameService: @unchecked Sendable {
         ) + "_v7"
     }
 
-    fileprivate func invalidateLibraryGamesCache() {
-        let accountIdentifier = userId
+    fileprivate func invalidateLibraryGamesCache(accountIdentifier: String? = nil) {
+        guard let accountIdentifier = AccountStorageKeys.requireUserId(accountIdentifier ?? userId) else { return }
+        GameDataCache.shared.invalidateLibrarySnapshotsAsync(accountIdentifier: accountIdentifier)
         let token = accessToken
         let providerBaseUrl = providerStreamingBaseURL()
         let locale = Self.currentGFNCatalogLocale()
@@ -474,7 +497,7 @@ final class GameService: @unchecked Sendable {
         }
     }
 
-    private func fetchDefaultLibrarySort(locale: String, completion: @escaping @Sendable (CatalogSortOption) -> Void) {
+    private func fetchDefaultLibrarySort(locale: String, requestAccessToken: String? = nil, completion: @escaping @Sendable (CatalogSortOption) -> Void) {
         let fallback = Self.defaultSortOption(searchQuery: "")
         GameDataCache.shared.loadCatalogDefinitionsAsync(locale: locale, maxAgeSeconds: Self.catalogDefinitionsFreshSeconds) { [weak self] cachedDefinitions in
             guard let self else { return }
@@ -489,7 +512,7 @@ final class GameService: @unchecked Sendable {
                 sortOrderDefinitions(language: $locale) { id label orderBy }
             }
             """
-            self.postGraphQlJson(query: query, variables: ["locale": locale] as NSDictionary) { [weak self] data, error in
+            self.postGraphQlJson(query: query, variables: ["locale": locale] as NSDictionary, requestAccessToken: requestAccessToken) { [weak self] data, error in
                 guard let self else { return }
                 if error.isEmpty, let data {
                     GameDataCache.shared.saveCatalogDefinitionsAsync(locale: locale, definitions: data)
@@ -914,6 +937,7 @@ final class GameService: @unchecked Sendable {
     }
 
     func syncAccountProvider(store: String, completion: @escaping OwnershipActionCallback) {
+        let accountIdentifier = userId
         let token = accountLinkingToken.isEmpty ? accessToken : accountLinkingToken
         guard !token.isEmpty else {
             dispatchOwnership(completion, false, "Missing account-linking token")
@@ -949,12 +973,13 @@ final class GameService: @unchecked Sendable {
                 self.dispatchOwnership(completion, false, message)
                 return
             }
-            self.invalidateLibraryGamesCache()
+            self.invalidateLibraryGamesCache(accountIdentifier: accountIdentifier)
             self.dispatchOwnership(completion, true, "")
         }.resume()
     }
 
     func startAccountLinking(store: String, completion: @escaping OwnershipActionCallback) {
+        let accountIdentifier = userId
         let token = accountLinkingToken.isEmpty ? accessToken : accountLinkingToken
         guard !token.isEmpty else {
             dispatchOwnership(completion, false, "Missing account-linking token")
@@ -964,7 +989,7 @@ final class GameService: @unchecked Sendable {
             dispatchOwnership(completion, false, "Missing store for account linking")
             return
         }
-        guard let listener = AccountLinkingCallbackListener() else {
+        guard let listener = AccountLinkingCallbackListener(accountIdentifier: accountIdentifier) else {
             dispatchOwnership(completion, false, "No available port for account linking callback")
             return
         }
@@ -1037,17 +1062,17 @@ final class GameService: @unchecked Sendable {
         }
     }
 
-    private func postGraphQL(operationName: String, queryHash: String, variables: NSDictionary?, authenticatedHuId: Bool = false, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
+    private func postGraphQL(operationName: String, queryHash: String, variables: NSDictionary?, authenticatedHuId: Bool = false, requestAccessToken: String? = nil, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
         let huIdUserId = authenticatedHuId ? userId : ""
-        guard let request = LCARSRequestFactory.persistedQueryRequest(operationName: operationName, queryHash: queryHash, variables: variables, accessToken: accessToken, configuration: LCARSConfiguration(baseURLString: graphqlURL), userId: huIdUserId) else {
+        guard let request = LCARSRequestFactory.persistedQueryRequest(operationName: operationName, queryHash: queryHash, variables: variables, accessToken: requestAccessToken ?? accessToken, configuration: LCARSConfiguration(baseURLString: graphqlURL), userId: huIdUserId) else {
             dispatchGraphQL(completion, nil, "Invalid URL")
             return
         }
         runGraphQLRequest(request, operationName: operationName, queryHash: queryHash, variables: variables, completion: completion)
     }
 
-    private func postGraphQlJson(query: String, variables: NSDictionary?, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
-        guard let request = LCARSRequestFactory.inlineGraphQLRequest(query: query, variables: variables, accessToken: accessToken, configuration: LCARSConfiguration(baseURLString: graphqlURL)) else {
+    private func postGraphQlJson(query: String, variables: NSDictionary?, requestAccessToken: String? = nil, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
+        guard let request = LCARSRequestFactory.inlineGraphQLRequest(query: query, variables: variables, accessToken: requestAccessToken ?? accessToken, configuration: LCARSConfiguration(baseURLString: graphqlURL)) else {
             dispatchGraphQL(completion, nil, "Invalid URL")
             return
         }
@@ -1142,12 +1167,12 @@ final class GameService: @unchecked Sendable {
         return SHA256.hash(data: Data(material.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func fetchAppMetadata(appIds: [String], vpcId: String, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
+    private func fetchAppMetadata(appIds: [String], vpcId: String, requestAccessToken: String? = nil, completion: @escaping @Sendable (NSDictionary?, String) -> Void) {
         let variables: NSDictionary = ["vpcId": vpcId.isEmpty ? "GFN-PC" : vpcId, "locale": Self.currentGFNCatalogLocale(), "appIds": appIds]
-        postGraphQL(operationName: "appMetaData", queryHash: Self.appMetaDataHash, variables: variables, completion: completion)
+        postGraphQL(operationName: "appMetaData", queryHash: Self.appMetaDataHash, variables: variables, requestAccessToken: requestAccessToken, completion: completion)
     }
 
-    private func fetchCampaignPromoTags(vpcId: String, locale: String, completion: @escaping @Sendable ([String: String]) -> Void) {
+    private func fetchCampaignPromoTags(vpcId: String, locale: String, requestAccessToken: String? = nil, completion: @escaping @Sendable ([String: String]) -> Void) {
         let query = """
         query GetCampaignsInfo($locale: String!, $vpcId: String!) {
           campaigns(vpcId: $vpcId, language: $locale) {
@@ -1156,7 +1181,7 @@ final class GameService: @unchecked Sendable {
         }
         """
         let variables: NSDictionary = ["vpcId": vpcId.isEmpty ? "GFN-PC" : vpcId, "locale": locale]
-        postGraphQlJson(query: query, variables: variables) { [weak self] data, _ in
+        postGraphQlJson(query: query, variables: variables, requestAccessToken: requestAccessToken) { [weak self] data, _ in
             guard let self else {
                 completion([:])
                 return
@@ -1173,19 +1198,52 @@ final class GameService: @unchecked Sendable {
         }
     }
 
-    private func fetchCatalogPages(baseResult: CatalogBrowseResult, query: String, vpcId: String, locale: String, sortString: String, fetchCount: Int, searchString: String, filters: NSDictionary, catalogCacheKey: String, initialCursor: String, pageLimit: Int, cancellation: CatalogBrowseCancellation?, deliveredCachedResult: AtomicFlag, completion: @escaping CatalogBrowseCallback) {
+    private func fetchCatalogPages(
+        baseResult: CatalogBrowseResult,
+        query: String,
+        vpcId: String,
+        locale: String,
+        sortString: String,
+        fetchCount: Int,
+        searchString: String,
+        filters: NSDictionary,
+        catalogCacheKey: String,
+        initialCursor: String,
+        pageLimit: Int,
+        cancellation: CatalogBrowseCancellation?,
+        deliveredCachedResult: AtomicFlag,
+        requestAccessToken: String? = nil,
+        expectedAccountIdentifier: String? = nil,
+        progress: (@Sendable (CatalogBrowseResult) -> Void)? = nil,
+        completion: @escaping CatalogBrowseCallback
+    ) {
         let state = CatalogPageState(result: baseResult)
         let filterBox = NSDictionaryBox(filters)
         let fetchPage = RecursiveCatalogPageFetcher()
         fetchPage.action = { [weak self, state, fetchPage] page, cursor in
             guard let self, cancellation?.isCancelled != true else { return }
+            if let expectedAccountIdentifier,
+               AccountStorageKeys.requireUserId(self.userId) != expectedAccountIdentifier {
+                self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), "Account changed while loading your library.")
+                return
+            }
             var variables: [String: Any] = ["vpcId": vpcId, "locale": locale, "sortString": sortString, "fetchCount": fetchCount, "cursor": cursor, "filters": filterBox.value]
             if !searchString.isEmpty { variables["searchString"] = searchString }
-            postGraphQlJson(query: query, variables: variables as NSDictionary) { [weak self] data, error in
+            postGraphQlJson(query: query, variables: variables as NSDictionary, requestAccessToken: requestAccessToken) { [weak self] data, error in
                 guard let self, cancellation?.isCancelled != true else { return }
+                if let expectedAccountIdentifier,
+                   AccountStorageKeys.requireUserId(self.userId) != expectedAccountIdentifier {
+                    self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), "Account changed while loading your library.")
+                    return
+                }
                 let dataBox = data.map(NSDictionaryBox.init)
                 Self.workQueue.async { [dataBox] in
                     guard cancellation?.isCancelled != true else { return }
+                    if let expectedAccountIdentifier,
+                       AccountStorageKeys.requireUserId(self.userId) != expectedAccountIdentifier {
+                        self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), "Account changed while loading your library.")
+                        return
+                    }
                     if !error.isEmpty {
                         if !deliveredCachedResult.value { self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), error) }
                         return
@@ -1194,7 +1252,8 @@ final class GameService: @unchecked Sendable {
                         if !deliveredCachedResult.value { self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), "No apps data") }
                         return
                     }
-                    if let items = apps["items"] as? [NSDictionary] { state.collectedApps.append(contentsOf: items) }
+                    let pageItems = apps["items"] as? [NSDictionary] ?? []
+                    state.collectedApps.append(contentsOf: pageItems)
                     state.result.numberReturned += self.safeInt(apps["numberReturned"])
                     state.result.numberSupported = self.safeInt(apps["numberSupported"])
                     let pageInfo = apps["pageInfo"] as? NSDictionary
@@ -1203,6 +1262,15 @@ final class GameService: @unchecked Sendable {
                     state.result.totalCount = self.safeInt(pageInfo?["totalCount"])
                     state.result.hasNextPage = hasNextPage
                     if !endCursor.isEmpty { state.result.endCursor = endCursor }
+                    if let progress {
+                        let pageGames = pageItems
+                            .map { self.parseGameItem($0) }
+                            .filter { !$0.id.isEmpty && !$0.title.isEmpty && !$0.variants.isEmpty }
+                        state.partialGames = self.deduplicateGames(state.partialGames + pageGames)
+                        var progressResult = state.result
+                        progressResult.games = state.partialGames
+                        DispatchQueue.main.async { progress(progressResult) }
+                    }
                     if hasNextPage, !endCursor.isEmpty, page + 1 < pageLimit {
                         fetchPage.action?(page + 1, endCursor)
                         return
@@ -1210,7 +1278,7 @@ final class GameService: @unchecked Sendable {
                     let games = state.collectedApps.map { self.parseGameItem($0) }.filter { !$0.id.isEmpty && !$0.title.isEmpty && !$0.variants.isEmpty }
                     state.result.numberSupported = max(state.result.numberSupported, games.count)
                     state.result.totalCount = max(state.result.totalCount, games.count)
-                    self.enrichGames(games, vpcId: vpcId, cancellation: cancellation) { enriched in
+                    self.enrichGames(games, vpcId: vpcId, cancellation: cancellation, requestAccessToken: requestAccessToken) { enriched in
                         var finalResult = state.result
                         finalResult.games = self.deduplicateGames(finalResult.games + enriched)
                         GameDataCache.shared.saveCatalogAsync(key: catalogCacheKey, result: finalResult)
@@ -1222,7 +1290,13 @@ final class GameService: @unchecked Sendable {
         fetchPage.action?(0, initialCursor)
     }
 
-    private func enrichGames(_ games: [GameInfo], vpcId: String, cancellation: CatalogBrowseCancellation? = nil, completion: @escaping @Sendable ([GameInfo]) -> Void) {
+    private func enrichGames(
+        _ games: [GameInfo],
+        vpcId: String,
+        cancellation: CatalogBrowseCancellation? = nil,
+        requestAccessToken: String? = nil,
+        completion: @escaping @Sendable ([GameInfo]) -> Void
+    ) {
         guard cancellation?.isCancelled != true else { return }
         let appIds = Array(Set(games.map(\.uuid).filter { !$0.isEmpty }))
         if appIds.isEmpty {
@@ -1279,7 +1353,7 @@ final class GameService: @unchecked Sendable {
                 }
                 if let self = self {
                     guard cancellation?.isCancelled != true else { return }
-                    self.fetchCampaignPromoTags(vpcId: vpcId, locale: Self.currentGFNCatalogLocale()) { tagsByCampaignId in
+                    self.fetchCampaignPromoTags(vpcId: vpcId, locale: Self.currentGFNCatalogLocale(), requestAccessToken: requestAccessToken) { tagsByCampaignId in
                         guard cancellation?.isCancelled != true else { return }
                         let campaignEnriched = enriched.map { game in
                             guard game.promoTag.isEmpty else { return game }
@@ -1287,7 +1361,7 @@ final class GameService: @unchecked Sendable {
                             merged.promoTag = game.campaignIds.compactMap { tagsByCampaignId[$0] }.first ?? ""
                             return merged
                         }
-                        self.enrichRatingMetadata(campaignEnriched, locale: Self.currentGFNCatalogLocale(), completion: completion)
+                        self.enrichRatingMetadata(campaignEnriched, locale: Self.currentGFNCatalogLocale(), requestAccessToken: requestAccessToken, completion: completion)
                     }
                 } else {
                     completion(enriched)
@@ -1299,7 +1373,7 @@ final class GameService: @unchecked Sendable {
         @Sendable func fetchAvailableChunks() {
             guard cancellation?.isCancelled != true else { return }
             for index in scheduler.startAvailableChunks() {
-                self.fetchAppMetadata(appIds: chunks[index], vpcId: vpcId) { [weak self] data, _ in
+                self.fetchAppMetadata(appIds: chunks[index], vpcId: vpcId, requestAccessToken: requestAccessToken) { [weak self] data, _ in
                     let items = (data?["apps"] as? NSDictionary)?["items"] as? [NSDictionary] ?? []
                     let itemsBox = NSDictionaryArrayBox(items)
                     Self.workQueue.async { [itemsBox, weak self] in
@@ -1318,12 +1392,12 @@ final class GameService: @unchecked Sendable {
         fetchAvailableChunks()
     }
 
-    private func enrichRatingMetadata(_ games: [GameInfo], locale: String, completion: @escaping @Sendable ([GameInfo]) -> Void) {
+    private func enrichRatingMetadata(_ games: [GameInfo], locale: String, requestAccessToken: String? = nil, completion: @escaping @Sendable ([GameInfo]) -> Void) {
         guard games.contains(where: { !$0.ratingSystemName.isEmpty }) else {
             completion(games)
             return
         }
-        fetchRatingDefinitions(locale: locale) { metadataByType in
+        fetchRatingDefinitions(locale: locale, requestAccessToken: requestAccessToken) { metadataByType in
             let enriched = games.map { game in
                 guard let metadata = metadataByType[game.ratingSystemName.uppercased()] else { return game }
                 var output = game
@@ -1334,7 +1408,7 @@ final class GameService: @unchecked Sendable {
         }
     }
 
-    private func fetchRatingDefinitions(locale: String, completion: @escaping @Sendable ([String: RatingMetadata]) -> Void) {
+    private func fetchRatingDefinitions(locale: String, requestAccessToken: String? = nil, completion: @escaping @Sendable ([String: RatingMetadata]) -> Void) {
         let query = """
         query GetRatingDefinitions($locale: String!) {
           ratingDefinitions(language: $locale) {
@@ -1348,7 +1422,7 @@ final class GameService: @unchecked Sendable {
         }
         """
         let variables: NSDictionary = ["locale": locale]
-        postGraphQlJson(query: query, variables: variables) { [weak self] data, _ in
+        postGraphQlJson(query: query, variables: variables, requestAccessToken: requestAccessToken) { [weak self] data, _ in
             guard let self else {
                 completion([:])
                 return
@@ -1780,6 +1854,7 @@ final class GameService: @unchecked Sendable {
     }
 
     private func ownedVariantMutation(mutationName: String, fieldName: String, variantId: String, completion: @escaping OwnershipActionCallback) {
+        let accountIdentifier = userId
         guard !variantId.isEmpty else {
             dispatchOwnership(completion, false, "Missing variant ID")
             return
@@ -1790,7 +1865,7 @@ final class GameService: @unchecked Sendable {
             guard let self else { return }
             if !error.isEmpty {
                 if mutationName == "RemoveOwnedVariant", Self.isGraphQLNotFoundError(error) {
-                    self.invalidateLibraryGamesCache()
+                    self.invalidateLibraryGamesCache(accountIdentifier: accountIdentifier)
                     self.dispatchOwnership(completion, true, "")
                     return
                 }
@@ -1802,7 +1877,7 @@ final class GameService: @unchecked Sendable {
                 self.dispatchOwnership(completion, false, "Ownership mutation response did not include an app ID")
                 return
             }
-            self.invalidateLibraryGamesCache()
+            self.invalidateLibraryGamesCache(accountIdentifier: accountIdentifier)
             self.dispatchOwnership(completion, true, "")
         }
     }
@@ -2592,6 +2667,19 @@ public final class GameServiceSwiftAdapter: NSObject {
         }
     }
 
+    public static func fetchLibraryGameObjects(
+        forceRefresh: Bool,
+        progress: @escaping @Sendable ([CatalogGameObject]) -> Void,
+        completion: @escaping @Sendable (Bool, [CatalogGameObject], String) -> Void
+    ) {
+        GameService.shared.fetchLibraryGames(
+            forceRefresh: forceRefresh,
+            progress: { games in progress(games.map(CatalogGameObject.init)) }
+        ) { success, games, error in
+            completion(success, games.map(CatalogGameObject.init), error)
+        }
+    }
+
     @objc(fetchFavoriteGameObjectsWithCompletion:)
     public static func fetchFavoriteGameObjects(completion: @escaping @Sendable (Bool, [CatalogGameObject], String) -> Void) {
         GameService.shared.fetchFavoriteGames { success, games, error in
@@ -2949,6 +3037,7 @@ private final class CatalogMetadataChunkScheduler: @unchecked Sendable {
 
 private final class CatalogPageState: @unchecked Sendable {
     var collectedApps: [NSDictionary] = []
+    var partialGames: [GameInfo] = []
     var result: CatalogBrowseResult
 
     init(result: CatalogBrowseResult) {
@@ -3015,10 +3104,12 @@ private final class NSDictionaryArrayBox: @unchecked Sendable {
 
 private final class AccountLinkingCallbackListener: @unchecked Sendable {
     let port: Int32
+    let accountIdentifier: String
     private let socketDescriptor: Int32
     private let service = GameService.shared
 
-    init?() {
+    init?(accountIdentifier: String) {
+        self.accountIdentifier = accountIdentifier
         let candidatePorts: [Int32] = [2259, 6460, 7119, 8870, 9096]
         for candidate in candidatePorts {
             let descriptor = socket(AF_INET, SOCK_STREAM, 0)
@@ -3078,7 +3169,7 @@ private final class AccountLinkingCallbackListener: @unchecked Sendable {
             } else if hasError {
                 service.dispatchOwnership(completion, false, "Account linking was not completed")
             } else {
-                service.invalidateLibraryGamesCache()
+                service.invalidateLibraryGamesCache(accountIdentifier: self.accountIdentifier)
                 service.dispatchOwnership(completion, true, "")
             }
         }

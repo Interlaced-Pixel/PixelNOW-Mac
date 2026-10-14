@@ -357,7 +357,11 @@ final class LoginViewModel: ObservableObject {
 
     private func forgetAccountAndRebind(_ account: LoginAccount) async {
         guard let modelContext else { return }
-        let forgottenUserId = AccountStorageKeys.requireUserId(account.userId)
+        let accountSession = sessions.first { sessionBelongs($0, to: account) }
+        let forgottenUserId = AccountStorageKeys.canonicalUserId(
+            accountUserId: account.userId,
+            sessionUserId: accountSession?.userId ?? ""
+        )
         let wasActive = activeAccount.map { accountsMatch($0, account) } ?? false
         let remaining = accounts.filter { !accountsMatch($0, account) }
 
@@ -371,6 +375,7 @@ final class LoginViewModel: ObservableObject {
 
         if let forgottenUserId {
             authService.removeSavedSession(userId: forgottenUserId)
+            GameDataCache.shared.removeLibrarySnapshotsAsync(accountIdentifier: forgottenUserId)
         }
 
         if wasActive {
