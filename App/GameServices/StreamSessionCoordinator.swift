@@ -179,6 +179,24 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
     }
 
     public func finishSession(_ session: StreamSessionDescriptor, reason: StreamEndReason) async throws {
+        detachSignalingSession(session)
+        guard shouldReportFinishedSession(reason) else { return }
+        let stopError = await stopCloudMatchSession(session)
+        if stopError == nil { StreamSessionLimitStartStore.clear(sessionId: session.id) }
+        await reportUDSEndOfSession(session, reason: reason)
+        if let stopError { throw stopError }
+    }
+
+    public func finishTerminatedStreamSession(_ session: StreamSessionDescriptor,
+                                              shouldPreserveSession: Bool) async throws {
+        detachSignalingSession(session)
+        guard !shouldPreserveSession else { return }
+        ActiveSessionService.clearPersistedActiveSessionId(session.id)
+        StreamSessionLimitStartStore.clear(sessionId: session.id)
+        await reportUDSEndOfSession(session, reason: .remoteEnded)
+    }
+
+    private func detachSignalingSession(_ session: StreamSessionDescriptor) {
         lock.withLock {
             self.activeSession = nil
             self.iceContinuation?.finish()
@@ -195,11 +213,6 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
         }
         signaling?.disconnect()
         signaling = nil
-        guard shouldReportFinishedSession(reason) else { return }
-        let stopError = await stopCloudMatchSession(session)
-        if stopError == nil { StreamSessionLimitStartStore.clear(sessionId: session.id) }
-        await reportUDSEndOfSession(session, reason: reason)
-        if let stopError { throw stopError }
     }
 
     public func cancelSessionStart() async {

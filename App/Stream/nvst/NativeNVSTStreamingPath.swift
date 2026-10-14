@@ -80,6 +80,7 @@ public protocol NativeNVSTSessionProvider: Sendable {
     func startNativeNVSTSession(configuration: PreparedLaunchConfiguration) async throws -> NativeNVSTSessionAllocation
     func recoverNativeNVSTSession(configuration: PreparedLaunchConfiguration, session: StreamSessionDescriptor) async throws -> NativeNVSTSessionAllocation
     func finishSession(_ session: StreamSessionDescriptor, reason: StreamEndReason) async throws
+    func finishTerminatedStreamSession(_ session: StreamSessionDescriptor, shouldPreserveSession: Bool) async throws
 
     func lookupActiveSessionConflict(excludingSessionID sessionID: String, applicationID: String) async -> StreamSessionConflict?
 }
@@ -93,6 +94,10 @@ public extension NativeNVSTSessionProvider {
 
     func lookupActiveSessionConflict(excludingSessionID sessionID: String, applicationID: String) async -> StreamSessionConflict? {
         nil
+    }
+
+    func finishTerminatedStreamSession(_ session: StreamSessionDescriptor, shouldPreserveSession: Bool) async throws {
+        try await finishSession(session, reason: shouldPreserveSession ? .paused : .remoteEnded)
     }
 }
 
@@ -115,12 +120,15 @@ public protocol NativeNVSTTransport: Sendable {
     func setDynamicStreamingMode(_ mode: NativeNVSTDynamicStreamingMode) async throws
     func setL4SEnabled(_ enabled: Bool) async throws
     func updateGamepadTopology(_ topology: NativeNVSTGamepadTopology) async throws
+    func hasReceivedVideoFrame() async -> Bool
     func startRecording(configuration: StreamRecordingConfiguration) async
     func stopRecording() async
     func setRecordingStatusHandler(_ handler: (@MainActor @Sendable (StreamRecordingStatus) -> Void)?) async
     func appendEnhancedPixelBuffer(_ pixelBuffer: CVPixelBuffer)
     func pause() async throws
     func disconnect() async
+    func disconnect(keepSessionAlive: Bool) async
+    func disconnectForStartCancellation() async
     func disconnectForApplicationTermination() async
     func resetForRecovery() async
     func sendRecoveryMode(enabled: Bool) async
@@ -191,6 +199,7 @@ public actor NativeNVSTStreamingPath {
 
     private var isRecovering = false
     private var recoveryCancelledBySeat = false
+    private var hasReceivedVideoForSession = false
     private var reportContinuations: [UUID: AsyncStream<StreamReport>.Continuation] = [:]
 
     public static let maximumRecoveryAttempts = 4
@@ -247,6 +256,7 @@ public actor NativeNVSTStreamingPath {
 
     private func startStreaming(configuration: PreparedLaunchConfiguration,
                                 progress: (@Sendable (StreamProgress) async -> Void)?) async throws -> StreamSessionDescriptor {
+        hasReceivedVideoForSession = false
         NativeNVSTMediaLog.write("nvst.path.start", level: .info, message: "Starting native NVST streaming path.", attributes: ["configurationId": configuration.id.uuidString, "applicationID": configuration.applicationID])
 
         try Task.checkCancellation()
@@ -278,7 +288,11 @@ public actor NativeNVSTStreamingPath {
             _ = try await transport.connect(allocation: allocation, mediaReceiver: mediaSession)
             try await stopSessionIfCancelled(allocation.session, isResume: allocation.isResume)
         } catch {
-            await transport.disconnect()
+            if allocation.isResume {
+                try? await transport.pause()
+            } else {
+                await transport.disconnect()
+            }
             await mediaSession.finish()
 
             let releaseReason: StreamEndReason = allocation.isResume
@@ -513,7 +527,7 @@ public actor NativeNVSTStreamingPath {
             return
         }
         let task = Task { [sessionProvider, transport] in
-            await transport.disconnect()
+            await transport.disconnectForStartCancellation()
             if let cancellable = sessionProvider as? any StreamSessionStartCancellable {
                 await cancellable.cancelSessionStart()
             }
@@ -525,7 +539,11 @@ public actor NativeNVSTStreamingPath {
 
     private func stopSessionIfCancelled(_ session: StreamSessionDescriptor, isResume: Bool) async throws {
         guard Task.isCancelled else { return }
-        await transport.disconnect()
+        if isResume {
+            try? await transport.pause()
+        } else {
+            await transport.disconnect()
+        }
 
         try? await sessionProvider.finishSession(session, reason: isResume ? .paused : .userRequested)
         throw CancellationError()
@@ -590,6 +608,9 @@ extension NativeNVSTStreamingPath {
 
     private func handleTransportTermination(_ termination: NativeNVSTTransportTermination) async {
         guard let activeSession else { return }
+        if await transport.hasReceivedVideoFrame() {
+            hasReceivedVideoForSession = true
+        }
 
         if isRecovering {
             // A seat-initiated termination during recovery means the seat has definitively ended
@@ -602,7 +623,11 @@ extension NativeNVSTStreamingPath {
             return
         }
         terminalTask = nil
-        if automaticRecovery == .singleAttempt, NativeNVSTRecoveryPolicy.permitsRecovery(termination), activeAllocation != nil, launchConfiguration != nil {
+        if automaticRecovery == .singleAttempt,
+           hasReceivedVideoForSession,
+           NativeNVSTRecoveryPolicy.permitsRecovery(termination),
+           activeAllocation != nil,
+           launchConfiguration != nil {
             let reason: String = switch termination {
             case .sessionTerminated(let info): "seat: \(info.message)"
             case .transportFailed(let failure): "transport: \(failure.message)"
@@ -623,18 +648,25 @@ extension NativeNVSTStreamingPath {
         let message: String
         switch termination {
         case .sessionTerminated(let info):
-
-            reason = info.isPause ? .paused : .remoteEnded
+            reason = info.isPause || info.isSessionAlive || info.isResumable ? .paused : .remoteEnded
             message = info.message.isEmpty
                 ? (info.isPause ? "Native NVST stream paused." : "Native NVST stream ended remotely.")
                 : info.message
         case .transportFailed(let failure):
-            reason = .failed
+            reason = NativeNVSTRecoveryPolicy.permitsRecovery(termination) ? .paused : .failed
             message = failure.message.isEmpty ? "Native NVST transport failed." : failure.message
         }
         let diagnostics = await transport.diagnosticMetadata()
-        await transport.disconnect()
-        try? await sessionProvider.finishSession(activeSession, reason: reason)
+        await transport.disconnect(keepSessionAlive: reason == .paused)
+        switch termination {
+        case .sessionTerminated:
+            try? await sessionProvider.finishTerminatedStreamSession(
+                activeSession,
+                shouldPreserveSession: reason == .paused
+            )
+        case .transportFailed:
+            try? await sessionProvider.finishSession(activeSession, reason: reason)
+        }
         await mediaSession.finish()
         var metadata = ["transport": "nvst"]
         metadata.merge(diagnostics) { current, _ in current }
@@ -662,6 +694,10 @@ extension NativeNVSTStreamingPath {
     public var isRecoveringInPlace: Bool { isRecovering }
 
     public func recoverInPlace(reason: String) async -> Bool {
+        if await transport.hasReceivedVideoFrame() {
+            hasReceivedVideoForSession = true
+        }
+        guard hasReceivedVideoForSession else { return false }
         guard canRecoverInPlace(), let session = activeSession, let configuration = launchConfiguration else { return false }
         isRecovering = true
         recoveryCancelledBySeat = false
