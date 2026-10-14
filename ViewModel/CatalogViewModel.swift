@@ -160,6 +160,8 @@ final class CatalogViewModel: ObservableObject {
     @Published private(set) var isLibraryPartiallyLoaded = false
     @Published private(set) var librarySnapshotUpdatedAt: Date?
     @Published private(set) var libraryRefreshError = ""
+    @Published private(set) var catalogNetworkAccessFailure: String?
+    @Published private(set) var libraryNetworkAccessFailure: String?
     @Published var errorMessage = ""
     @Published var launchMessage = ""
     @Published var actionMessage = ""
@@ -434,6 +436,92 @@ final class CatalogViewModel: ObservableObject {
         return "\(total) results"
     }
 
+    var shouldShowNetworkAccessWarning: Bool {
+        guard selectedMainPage == .games else { return false }
+        if selectedCatalogDestination == .library {
+            return libraryNetworkAccessFailure != nil
+        }
+        return catalogNetworkAccessFailure != nil
+    }
+
+    private func clearCatalogNetworkAccessFailure() {
+        if let catalogNetworkAccessFailure, errorMessage == catalogNetworkAccessFailure {
+            errorMessage = ""
+        }
+        catalogNetworkAccessFailure = nil
+    }
+
+    private func clearLibraryNetworkAccessFailure() {
+        if let libraryNetworkAccessFailure, errorMessage == libraryNetworkAccessFailure {
+            errorMessage = ""
+        }
+        libraryNetworkAccessFailure = nil
+    }
+
+    private func recordCatalogNetworkAccessFailure(_ error: String) {
+        guard Self.isLikelyCatalogNetworkAccessFailure(error) else { return }
+        catalogNetworkAccessFailure = error
+    }
+
+    private func recordLibraryNetworkAccessFailure(_ error: String) {
+        guard Self.isLikelyCatalogNetworkAccessFailure(error) else { return }
+        libraryNetworkAccessFailure = error
+    }
+
+    private static func isLikelyCatalogNetworkAccessFailure(_ error: String) -> Bool {
+        let lower = error.lowercased()
+        guard !lower.isEmpty else { return false }
+
+        let serviceFailureIndicators = [
+            "unauthorized",
+            "authentication",
+            "maintenance",
+            "too many requests",
+            "queue length",
+            "not entitled",
+            "entitlement required",
+            "game not owned",
+            "account_link",
+            "store account"
+        ]
+        guard !serviceFailureIndicators.contains(where: lower.contains) else { return false }
+
+        let networkPolicyResponses = [
+            "http 403", "http 407", "http 451",
+            "graphql error (0)", "graphql error (403)", "graphql error (407)", "graphql error (451)",
+            "status=403", "status=407", "status=451"
+        ]
+        if networkPolicyResponses.contains(where: lower.contains) { return true }
+
+        let transportErrorCodes = ["-1001", "-1003", "-1004", "-1005", "-1006", "-1009", "-1200", "-1201", "-1202", "-1204", "-1205"]
+        if transportErrorCodes.contains(where: lower.contains) { return true }
+
+        let networkFailureIndicators = [
+            "not connected to internet",
+            "internet connection appears to be offline",
+            "network connection was lost",
+            "network is unreachable",
+            "network error",
+            "could not connect",
+            "cannot connect",
+            "failed to connect",
+            "connection refused",
+            "connection reset",
+            "connection timed out",
+            "request timed out",
+            "timed out waiting for",
+            "could not resolve",
+            "dns lookup failed",
+            "dnslookupfailed",
+            "server with the specified hostname could not be found",
+            "could not find the server",
+            "ssl error",
+            "tls error",
+            "certificate error"
+        ]
+        return networkFailureIndicators.contains(where: lower.contains)
+    }
+
     func loadIfNeeded() {
         guard !hasLoaded else { return }
         hasLoaded = true
@@ -554,6 +642,7 @@ final class CatalogViewModel: ObservableObject {
             if selectedCatalogDestination == .home { loadPanels() }
             return
         }
+        clearCatalogNetworkAccessFailure()
         browseCancellation?.cancel()
         let cancellation = CatalogBrowseCancellation()
         browseCancellation = cancellation
@@ -580,6 +669,7 @@ final class CatalogViewModel: ObservableObject {
                 self.isLoading = false
                 guard success else {
                     if self.refreshAuthIfNeeded(error: error) { return }
+                    self.recordCatalogNetworkAccessFailure(error)
                     self.errorMessage = error.isEmpty ? "Unable to browse the GeForce NOW catalog." : error
                     return
                 }
@@ -600,6 +690,7 @@ final class CatalogViewModel: ObservableObject {
 
     func loadMoreCatalogResults() {
         guard isBrowseMode, hasMoreCatalogResults, !isLoading, !isLoadingMoreCatalogResults else { return }
+        clearCatalogNetworkAccessFailure()
         let cancellation = CatalogBrowseCancellation()
         browseCancellation?.cancel()
         browseCancellation = cancellation
@@ -613,6 +704,7 @@ final class CatalogViewModel: ObservableObject {
                 self.isLoadingMoreCatalogResults = false
                 guard success else {
                     if self.refreshAuthIfNeeded(error: error) { return }
+                    self.recordCatalogNetworkAccessFailure(error)
                     self.errorMessage = error.isEmpty ? "Unable to load more catalog results." : error
                     return
                 }
@@ -637,6 +729,7 @@ final class CatalogViewModel: ObservableObject {
         let sectionId = section.id
         let sortId = section.seeMoreSortId.isEmpty ? selectedSortId : section.seeMoreSortId
         let filterIds = section.seeMoreFilterIds
+        clearCatalogNetworkAccessFailure()
         loadingFullSectionIds.insert(section.id)
         configureCatalogService()
         let selfBox = CatalogWeakObject(self)
@@ -653,6 +746,7 @@ final class CatalogViewModel: ObservableObject {
                 self.loadingFullSectionIds.remove(sectionId)
                 guard success else {
                     if self.refreshAuthIfNeeded(error: error) { return }
+                    self.recordCatalogNetworkAccessFailure(error)
                     if self.errorMessage.isEmpty { self.errorMessage = error.isEmpty ? "Unable to load the full game list." : error }
                     return
                 }
@@ -2001,6 +2095,7 @@ final class CatalogViewModel: ObservableObject {
             return
         }
         guard forceRefresh || !hasLoadedPanels else { return }
+        clearCatalogNetworkAccessFailure()
         panelLoadGeneration += 1
         let generation = panelLoadGeneration
         panelRequestsRemaining = 2
@@ -2018,7 +2113,10 @@ final class CatalogViewModel: ObservableObject {
                     self.clearCatalogSearchTextCache()
                 } else {
                     self.panelLoadHadFailure = true
-                    if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty { self.errorMessage = error }
+                    if !self.refreshAuthIfNeeded(error: error) {
+                        self.recordCatalogNetworkAccessFailure(error)
+                        if self.errorMessage.isEmpty { self.errorMessage = error }
+                    }
                 }
                 self.finishPanelRequest(generation: generation)
             }
@@ -2032,8 +2130,11 @@ final class CatalogViewModel: ObservableObject {
                     self.clearCatalogSearchTextCache()
                 } else {
                     self.panelLoadHadFailure = true
-                    if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty {
-                        self.errorMessage = error.isEmpty ? "Unable to load GeForce NOW home panels." : error
+                    if !self.refreshAuthIfNeeded(error: error) {
+                        self.recordCatalogNetworkAccessFailure(error)
+                        if self.errorMessage.isEmpty {
+                            self.errorMessage = error.isEmpty ? "Unable to load GeForce NOW home panels." : error
+                        }
                     }
                 }
                 self.finishPanelRequest(generation: generation)
@@ -2068,6 +2169,7 @@ final class CatalogViewModel: ObservableObject {
         }
         guard forceRefresh || !hasLoadedLibrary || isLibrarySnapshotStale || !libraryRefreshError.isEmpty else { return nil }
 
+        clearLibraryNetworkAccessFailure()
         libraryRequestInFlight = true
         libraryLoadGeneration += 1
         let generation = libraryLoadGeneration
@@ -2161,8 +2263,11 @@ final class CatalogViewModel: ObservableObject {
                         if self.libraryHasSnapshotForCurrentLoad {
                             self.isLibrarySnapshotStale = true
                         }
-                        if !self.refreshAuthIfNeeded(error: error), self.errorMessage.isEmpty {
-                            self.errorMessage = self.libraryRefreshError
+                        if !self.refreshAuthIfNeeded(error: error) {
+                            self.recordLibraryNetworkAccessFailure(error)
+                            if self.errorMessage.isEmpty {
+                                self.errorMessage = self.libraryRefreshError
+                            }
                         }
                     }
                     self.finishLibraryLoad(generation: request.generation)

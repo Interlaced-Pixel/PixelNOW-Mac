@@ -2128,7 +2128,10 @@ private struct CatalogContentView: View {
                             .padding(.horizontal, CatalogVendorLayout.sectionHeaderMargin)
                             .padding(.top, 4)
 
-                        if !viewModel.errorMessage.isEmpty {
+                        if viewModel.shouldShowNetworkAccessWarning {
+                            GFNCatalogNetworkWarningView()
+                                .padding(.horizontal, CatalogVendorLayout.sectionHeaderMargin)
+                        } else if !viewModel.errorMessage.isEmpty {
                             CatalogMessageView(message: viewModel.errorMessage, systemImage: "exclamationmark.triangle.fill")
                                 .padding(.horizontal, CatalogVendorLayout.sectionHeaderMargin)
                         }
@@ -5219,6 +5222,33 @@ struct CatalogMessageView: View {
         pasteboard.clearContents()
         pasteboard.setString(value, forType: .string)
         copiedDetails = true
+    }
+}
+
+private struct GFNCatalogNetworkWarningView: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.nvidia(size: 15, weight: .bold))
+                .foregroundStyle(Color.yellow.opacity(0.90))
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("GeForce NOW may be blocked on this network.")
+                    .font(.nvidia(size: 13, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.90))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("School networks may restrict the services needed to load the catalogue or library. Try another network or ask your network administrator to allow GeForce NOW.")
+                    .font(.nvidia(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.66))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.yellow.opacity(0.055))
+        .overlay(alignment: .leading) { Rectangle().fill(Color.yellow.opacity(0.70)).frame(width: 3) }
+        .overlay { Rectangle().stroke(Color.yellow.opacity(0.20), lineWidth: 1) }
     }
 }
 
