@@ -20,6 +20,9 @@ struct GameCardView: View {
 
     private var cardWidth: CGFloat { 138 * scale }
     private var cardHeight: CGFloat { 207 * scale }
+    private var isArtworkProgressActive: Bool {
+        showsArtworkProgress && (artworkProgress.status == .queued || artworkProgress.status == .downloading)
+    }
 
     var body: some View {
         Button(action: select) {
@@ -29,7 +32,7 @@ struct GameCardView: View {
                         .frame(width: cardWidth, height: cardHeight)
                         .clipped()
 
-                    if showsArtworkProgress {
+                    if isArtworkProgressActive {
                         LibraryArtworkProgressIndicator(progress: artworkProgress, scale: scale)
                             .padding(.bottom, scale)
                             .allowsHitTesting(false)
@@ -91,7 +94,7 @@ struct GameCardView: View {
         }
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
         .accessibilityLabel(game.title.isEmpty ? "Untitled game" : game.title)
-        .accessibilityValue(showsArtworkProgress ? artworkProgress.accessibilityDescription : "")
+        .accessibilityValue(isArtworkProgressActive ? artworkProgress.accessibilityDescription : "")
         .accessibilityHint("Click to select. Double-click to launch. Right-click for game options.")
     }
 }
