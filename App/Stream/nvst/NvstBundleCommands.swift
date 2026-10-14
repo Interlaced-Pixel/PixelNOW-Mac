@@ -86,12 +86,12 @@ extension NvstBundle {
     }
 
     private func dispatchInboundCommand(_ command: NvstStreamingCommand, label: String) {
-        if command.code == .termination || command.terminationReason != nil {
-            let reason = command.terminationReason
-            let reasonDesc = reason.map { NvstResult.describe($0) } ?? "unspecified"
+        if command.code == .termination {
+            let termination = command.terminationPayload
+            let reasonDesc = termination.map { NvstResult.describe($0.resultCode) } ?? "unspecified"
             let hex = command.payload.map { String(format: "%02x", $0) }.joined()
-            logger?("NVST bundle seat terminated the session (channel=\(label)): \(command.summary) reason=\(reasonDesc) payload=\(hex)")
-            onSeatTermination?(reason, command.summary)
+            logger?("NVST bundle seat terminated the session (channel=\(label)): \(command.summary) result=\(reasonDesc) payload=\(hex)")
+            onSeatTermination?(termination, command.summary)
             return
         }
         if command.code == .terminationTimer || command.code == 0x0104 || command.code == 0x0105 {

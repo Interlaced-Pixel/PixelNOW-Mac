@@ -174,6 +174,9 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     private var terminationStream: AsyncStream<NativeNVSTTransportTermination>?
     var controlKeepAliveFailureCount = 0
     var lastHandoff: NVSTVideoHandoff?
+    var isResumingCloudSession = false
+    var didReceiveSeatTermination = false
+    var didSendDisconnectNotification = false
     private var heartbeatTask: Task<Void, Never>?
     var controlKeepAliveTask: Task<Void, Never>?
     var qosFeedbackTask: Task<Void, Never>?
@@ -341,6 +344,9 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     public func connect(allocation: NativeNVSTSessionAllocation, mediaReceiver: any NativeNVSTMediaReceiver) async throws -> NativeNVSTTransportConnection {
         guard connection == nil else { throw NativeNVSTError.alreadyRunning }
         isTornDown = false
+        isResumingCloudSession = allocation.isResume
+        didReceiveSeatTermination = false
+        didSendDisconnectNotification = false
 
         let endpoints = NvstRtspEndpoints.collect(
             rawSessionJSON: allocation.rawSessionJSON,
@@ -411,7 +417,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
                 }
             )
         } catch {
-            await teardown(reason: "negotiation failed")
+            await teardown(reason: "negotiation failed", keepSessionAlive: allocation.isResume)
             throw NativeNVSTError.transportFailed(error.localizedDescription)
         }
         session = negotiated
@@ -539,21 +545,31 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
     }
 
     public func disconnect() async {
+        await disconnect(keepSessionAlive: false)
+    }
 
+    public func disconnect(keepSessionAlive: Bool) async {
         recorder.stop()
-
-        await teardown(reason: "disconnect")
+        await teardown(reason: "disconnect", keepSessionAlive: keepSessionAlive)
     }
 
     public func disconnectForApplicationTermination() async {
         recorder.stop()
-        await teardown(reason: "application termination")
+        await teardown(reason: "application termination", keepSessionAlive: false)
+    }
+
+    public func disconnectForStartCancellation() async {
+        recorder.stop()
+        await teardown(reason: "start cancellation", keepSessionAlive: isResumingCloudSession)
     }
 
     public func resetForRecovery() async {
-
         recorder.stop()
-        await teardown(reason: "recovery")
+        await teardown(reason: "recovery", keepSessionAlive: true)
+    }
+
+    public func hasReceivedVideoFrame() async -> Bool {
+        (receiver?.stats.framesEmitted ?? 0) > 0
     }
 
     public func terminalEvents() async -> AsyncStream<NativeNVSTTransportTermination> {
@@ -723,7 +739,14 @@ extension NVSTCoreTransport {
         return pairs
     }
 
-    func teardown(reason: String) async {
+    func teardown(reason: String, keepSessionAlive: Bool) async {
+        if !didSendDisconnectNotification, let bundle {
+            didSendDisconnectNotification = true
+            if !didReceiveSeatTermination {
+                let sent = bundle.sendControl(.disconnectNotification(keepSessionAlive: keepSessionAlive))
+                logger?("NVST disconnect notification keepSessionAlive=\(keepSessionAlive) sent=\(sent) reason=\(reason)")
+            }
+        }
         isTornDown = true
         cancelCursorCaptureWatchdog()
         heartbeatTask?.cancel()
@@ -812,6 +835,7 @@ extension NVSTCoreTransport {
             await session.release(reason)
         }
         session = nil
+        isResumingCloudSession = false
         reserver?.release()
         reserver = nil
         connection = nil

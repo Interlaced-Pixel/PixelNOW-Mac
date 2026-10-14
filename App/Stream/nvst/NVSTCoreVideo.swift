@@ -257,10 +257,10 @@ extension NVSTCoreTransport {
                 await self?.handleAudioSurroundInfo(surround)
             }
         }
-        bundle.onSeatTermination = { [weak self] reasonCode, summary in
+        bundle.onSeatTermination = { [weak self] termination, summary in
             Task {
                 guard await self?.bundleGeneration == generation else { return }
-                await self?.handleSeatTermination(reasonCode: reasonCode, summary: summary)
+                await self?.handleSeatTermination(terminationPayload: termination, summary: summary)
             }
         }
         bundle.onSeatTerminationTimer = { [weak self] code, payload in
@@ -347,12 +347,14 @@ extension NVSTCoreTransport {
     func startControlKeepAlive() {
         guard !isTornDown, controlKeepAliveTask == nil else { return }
         controlKeepAliveFailureCount = 0
-        logger?("NVST control keepalive started (\(Int(NvstStreamingCommand.pingBackIntervalSeconds))s)")
+        let intervalMilliseconds = lastHandoff?.pingBackIntervalMilliseconds ?? NvstStreamingCommand.pingBackIntervalMilliseconds
+        let intervalSeconds = TimeInterval(intervalMilliseconds) / 1_000
+        logger?("NVST control keepalive started (\(intervalMilliseconds)ms)")
         controlKeepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.sendControlKeepAlive()
-                try? await Task.sleep(for: .seconds(NvstStreamingCommand.pingBackIntervalSeconds))
+                try? await Task.sleep(for: .seconds(intervalSeconds))
             }
         }
     }
@@ -838,22 +840,73 @@ extension NVSTCoreTransport {
         )))
     }
 
-    func handleSeatTermination(reasonCode: UInt32?, summary: String) {
-        let codeName = reasonCode.flatMap { NvstResult.name(for: $0) }
-        let description = reasonCode.map { NvstResult.describe($0) } ?? summary
+    func handleSeatTermination(terminationPayload: NvstTerminationPayload?, summary: String) {
+        didReceiveSeatTermination = true
+        let shutdownReason = terminationPayload?.sessionTerminationReason
+        let details = vendorTerminationDetails(for: shutdownReason)
+        let resultCode = details.extendedResultOverride ?? terminationPayload?.resultCode ?? 0
+        let codeName = NvstResult.name(for: resultCode)
+        let notification = String(format: "notification=%u", details.notificationType)
+        let result = NvstResult.describe(resultCode)
+        let shutdown = shutdownReason.map { String(format: " shutdownReason=0x%04x", $0) } ?? ""
+        let description = terminationPayload == nil ? summary : "\(notification) result=\(result)\(shutdown)"
         logger?("NVST seat termination signaled by remote host: \(description)")
         Log.warning(.stream, "NVST seat termination signaled by remote host: \(description)")
 
-        let terminationReason = NativeNVSTTerminationReason(rawValue: reasonCode ?? 0, resultName: codeName)
-        let terminationValue = NativeNVSTTerminationValue(code: Int32(bitPattern: reasonCode ?? 0), name: codeName)
+        let terminationReason = NativeNVSTTerminationReason(rawValue: details.notificationType, resultName: codeName)
+        let terminationValue = NativeNVSTTerminationValue(code: Int32(bitPattern: resultCode), name: codeName)
         let info = NativeNVSTSessionTermination(
             reason: terminationReason,
             extendedResult: terminationValue,
-            isResumable: false,
-            isSessionAlive: false,
+            isResumable: NativeNVSTTerminationReason.isResumable(
+                notificationType: details.notificationType,
+                resultCode: resultCode
+            ),
+            isSessionAlive: details.isSessionAlive,
             message: "GeForce NOW seat terminated the session: \(description)"
         )
         terminationContinuation?.yield(.sessionTerminated(info))
+    }
+
+    private func vendorTerminationDetails(for shutdownReason: UInt16?) -> (
+        notificationType: UInt32,
+        isSessionAlive: Bool,
+        extendedResultOverride: UInt32?
+    ) {
+        guard let shutdownReason else { return (55, false, nil) }
+        return switch shutdownReason {
+        case 0x0000: (64, false, nil)
+        case 0x0001: (74, true, nil)
+        case 0x0100: (52, false, nil)
+        case 0x0101: (55, false, nil)
+        case 0x0102: (75, true, nil)
+        case 0x0103: (61, false, nil)
+        case 0x0104: (56, false, nil)
+        case 0x0105: (63, false, nil)
+        case 0x0106: (65, false, nil)
+        case 0x0107: (66, false, nil)
+        case 0x0108: (67, false, nil)
+        case 0x0109: (55, false, nil)
+        case 0x010a: (69, true, nil)
+        case 0x010b: (70, false, nil)
+        case 0x010c: (71, false, nil)
+        case 0x010d: (55, false, nil)
+        case 0x010e: (53, false, 0x00f1_3003)
+        case 0x010f: (76, false, 0x00f1_3004)
+        case 0x0201: (54, false, nil)
+        case 0x0202: (55, false, nil)
+        case 0x0203: (58, false, nil)
+        case 0x0204: (55, false, nil)
+        case 0x0205: (57, false, nil)
+        case 0x0206: (59, true, nil)
+        case 0x0207: (60, false, nil)
+        case 0x0208: (64, false, nil)
+        case 0x0209: (73, false, 0x00f1_3002)
+        case 0x0300: (72, false, 0x8011_0000)
+        case 0x810c: (62, false, nil)
+        case 0x810f: (68, false, nil)
+        default: (55, false, nil)
+        }
     }
 
     func handleSeatTerminationTimer(code: UInt16, payload: Data) {

@@ -380,7 +380,7 @@ extension NVSTCoreTransport {
 
     public func pause() async throws {
         recorder.stop()
-        await teardown(reason: "pause")
+        await teardown(reason: "pause", keepSessionAlive: true)
     }
 
     func sendAsUtf8Text(_ text: String) throws {

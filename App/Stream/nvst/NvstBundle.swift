@@ -138,7 +138,7 @@ public final class NvstBundle: @unchecked Sendable {
     public var onHapticEvents: (@Sendable ([NvstHapticEvent]) -> Void)?
     public var onHdrMode: (@Sendable (NvstHdrModeNotification) -> Void)?
     public var onAudioSurroundInfo: (@Sendable (NvstAudioSurroundInfo) -> Void)?
-    public var onSeatTermination: (@Sendable (UInt32?, String) -> Void)?
+    public var onSeatTermination: (@Sendable (NvstTerminationPayload?, String) -> Void)?
     public var onSeatTerminationTimer: (@Sendable (UInt16, Data) -> Void)?
     public var onHidChangeResponse: (@Sendable (UInt8, UInt8) -> Void)?
     public var onRemoteAudio: (@Sendable (Int) -> Void)?

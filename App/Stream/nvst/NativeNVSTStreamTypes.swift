@@ -189,6 +189,28 @@ public struct NativeNVSTTerminationReason: Equatable, Sendable {
     }
 
     public var isPause: Bool { rawValue == Self.pausedByUser }
+    public var isSystemSleep: Bool { rawValue == 301 }
+
+    public static func isResumable(notificationType: UInt32, resultCode: UInt32) -> Bool {
+        guard notificationType != 301 else { return false }
+        let offset: UInt32
+        let mask: UInt32
+        let limit: UInt32
+        switch notificationType {
+        case 55:
+            offset = resultCode &- 0x8004_0003
+            mask = 0x20fe
+            limit = 20
+        case pausedByUser:
+            offset = resultCode &- 0x8004_0004
+            mask = 0x1009
+            limit = 13
+        default:
+            return false
+        }
+        guard offset < limit else { return false }
+        return mask & (UInt32(1) << offset) != 0
+    }
 }
 
 public struct NativeNVSTSessionTermination: Equatable, Sendable {
@@ -211,7 +233,7 @@ public struct NativeNVSTSessionTermination: Equatable, Sendable {
     }
 
     public var permitsSameSessionRecovery: Bool {
-        isResumable && isSessionAlive && !isPause
+        isResumable && !reason.isSystemSleep
     }
 
     /// A paused session is not an ended session: the cloud session must survive so the
@@ -272,11 +294,14 @@ public enum NativeNVSTRecoveryPolicy {
     public static func permitsRecovery(_ termination: NativeNVSTTransportTermination) -> Bool {
         switch termination {
         case .sessionTerminated(let info):
-            info.permitsSameSessionRecovery
+            return info.permitsSameSessionRecovery
         case .transportFailed(let failure):
-            // The transport's own verdict: a network-class failure leaves the cloud session alive
-            // and resumable, a decoder that gave up does not.
-            failure.recoveryClassification == .transientNetwork
+            guard failure.recoveryClassification == .transientNetwork else { return false }
+            guard let result = failure.result else { return true }
+            return NativeNVSTTerminationReason.isResumable(
+                notificationType: 55,
+                resultCode: UInt32(bitPattern: result.code)
+            )
         }
     }
 
