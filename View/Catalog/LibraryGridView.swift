@@ -10,6 +10,105 @@ enum LibrarySortOption: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private struct LibraryArtworkProgressOverview {
+    let totalGames: Int
+    let readyGames: Int
+    let failedGames: Int
+    let downloadingGames: Int
+    let queuedGames: Int
+    let receivedBytes: Int64
+
+    var finishedGames: Int { readyGames + failedGames }
+
+    var fractionCompleted: Double {
+        guard totalGames > 0 else { return 0 }
+        return Double(finishedGames) / Double(totalGames)
+    }
+
+    var isLoading: Bool { downloadingGames > 0 || queuedGames > 0 }
+}
+
+private struct LibraryArtworkProgressSummary: View {
+    let overview: LibraryArtworkProgressOverview
+
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: statusSymbol)
+                    .foregroundStyle(statusColor)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .tracking(0.5)
+                    .foregroundStyle(.white.opacity(0.92))
+                Spacer(minLength: 8)
+                Text("\(overview.readyGames)/\(overview.totalGames) ready")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.86))
+            }
+
+            ProgressView(value: overview.fractionCompleted)
+                .progressViewStyle(.linear)
+                .tint(Color.pixelNowGreen)
+
+            HStack(spacing: 8) {
+                Text(secondaryStatus)
+                    .foregroundStyle(.white.opacity(0.66))
+                Spacer(minLength: 8)
+                Text("\(formattedBytes(overview.receivedBytes)) loaded")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .font(.system(size: 10, weight: .medium))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Library artwork progress")
+        .accessibilityValue(accessibilityStatus)
+    }
+
+    private var secondaryStatus: String {
+        if overview.isLoading {
+            return "\(overview.downloadingGames) downloading · \(overview.queuedGames) queued · \(overview.failedGames) failed"
+        }
+        return overview.failedGames == 0
+            ? "All game posters loaded"
+            : "\(overview.failedGames) game posters unavailable"
+    }
+
+    private var title: String {
+        if overview.isLoading { return "LOADING GAME ARTWORK" }
+        return overview.failedGames == 0 ? "GAME ARTWORK READY" : "ARTWORK LOAD COMPLETE"
+    }
+
+    private var statusSymbol: String {
+        if overview.isLoading { return "arrow.down.circle.fill" }
+        return overview.failedGames == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+    }
+
+    private var statusColor: Color {
+        overview.failedGames > 0 && !overview.isLoading ? .orange : Color.pixelNowGreen
+    }
+
+    private var accessibilityStatus: String {
+        "\(overview.readyGames) of \(overview.totalGames) game posters ready, " +
+            "\(overview.downloadingGames) downloading, \(overview.queuedGames) queued, " +
+            "\(overview.failedGames) failed, \(formattedBytes(overview.receivedBytes)) artwork bytes loaded"
+    }
+
+    private func formattedBytes(_ byteCount: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    }
+}
+
 struct LibraryGridView: View {
     @ObservedObject var viewModel: CatalogViewModel
     @ObservedObject var store: CatalogSelectionStore
@@ -26,6 +125,36 @@ struct LibraryGridView: View {
     
     @State private var displayedGames: [CatalogGameObject] = []
     @State private var isProcessing: Bool = false
+    @State private var artworkProgressByIdentity: [String: CatalogImageLoadProgress] = [:]
+
+    private var artworkRequestKey: [ArtworkRequest] {
+        displayedGames.map { game in
+            ArtworkRequest(
+                identity: CatalogSelectionStore.gameIdentity(game),
+                artworkURL: game.bestStorePickerPosterURL
+            )
+        }
+    }
+
+    private var artworkProgressOverview: LibraryArtworkProgressOverview {
+        let progress = displayedGames.map { game in
+            artworkProgressByIdentity[CatalogSelectionStore.gameIdentity(game)] ?? .queued
+        }
+        var receivedBytes: Int64 = 0
+        var countedURLs = Set<URL>()
+        for game in displayedGames {
+            guard let url = URL(string: game.bestStorePickerPosterURL), countedURLs.insert(url).inserted else { continue }
+            receivedBytes += artworkProgressByIdentity[CatalogSelectionStore.gameIdentity(game)]?.receivedBytes ?? 0
+        }
+        return LibraryArtworkProgressOverview(
+            totalGames: progress.count,
+            readyGames: progress.filter { $0.status == .loaded }.count,
+            failedGames: progress.filter { $0.status == .failed }.count,
+            downloadingGames: progress.filter { $0.status == .downloading }.count,
+            queuedGames: progress.filter { $0.status == .queued }.count,
+            receivedBytes: receivedBytes
+        )
+    }
     
     private struct GridStateHash: Equatable {
         let query: String
@@ -34,6 +163,11 @@ struct LibraryGridView: View {
         let catalogCount: Int
         let knownCount: Int
         let favCount: Int
+    }
+
+    private struct ArtworkRequest: Equatable, Sendable {
+        let identity: String
+        let artworkURL: String
     }
     
     private var gridStateHash: GridStateHash {
@@ -119,6 +253,12 @@ struct LibraryGridView: View {
                 .padding(.top, 90)
                 .padding(.bottom, 20)
 
+                if !displayedGames.isEmpty {
+                    LibraryArtworkProgressSummary(overview: artworkProgressOverview)
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, 12)
+                }
+
                 if trimmedQuery.isEmpty && viewModel.libraryGames.isEmpty {
                     if viewModel.isCatalogRefreshInProgress {
                         VStack(spacing: 16) {
@@ -166,7 +306,9 @@ struct LibraryGridView: View {
                                         onToggleFavorite: { viewModel.toggleFavorite(for: game) },
                                         onSelectPlatform: { idx in viewModel.selectVariant(for: game, variantIndex: idx) },
                                         onAddShortcut: { viewModel.addShortcut(for: game) },
-                                        onOpenStore: { viewModel.openStore(for: game) }
+                                        onOpenStore: { viewModel.openStore(for: game) },
+                                        showsArtworkProgress: true,
+                                        artworkProgress: artworkProgressByIdentity[identity] ?? .queued
                                     )
                                     .id(identity)
                                 }
@@ -347,6 +489,35 @@ struct LibraryGridView: View {
                 self.displayedGames = finalGames
                 self.store.load(from: finalGames)
                 self.isProcessing = false
+            }
+            .task(id: artworkRequestKey) {
+                let requestKey = artworkRequestKey
+                var initialProgress: [String: CatalogImageLoadProgress] = [:]
+                var mutableIdentitiesByURL: [URL: [String]] = [:]
+                var urls: [URL] = []
+
+                for game in displayedGames {
+                    let identity = CatalogSelectionStore.gameIdentity(game)
+                    guard let url = URL(string: game.bestStorePickerPosterURL),
+                          url.scheme == "https" || url.scheme == "http" else {
+                        initialProgress[identity] = CatalogImageLoadProgress(status: .failed, receivedBytes: 0, expectedBytes: nil)
+                        continue
+                    }
+                    initialProgress[identity] = .queued
+                    if mutableIdentitiesByURL[url] == nil { urls.append(url) }
+                    mutableIdentitiesByURL[url, default: []].append(identity)
+                }
+
+                artworkProgressByIdentity = initialProgress
+                guard !urls.isEmpty else { return }
+                let identitiesByURL = mutableIdentitiesByURL
+
+                await CatalogImageCache.shared.prefetch(urls, concurrencyLimit: 4) { url, progress in
+                    guard !Task.isCancelled, requestKey == artworkRequestKey else { return }
+                    for identity in identitiesByURL[url, default: []] {
+                        artworkProgressByIdentity[identity] = progress
+                    }
+                }
             }
             .onChange(of: displayedGames.map(CatalogSelectionStore.gameIdentity)) { _, _ in
                 store.load(from: displayedGames)

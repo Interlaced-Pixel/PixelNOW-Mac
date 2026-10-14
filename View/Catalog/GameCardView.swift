@@ -13,6 +13,8 @@ struct GameCardView: View {
     var onAddShortcut: (() -> Void)? = nil
     var onOpenStore: (() -> Void)? = nil
     var onOpenSettings: (() -> Void)? = nil
+    var showsArtworkProgress = false
+    var artworkProgress = CatalogImageLoadProgress.queued
 
     @State private var isLaunchSettingsPresented = false
 
@@ -26,6 +28,13 @@ struct GameCardView: View {
                     CatalogRemoteImage(url: URL(string: game.bestStorePickerPosterURL), contentMode: .fill)
                         .frame(width: cardWidth, height: cardHeight)
                         .clipped()
+
+                    if showsArtworkProgress {
+                        LibraryArtworkProgressIndicator(progress: artworkProgress, scale: scale)
+                            .padding(.bottom, scale)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
 
                     if isFavorite {
                         Image(systemName: "heart.fill")
@@ -82,7 +91,128 @@ struct GameCardView: View {
         }
         .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86), value: isSelected)
         .accessibilityLabel(game.title.isEmpty ? "Untitled game" : game.title)
+        .accessibilityValue(showsArtworkProgress ? artworkProgress.accessibilityDescription : "")
         .accessibilityHint("Click to select. Double-click to launch. Right-click for game options.")
+    }
+}
+
+private struct LibraryArtworkProgressIndicator: View {
+    let progress: CatalogImageLoadProgress
+    let scale: CGFloat
+
+    var body: some View {
+        VStack {
+            Spacer(minLength: 0)
+            switch progress.status {
+            case .queued:
+                statusPanel(
+                    label: "QUEUED",
+                    detail: "WAITING FOR DOWNLOAD",
+                    symbol: "clock",
+                    tint: .white.opacity(0.82),
+                    bar: .determinate(0)
+                )
+            case .downloading:
+                statusPanel(
+                    label: "DOWNLOADING",
+                    detail: byteProgressDescription,
+                    symbol: "arrow.down.circle.fill",
+                    tint: Color.pixelNowGreen,
+                    bar: progress.fractionCompleted.map(ProgressBarState.determinate) ?? .indeterminate
+                )
+            case .loaded:
+                statusPanel(
+                    label: "READY",
+                    detail: ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
+                    symbol: "checkmark.circle.fill",
+                    tint: Color.pixelNowGreen,
+                    bar: .determinate(1)
+                )
+            case .failed:
+                statusPanel(
+                    label: "FAILED",
+                    detail: progress.receivedBytes > 0 ? "\(formattedBytes(progress.receivedBytes)) RECEIVED" : "ARTWORK UNAVAILABLE",
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: .orange,
+                    bar: progress.fractionCompleted.map(ProgressBarState.determinate)
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .animation(.easeInOut(duration: 0.2), value: progress)
+    }
+
+    private var byteProgressDescription: String {
+        guard let expectedBytes = progress.expectedBytes, expectedBytes > 0 else {
+            return "\(formattedBytes(progress.receivedBytes)) RECEIVED"
+        }
+        return "\(formattedBytes(progress.receivedBytes)) / \(formattedBytes(expectedBytes))"
+    }
+
+    private func formattedBytes(_ byteCount: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    }
+
+    @ViewBuilder
+    private func statusPanel(
+        label: String,
+        detail: String,
+        symbol: String,
+        tint: Color,
+        bar: ProgressBarState?
+    ) -> some View {
+        VStack(spacing: 4 * scale) {
+            HStack(spacing: 5 * scale) {
+                Image(systemName: symbol)
+                    .font(.system(size: 9 * scale, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 7.5 * scale, weight: .bold, design: .rounded))
+                    .tracking(0.35)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if progress.status == .downloading, let fraction = progress.fractionCompleted {
+                    Text("\(Int(fraction * 100))%")
+                        .font(.system(size: 7.5 * scale, weight: .semibold, design: .monospaced))
+                }
+            }
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(detail)
+                .font(.system(size: 7.5 * scale, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.88))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let bar {
+                switch bar {
+                case let .determinate(value):
+                    ProgressView(value: value)
+                        .progressViewStyle(.linear)
+                        .tint(tint)
+                case .indeterminate:
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(tint)
+                }
+            }
+        }
+        .padding(.horizontal, 8 * scale)
+        .padding(.top, 18 * scale)
+        .padding(.bottom, 7 * scale)
+        .background(
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.88)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private enum ProgressBarState {
+        case determinate(Double)
+        case indeterminate
     }
 }
 

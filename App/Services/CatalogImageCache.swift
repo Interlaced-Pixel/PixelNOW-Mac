@@ -20,13 +20,68 @@ struct CatalogImageCacheStatistics: Sendable {
     let totalBytes: Int
 }
 
+struct CatalogImageLoadProgress: Equatable, Sendable {
+    enum Status: String, Equatable, Sendable {
+        case queued
+        case downloading
+        case loaded
+        case failed
+    }
+
+    let status: Status
+    let receivedBytes: Int64
+    let expectedBytes: Int64?
+
+    var fractionCompleted: Double? {
+        switch status {
+        case .queued:
+            return 0
+        case .downloading, .failed:
+            guard let expectedBytes, expectedBytes > 0 else { return nil }
+            return min(1, Double(receivedBytes) / Double(expectedBytes))
+        case .loaded:
+            return 1
+        }
+    }
+
+    var accessibilityDescription: String {
+        switch status {
+        case .queued:
+            return "Artwork queued"
+        case .downloading:
+            if let expectedBytes, expectedBytes > 0 {
+                return "Downloading artwork, \(receivedBytes) of \(expectedBytes) bytes"
+            }
+            return "Downloading artwork, \(receivedBytes) bytes received"
+        case .loaded:
+            return "Artwork ready, \(receivedBytes) bytes"
+        case .failed:
+            return "Artwork unavailable, \(receivedBytes) bytes received"
+        }
+    }
+
+    static var queued: Self {
+        Self(status: .queued, receivedBytes: 0, expectedBytes: nil)
+    }
+}
+
+typealias CatalogImageProgressHandler = @MainActor @Sendable (CatalogImageLoadProgress) -> Void
+typealias CatalogImagePrefetchProgressHandler = @MainActor @Sendable (URL, CatalogImageLoadProgress) -> Void
+
 actor CatalogImageCache {
     static let shared = CatalogImageCache()
+
+    private struct InFlightImageLoad {
+        let id: UUID
+        let task: Task<CatalogCachedImageData?, Never>
+        var observers: [UUID: CatalogImageProgressHandler]
+        var latestProgress: CatalogImageLoadProgress
+    }
 
     private let memoryCache = NSCache<NSURL, CatalogCachedImageBox>()
     private let loadingArtworkCache = NSCache<NSString, CatalogCachedImageBox>()
     private let cacheDirectory: URL
-    private var inFlightLoads: [URL: Task<CatalogCachedImageData?, Never>] = [:]
+    private var inFlightLoads: [URL: InFlightImageLoad] = [:]
     private var prefetchTask: Task<Void, Never>?
     private var prefetchQueue: [URL] = []
     private var queuedPrefetchURLs: Set<URL> = []
@@ -54,23 +109,109 @@ actor CatalogImageCache {
         }
     }
 
-    func image(for url: URL) async -> CatalogCachedImageData? {
+    func image(for url: URL, onProgress: CatalogImageProgressHandler? = nil) async -> CatalogCachedImageData? {
         if let cached = memoryCache.object(forKey: url as NSURL) {
+            if let onProgress {
+                let byteCount = Int64(cached.value.data.count)
+                await onProgress(CatalogImageLoadProgress(status: .loaded, receivedBytes: byteCount, expectedBytes: byteCount))
+            }
             return cached.value
         }
 
-        if let existingTask = inFlightLoads[url] {
-            return await existingTask.value
+        let loadID: UUID
+        let loadTask: Task<CatalogCachedImageData?, Never>
+        let observerID: UUID?
+
+        if var existingLoad = inFlightLoads[url] {
+            loadID = existingLoad.id
+            loadTask = existingLoad.task
+            if let onProgress {
+                let id = UUID()
+                observerID = id
+                existingLoad.observers[id] = onProgress
+                inFlightLoads[url] = existingLoad
+                await onProgress(existingLoad.latestProgress)
+            } else {
+                observerID = nil
+            }
+        } else {
+            loadID = UUID()
+            observerID = onProgress == nil ? nil : UUID()
+            let task = Task<CatalogCachedImageData?, Never> { [weak self] in
+                guard let self else { return nil }
+                return await self.loadImage(for: url, loadID: loadID)
+            }
+            loadTask = task
+            var observers: [UUID: CatalogImageProgressHandler] = [:]
+            if let onProgress, let observerID {
+                observers[observerID] = onProgress
+            }
+            inFlightLoads[url] = InFlightImageLoad(
+                id: loadID,
+                task: task,
+                observers: observers,
+                latestProgress: .queued
+            )
         }
 
-        let task = Task<CatalogCachedImageData?, Never> { [weak self] in
-            guard let self else { return nil }
-            return await self.loadImage(for: url)
+        let result = await loadTask.value
+        if let load = inFlightLoads[url], load.id == loadID {
+            let finalProgress: CatalogImageLoadProgress
+            if let result {
+                let byteCount = Int64(result.data.count)
+                finalProgress = CatalogImageLoadProgress(status: .loaded, receivedBytes: byteCount, expectedBytes: byteCount)
+            } else {
+                finalProgress = CatalogImageLoadProgress(
+                    status: .failed,
+                    receivedBytes: load.latestProgress.receivedBytes,
+                    expectedBytes: load.latestProgress.expectedBytes
+                )
+            }
+            await publish(finalProgress, for: url, loadID: loadID)
+            inFlightLoads[url] = nil
         }
-        inFlightLoads[url] = task
-        let result = await task.value
-        inFlightLoads[url] = nil
         return result
+    }
+
+    func prefetch(
+        _ urls: [URL],
+        concurrencyLimit: Int = 4,
+        onProgress: @escaping CatalogImagePrefetchProgressHandler
+    ) async {
+        var seenURLs = Set<URL>()
+        let uniqueURLs = urls.filter { seenURLs.insert($0).inserted }
+        let limit = max(1, concurrencyLimit)
+        guard !uniqueURLs.isEmpty else { return }
+
+        await withTaskGroup(of: Void.self) { group in
+            var nextIndex = 0
+            for _ in 0..<min(limit, uniqueURLs.count) {
+                let url = uniqueURLs[nextIndex]
+                nextIndex += 1
+                group.addTask { [weak self] in
+                    guard let self, !Task.isCancelled else { return }
+                    _ = await self.image(for: url, onProgress: { progress in
+                        onProgress(url, progress)
+                    })
+                }
+            }
+
+            while await group.next() != nil {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                guard nextIndex < uniqueURLs.count else { continue }
+                let url = uniqueURLs[nextIndex]
+                nextIndex += 1
+                group.addTask { [weak self] in
+                    guard let self, !Task.isCancelled else { return }
+                    _ = await self.image(for: url, onProgress: { progress in
+                        onProgress(url, progress)
+                    })
+                }
+            }
+        }
     }
 
     func loadingArtwork(for url: URL, targetPixelSize: CGSize, focalPoint: CGPoint = CGPoint(x: 0.5, y: 0.5)) async -> CatalogCachedImageData? {
@@ -151,7 +292,7 @@ actor CatalogImageCache {
         startPrefetchTaskIfNeeded()
     }
 
-    private func loadImage(for url: URL) async -> CatalogCachedImageData? {
+    private func loadImage(for url: URL, loadID: UUID) async -> CatalogCachedImageData? {
         if let stored = loadStoredImage(for: url) {
             if stored.isFresh {
                 return stored.imageData
@@ -159,7 +300,16 @@ actor CatalogImageCache {
             refreshStoredImage(for: url, eTag: stored.eTag, lastModified: stored.lastModified)
             return stored.imageData
         }
-        return await downloadAndStoreImage(for: url, eTag: "", lastModified: "")
+        return await downloadAndStoreImage(for: url, eTag: "", lastModified: "", loadID: loadID)
+    }
+
+    private func publish(_ progress: CatalogImageLoadProgress, for url: URL, loadID: UUID) async {
+        guard var load = inFlightLoads[url], load.id == loadID else { return }
+        load.latestProgress = progress
+        inFlightLoads[url] = load
+        for observer in load.observers.values {
+            await observer(progress)
+        }
     }
 
     private nonisolated static func processLoadingArtwork(
@@ -246,15 +396,63 @@ actor CatalogImageCache {
         }
     }
 
-    private func downloadAndStoreImage(for url: URL, eTag: String, lastModified: String) async -> CatalogCachedImageData? {
+    private func downloadAndStoreImage(
+        for url: URL,
+        eTag: String,
+        lastModified: String,
+        loadID: UUID? = nil
+    ) async -> CatalogCachedImageData? {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
         if !eTag.isEmpty { request.setValue(eTag, forHTTPHeaderField: "If-None-Match") }
         if !lastModified.isEmpty { request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since") }
         let networkStart = NetworkLog.start(request, operation: "catalog.image")
+        var expectedBytes: Int64?
+        var receivedBytes: Int64 = 0
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            expectedBytes = response.expectedContentLength > 0 ? response.expectedContentLength : nil
+            if let loadID {
+                await publish(
+                    CatalogImageLoadProgress(status: .downloading, receivedBytes: 0, expectedBytes: expectedBytes),
+                    for: url,
+                    loadID: loadID
+                )
+            }
+
+            var data = Data()
+            if let expectedBytes, expectedBytes <= 64 * 1024 * 1024 {
+                data.reserveCapacity(Int(expectedBytes))
+            }
+            let progressUpdateStride = 16 * 1024
+            var pendingBytes: [UInt8] = []
+            pendingBytes.reserveCapacity(progressUpdateStride)
+
+            for try await byte in bytes {
+                pendingBytes.append(byte)
+                receivedBytes += 1
+                guard pendingBytes.count >= progressUpdateStride else { continue }
+                data.append(contentsOf: pendingBytes)
+                pendingBytes.removeAll(keepingCapacity: true)
+                if let loadID {
+                    await publish(
+                        CatalogImageLoadProgress(status: .downloading, receivedBytes: receivedBytes, expectedBytes: expectedBytes),
+                        for: url,
+                        loadID: loadID
+                    )
+                }
+            }
+            if !pendingBytes.isEmpty {
+                data.append(contentsOf: pendingBytes)
+                if let loadID {
+                    await publish(
+                        CatalogImageLoadProgress(status: .downloading, receivedBytes: receivedBytes, expectedBytes: expectedBytes),
+                        for: url,
+                        loadID: loadID
+                    )
+                }
+            }
             NetworkLog.finish(operation: "catalog.image", startedAt: networkStart, data: data, response: response, error: nil)
             guard let httpResponse = response as? HTTPURLResponse else {
                 await MainActor.run { Log.warning(.cache, "Catalog image response was not HTTP url=\(url.absoluteString)") }
@@ -278,6 +476,13 @@ actor CatalogImageCache {
             await MainActor.run { Log.debug(.cache, "Catalog image cached url=\(url.absoluteString) bytes=\(data.count)") }
             return imageData
         } catch {
+            if let loadID {
+                await publish(
+                    CatalogImageLoadProgress(status: .downloading, receivedBytes: receivedBytes, expectedBytes: expectedBytes),
+                    for: url,
+                    loadID: loadID
+                )
+            }
             NetworkLog.finish(operation: "catalog.image", startedAt: networkStart, data: nil, response: nil, error: error)
             await MainActor.run { Log.warning(.cache, "Catalog image download threw url=\(url.absoluteString) error=\(error.localizedDescription)") }
             return nil

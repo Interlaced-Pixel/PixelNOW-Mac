@@ -2456,7 +2456,21 @@ private struct CatalogExperienceHeader: View {
     }
 
     private var syncLabel: String {
-        if viewModel.isLoading || viewModel.isLoadingPanels { return "Updating" }
+        if viewModel.isRefreshingLibrary {
+            if viewModel.isLibraryPartiallyLoaded { return "Loading more games" }
+            return viewModel.libraryGames.isEmpty ? "Loading library" : "Updating"
+        }
+        if !viewModel.libraryRefreshError.isEmpty {
+            if viewModel.libraryGames.isEmpty { return "Sync failed" }
+            if viewModel.isLibraryPartiallyLoaded { return "Partial • sync failed" }
+            return viewModel.isLibrarySnapshotStale ? "Cached • refresh failed" : "Library • refresh failed"
+        }
+        if viewModel.isLibrarySnapshotStale {
+            guard let updatedAt = viewModel.librarySnapshotUpdatedAt else { return "Cached library" }
+            let relativeTime = RelativeDateTimeFormatter().localizedString(for: updatedAt, relativeTo: Date())
+            return "Cached • synced \(relativeTime)"
+        }
+        if viewModel.isLoading || viewModel.isLoadingPanels || viewModel.isLoadingLibrary { return "Updating" }
         if viewModel.libraryGames.isEmpty { return "No games synced" }
         return "\(viewModel.libraryGames.count) games synced"
     }
