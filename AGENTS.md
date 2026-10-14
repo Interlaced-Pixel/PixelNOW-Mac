@@ -35,7 +35,7 @@ Execute every task in this order:
 
 # Build Execution Policy
 - For read-only work, including code reviews, audits, investigations, and codebase questions, do not run project builds, including baseline builds. Inspect the source directly.
-- Run a build only when the user explicitly requests one or a task-specific repository workflow requires it, such as the commit or release verification gates below.
+- Run a build only when the user explicitly requests one or a task-specific repository workflow requires it, such as the release verification workflow below. Commits do not require a project build.
 - Do not start a broad baseline build merely because the build command is available or as optional reassurance.
 
 # Build Artifact Discipline
@@ -113,7 +113,6 @@ Every commit message must follow this exact structure:
 
 ## 4. Push and Traceability Discipline
 - **Traceability Table:** Always provide a requirement-by-requirement status table (`Requirement | Status | Evidence`) before committing, pushing, or declaring completion.
-- **Build Verification:** Verify compilation (`xcodebuild build` or project build command) before committing.
 - **Push Policy:** Push all completed commits to the current branch's upstream remote (`git push origin <branch>`).
 
 # Release Process
