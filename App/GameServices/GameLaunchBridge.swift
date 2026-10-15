@@ -21,9 +21,10 @@ public struct PreparedLaunchConfiguration: Identifiable, Equatable, Sendable {
     public let resumeSessionID: String
     public let resumeServer: String
     public let resumeSessionRequestDataJSON: String
+    public let isAutomaticRecovery: Bool
     public let metadata: [String: String]
 
-    public init(id: UUID = UUID(), title: String, applicationID: String, accessToken: String, accountLinked: Bool, selectedStore: String, resumeSessionID: String = "", resumeServer: String = "", resumeSessionRequestDataJSON: String = "", metadata: [String: String] = [:]) {
+    public init(id: UUID = UUID(), title: String, applicationID: String, accessToken: String, accountLinked: Bool, selectedStore: String, resumeSessionID: String = "", resumeServer: String = "", resumeSessionRequestDataJSON: String = "", isAutomaticRecovery: Bool = false, metadata: [String: String] = [:]) {
         self.id = id
         self.title = title
         self.applicationID = applicationID
@@ -33,6 +34,7 @@ public struct PreparedLaunchConfiguration: Identifiable, Equatable, Sendable {
         self.resumeSessionID = resumeSessionID
         self.resumeServer = resumeServer
         self.resumeSessionRequestDataJSON = resumeSessionRequestDataJSON
+        self.isAutomaticRecovery = isAutomaticRecovery
         self.metadata = metadata
     }
 
@@ -51,6 +53,7 @@ public struct PreparedLaunchConfiguration: Identifiable, Equatable, Sendable {
             resumeSessionID: resumeSessionID,
             resumeServer: resumeServer,
             resumeSessionRequestDataJSON: json,
+            isAutomaticRecovery: isAutomaticRecovery,
             metadata: metadata
         )
     }

@@ -173,6 +173,7 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
             resumeSessionID: session.id,
             resumeServer: session.serverAddress,
             resumeSessionRequestDataJSON: configuration.resumeSessionRequestDataJSON,
+            isAutomaticRecovery: true,
             metadata: configuration.metadata
         )
         return try await startNativeNVSTSession(configuration: recoveryConfiguration)
@@ -367,9 +368,8 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
     }
 
     private func claimSession(configuration: PreparedLaunchConfiguration, settings: [String: Any]) async throws -> AllocatedStreamSession {
-        let isResume = !configuration.resumeSessionID.isEmpty
         return try await withCheckedThrowingContinuation { continuation in
-            SessionManager.shared.claimSession(sessionId: configuration.resumeSessionID, serverIp: configuration.resumeServer, appId: configuration.applicationID, settings: settings, sessionRequestDataJSON: configuration.resumeSessionRequestDataJSON, recoveryMode: isResume) { success, info, error in
+            SessionManager.shared.claimSession(sessionId: configuration.resumeSessionID, serverIp: configuration.resumeServer, appId: configuration.applicationID, settings: settings, sessionRequestDataJSON: configuration.resumeSessionRequestDataJSON, automaticRecovery: configuration.isAutomaticRecovery) { success, info, error in
                 if success {
                     continuation.resume(returning: AllocatedStreamSession(info))
                 } else if info["resumeFailureClassification"] as? String == SessionResumeFailureClassification.staleSession.rawValue {
@@ -759,6 +759,7 @@ public final class StreamSessionCoordinator: StreamSessionProvider, StreamSignal
             resumeSessionID: configuration.resumeSessionID,
             resumeServer: configuration.resumeServer,
             resumeSessionRequestDataJSON: configuration.resumeSessionRequestDataJSON,
+            isAutomaticRecovery: configuration.isAutomaticRecovery,
             metadata: configuration.metadata
         )
     }
