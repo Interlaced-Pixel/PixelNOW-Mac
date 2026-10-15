@@ -2071,6 +2071,7 @@ struct NativeNVSTStreamHostView: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NativeNVSTSurfaceContainerView, coordinator: ()) {
         nsView.streamView.remoteInputEnabled = false
         nsView.streamView.setPointerLocked(false)
+        nsView.streamView.prepareNativeNVSTRendererForShutdown()
         nsView.streamView.onInputEvent = nil
         nsView.streamView.onAbsoluteMouseMove = nil
         nsView.streamView.onGamepadTopologyChanged = nil

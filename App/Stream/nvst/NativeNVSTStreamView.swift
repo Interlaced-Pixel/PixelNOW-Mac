@@ -226,7 +226,6 @@ public final class NativeNVSTStreamView: NSView, @preconcurrency NSTextInputClie
         restoreInputFocus()
         window?.acceptsMouseMovedEvents = true
         if window == nil {
-            prepareNativeNVSTRendererForShutdown()
             removeKeyEquivalentMonitor()
             gamepadMonitor.stop()
             handleFocusLoss()

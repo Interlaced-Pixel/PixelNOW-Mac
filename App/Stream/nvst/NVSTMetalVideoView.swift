@@ -180,6 +180,7 @@ private enum NVSTMetalFXOutputResolution {
 }
 
 final class NVSTPixelBufferHolder: @unchecked Sendable {
+    fileprivate static let unpresentedFrameGracePeriod = DispatchTimeInterval.seconds(1)
     private enum QueueMode {
         case immediate, fixed, timestamp, adaptive, variableRefresh
     }
@@ -459,6 +460,11 @@ final class NVSTPixelBufferHolder: @unchecked Sendable {
         lock.unlock()
     }
 
+    func retireUnpresentedFrame(_ ticket: UInt64, lifecycle: NvstVideoFrameLifecycle) {
+        lifecycle.discard(decoded: true)
+        finish(ticket)
+    }
+
     func clear() {
         lock.lock()
         let discarded = frames.compactMap(\.lifecycle) + inFlight.values.compactMap { $0 }
@@ -479,6 +485,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private let metalView: MTKView
     private let targetFps: Int
     private var displayLink: CADisplayLink?
+    private var displayLinkNotificationTokens: [(NotificationCenter, NSObjectProtocol)] = []
     private var lastDisplayIntervalMicroseconds: UInt32 = 0
     private var commandQueue: (any MTLCommandQueue)?
     private var ciContext: CIContext?
@@ -567,15 +574,54 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        installDisplayLinkNotifications()
+        restartDisplayLink()
+        updateDrawableSize()
+    }
+
+    private func restartDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
-        if let window {
-            let link = displayLink(target: self, selector: #selector(displayTick(_:)))
-            configureDisplayLink(link, for: window.screen)
-            link.add(to: .main, forMode: .common)
-            displayLink = link
+        guard let window else { return }
+        let link = displayLink(target: self, selector: #selector(displayTick(_:)))
+        configureDisplayLink(link, for: window.screen)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func installDisplayLinkNotifications() {
+        removeDisplayLinkNotifications()
+        guard let window else { return }
+        let refresh: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshDisplayLinkForCurrentWindow() }
         }
+        let applicationCenter = NotificationCenter.default
+        for name in [NSWindow.didChangeScreenNotification, NSWindow.didChangeBackingPropertiesNotification,
+                     NSWindow.didBecomeKeyNotification] {
+            displayLinkNotificationTokens.append((applicationCenter,
+                applicationCenter.addObserver(forName: name, object: window, queue: .main, using: refresh)))
+        }
+        displayLinkNotificationTokens.append((applicationCenter,
+            applicationCenter.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                object: NSApplication.shared, queue: .main, using: refresh)))
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        displayLinkNotificationTokens.append((workspaceCenter,
+            workspaceCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                object: nil, queue: .main, using: refresh)))
+    }
+
+    private func removeDisplayLinkNotifications() {
+        for (center, token) in displayLinkNotificationTokens {
+            center.removeObserver(token)
+        }
+        displayLinkNotificationTokens.removeAll()
+    }
+
+    private func refreshDisplayLinkForCurrentWindow() {
+        guard window != nil else { return }
+        restartDisplayLink()
         updateDrawableSize()
+        metalView.draw()
     }
 
     private func configureDisplayLink(_ link: CADisplayLink, for screen: NSScreen?) {
@@ -632,6 +678,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     public func detach() {
         displayLink?.invalidate()
         displayLink = nil
+        removeDisplayLinkNotifications()
         bufferHolder.clear()
         metalView.isPaused = true
         metalView.delegate = nil
@@ -778,10 +825,18 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
                     ? (buffer.gpuEndTime - buffer.gpuStartTime) * 1000 : nil
                 let completedAt = buffer.gpuEndTime.isFinite && buffer.gpuEndTime > 0
                     ? UInt64(buffer.gpuEndTime * 1_000_000_000) : DispatchTime.now().uptimeNanoseconds
+                let succeeded = buffer.status == .completed
                 lifecycle.noteGpuCompleted(at: completedAt,
-                    durationMilliseconds: duration, success: buffer.status == .completed)
+                    durationMilliseconds: duration, success: succeeded)
                 holder.noteGpuDuration(milliseconds: duration, lifecycle: lifecycle)
                 holder.finish(ticket)
+                if succeeded, !lifecycle.isTerminal {
+                    DispatchQueue.global(qos: .utility).asyncAfter(
+                        deadline: .now() + NVSTPixelBufferHolder.unpresentedFrameGracePeriod
+                    ) {
+                        holder.retireUnpresentedFrame(ticket, lifecycle: lifecycle)
+                    }
+                }
             }
         } else {
             commandBuffer.addCompletedHandler { _ in holder.finish(ticket) }
