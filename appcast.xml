@@ -6,6 +6,16 @@
         <description>PixelNOW macOS application updates</description>
         <language>en</language>
         <item>
+            <title>1.82</title>
+            <pubDate>Thu, 15 Oct 2026 06:51:22 -0500</pubDate>
+            <sparkle:version>82</sparkle:version>
+            <sparkle:shortVersionString>1.82</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/PixelNOW-1.82-macOS.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.82/PixelNOW-1.82-macOS.zip" length="12896017" type="application/octet-stream" sparkle:edSignature="fZHWzLAltLPRdBIT8b7fCsnqIzwgTWhyTADifJk0Q+twhPo2G6uAKpLj58AzbyTJtII102lQHJt5UsVnM2ANAA=="/>
+        </item>
+        <item>
             <title>1.81</title>
             <pubDate>Tue, 13 Oct 2026 18:31:43 -0500</pubDate>
             <sparkle:version>81</sparkle:version>
@@ -24,16 +34,6 @@
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/PixelNOW-1.80-macOS.md</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.80/PixelNOW-1.80-macOS.zip" length="12796700" type="application/octet-stream" sparkle:edSignature="xT+DhBfBuDp3aJMEkEYl0h+2vW25hbTTAq/XvkHFCyl+hgix52qRGCfmdTeMOw9EXcLKnKZ8862DfzJmp9txBQ=="/>
-        </item>
-        <item>
-            <title>1.79</title>
-            <pubDate>Sun, 11 Oct 2026 22:00:49 -0500</pubDate>
-            <sparkle:version>79</sparkle:version>
-            <sparkle:shortVersionString>1.79</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <sparkle:releaseNotesLink>https://raw.githubusercontent.com/Interlaced-Pixel/PixelNOW-Mac/main/sparkle/PixelNOW-1.79-macOS.md</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/Interlaced-Pixel/PixelNOW-Mac/releases/download/v1.79/PixelNOW-1.79-macOS.zip" length="12794331" type="application/octet-stream" sparkle:edSignature="adHmzziKD+8QjM7j9rGsppVjpjehFX/o3cjlM5FzK7BohgAZ8L06Ao3BIUj/c/aBBmWQ/fiqx0uihX4HAqAMCg=="/>
         </item>
     </channel>
 </rss>
