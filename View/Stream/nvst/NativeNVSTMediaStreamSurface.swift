@@ -782,7 +782,10 @@ struct NativeNVSTMediaStreamSurface: View {
             inputDispatcher?.cancel()
             if let pendingPath {
                 try? await pendingPath.setMicrophoneEnabled(false)
-                _ = try? await pendingPath.stop(reason: .userRequested, message: "Native NVST stream view closed.")
+                _ = try? await pendingPath.stopForApplicationTermination(
+                    reason: .userRequested,
+                    message: "Native NVST stream client closed."
+                )
             }
             await MainActor.run {
                 NativeNVSTMediaStreamLifecycle.deactivate(configuration.id)

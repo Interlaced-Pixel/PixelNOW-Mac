@@ -555,7 +555,7 @@ public actor NVSTCoreTransport: NativeNVSTTransport {
 
     public func disconnectForApplicationTermination() async {
         recorder.stop()
-        await teardown(reason: "application termination", keepSessionAlive: false)
+        await teardown(reason: "application termination", keepSessionAlive: true)
     }
 
     public func disconnectForStartCancellation() async {

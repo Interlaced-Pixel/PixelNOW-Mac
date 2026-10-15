@@ -458,7 +458,11 @@ public actor NativeNVSTStreamingPath {
         let diagnostics = await transport.diagnosticMetadata()
         let finishError: Error?
         do {
-            try await sessionProvider.finishSession(activeSession, reason: reason)
+            if forApplicationTermination && reason == .userRequested {
+                try await sessionProvider.finishTerminatedStreamSession(activeSession, shouldPreserveSession: true)
+            } else {
+                try await sessionProvider.finishSession(activeSession, reason: reason)
+            }
             finishError = nil
         } catch {
             finishError = error
