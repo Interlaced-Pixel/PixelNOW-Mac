@@ -223,7 +223,9 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
     private let microphoneVolume: Double
     private let microphoneEnabled: Bool
     private var gameBuffer = Data()
+    private var gameBufferHead = 0
     private var micBuffer = Data()
+    private var micBufferHead = 0
     private var totalFramesEmitted: Int64 = 0
     private var isStarted = false
     private var lastGameAudioTimestamp: CFTimeInterval = 0
@@ -272,12 +274,8 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
             self.isStarted = true
             self.totalFramesEmitted = 0
             self.lastGameAudioTimestamp = CACurrentMediaTime()
-            if self.gameBuffer.count > 24_000 {
-                self.gameBuffer = self.gameBuffer.suffix(24_000)
-            }
-            if self.micBuffer.count > 24_000 {
-                self.micBuffer = self.micBuffer.suffix(24_000)
-            }
+            self.trimGameBuffer(toMaximumByteCount: 24_000)
+            self.trimMicBuffer(toMaximumByteCount: 24_000)
             self.drainBuffers()
         }
     }
@@ -289,9 +287,7 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
             guard !normalized.isEmpty else { return }
             self.lastGameAudioTimestamp = CACurrentMediaTime()
             self.gameBuffer.append(normalized)
-            if self.gameBuffer.count > self.maxBufferedBytes {
-                self.gameBuffer.removeFirst(self.gameBuffer.count - self.maxBufferedBytes)
-            }
+            self.trimGameBuffer(toMaximumByteCount: self.maxBufferedBytes)
             if self.isStarted {
                 self.drainBuffers()
             }
@@ -305,11 +301,9 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
             let buffer = Unmanaged<CMSampleBuffer>.fromOpaque(UnsafeRawPointer(bitPattern: retainedPtr)!).takeRetainedValue()
             guard let micData = self.micConverter.convert(sampleBuffer: buffer), !micData.isEmpty else { return }
             self.micBuffer.append(micData)
-            if self.micBuffer.count > self.maxMicLatencyBytes {
-                self.micBuffer.removeFirst(self.micBuffer.count - self.maxMicLatencyBytes)
-            }
+            self.trimMicBuffer(toMaximumByteCount: self.maxMicLatencyBytes)
             if self.isStarted {
-                if self.gameBuffer.isEmpty, CACurrentMediaTime() - self.lastGameAudioTimestamp > 0.15 {
+                if self.gameBufferedByteCount == 0, CACurrentMediaTime() - self.lastGameAudioTimestamp > 0.15 {
                     self.drainMicOnly()
                 } else {
                     self.drainBuffers()
@@ -330,36 +324,80 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
             guard self.isStarted else { return }
             self.drainAllRemaining()
             self.isStarted = false
-            self.gameBuffer.removeAll()
-            self.micBuffer.removeAll()
+            self.clearGameBuffer()
+            self.clearMicBuffer()
         }
+    }
+
+    private var gameBufferedByteCount: Int { gameBuffer.count - gameBufferHead }
+    private var micBufferedByteCount: Int { micBuffer.count - micBufferHead }
+
+    private func trimGameBuffer(toMaximumByteCount maximum: Int) {
+        gameBufferHead += max(0, gameBufferedByteCount - maximum)
+        compactGameBufferIfNeeded()
+    }
+
+    private func trimMicBuffer(toMaximumByteCount maximum: Int) {
+        micBufferHead += max(0, micBufferedByteCount - maximum)
+        compactMicBufferIfNeeded()
+    }
+
+    private func compactGameBufferIfNeeded() {
+        if gameBufferHead >= gameBuffer.count {
+            clearGameBuffer()
+        } else if gameBufferHead >= 16_384 && gameBufferHead >= gameBuffer.count / 2 {
+            gameBuffer = Data(gameBuffer[gameBufferHead...])
+            gameBufferHead = 0
+        }
+    }
+
+    private func compactMicBufferIfNeeded() {
+        if micBufferHead >= micBuffer.count {
+            clearMicBuffer()
+        } else if micBufferHead >= 16_384 && micBufferHead >= micBuffer.count / 2 {
+            micBuffer = Data(micBuffer[micBufferHead...])
+            micBufferHead = 0
+        }
+    }
+
+    private func clearGameBuffer() {
+        gameBuffer.removeAll(keepingCapacity: true)
+        gameBufferHead = 0
+    }
+
+    private func clearMicBuffer() {
+        micBuffer.removeAll(keepingCapacity: true)
+        micBufferHead = 0
     }
 
     private func drainBuffers() {
         guard isStarted else { return }
         if !microphoneEnabled {
-            while gameBuffer.count >= 4 {
-                let chunkBytes = min(gameBuffer.count, 4096)
+            while gameBufferedByteCount >= 4 {
+                let chunkBytes = min(gameBufferedByteCount, 4096)
                 let frameCount = UInt32(chunkBytes / 4)
                 let validBytes = Int(frameCount * 4)
-                let chunkData = gameBuffer.prefix(validBytes)
-                gameBuffer.removeFirst(validBytes)
+                let chunkData = Data(gameBuffer[gameBufferHead..<(gameBufferHead + validBytes)])
+                gameBufferHead += validBytes
+                compactGameBufferIfNeeded()
                 emitSampleBuffer(data: chunkData, frameCount: frameCount)
             }
             return
         }
 
-        while gameBuffer.count >= 4 {
-            let chunkBytes = min(gameBuffer.count, 4096)
+        while gameBufferedByteCount >= 4 {
+            let chunkBytes = min(gameBufferedByteCount, 4096)
             let frameCount = UInt32(chunkBytes / 4)
             let validBytes = Int(frameCount * 4)
-            let gameChunk = gameBuffer.prefix(validBytes)
-            gameBuffer.removeFirst(validBytes)
+            let gameChunk = Data(gameBuffer[gameBufferHead..<(gameBufferHead + validBytes)])
+            gameBufferHead += validBytes
+            compactGameBufferIfNeeded()
 
-            let micBytesToTake = min(micBuffer.count, validBytes)
-            let micChunk = micBuffer.prefix(micBytesToTake)
+            let micBytesToTake = min(micBufferedByteCount, validBytes)
+            let micChunk = Data(micBuffer[micBufferHead..<(micBufferHead + micBytesToTake)])
             if micBytesToTake > 0 {
-                micBuffer.removeFirst(micBytesToTake)
+                micBufferHead += micBytesToTake
+                compactMicBufferIfNeeded()
             }
 
             let mixedData = mixAudioChunks(gameData: gameChunk, micData: micChunk, frameCount: frameCount)
@@ -369,12 +407,13 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
 
     private func drainMicOnly() {
         guard isStarted, microphoneEnabled else { return }
-        while micBuffer.count >= 4 {
-            let chunkBytes = min(micBuffer.count, 4096)
+        while micBufferedByteCount >= 4 {
+            let chunkBytes = min(micBufferedByteCount, 4096)
             let frameCount = UInt32(chunkBytes / 4)
             let validBytes = Int(frameCount * 4)
-            let micChunk = micBuffer.prefix(validBytes)
-            micBuffer.removeFirst(validBytes)
+            let micChunk = Data(micBuffer[micBufferHead..<(micBufferHead + validBytes)])
+            micBufferHead += validBytes
+            compactMicBufferIfNeeded()
 
             let mixedData = mixAudioChunks(gameData: Data(), micData: micChunk, frameCount: frameCount)
             emitSampleBuffer(data: mixedData, frameCount: frameCount)
@@ -383,7 +422,7 @@ public final class StreamRecordingAudioMixer: @unchecked Sendable {
 
     private func drainAllRemaining() {
         drainBuffers()
-        if microphoneEnabled, !micBuffer.isEmpty {
+        if microphoneEnabled, micBufferedByteCount > 0 {
             drainMicOnly()
         }
     }
