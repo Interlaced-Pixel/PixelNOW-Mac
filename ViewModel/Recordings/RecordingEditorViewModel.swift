@@ -385,14 +385,22 @@ final class RecordingEditorViewModel: ObservableObject {
     func editPointTime(from outputSeconds: Double, direction: Int) -> Double? {
         guard direction != 0 else { return nil }
         var cursor = 0.0
-        var editPoints: [Double] = [0]
+        let threshold = direction < 0 ? outputSeconds - 0.04 : outputSeconds + 0.04
+        var candidate: Double?
+        if direction < 0, 0 < threshold {
+            candidate = 0
+        } else if direction > 0, 0 > threshold {
+            candidate = 0
+        }
         for segment in segments {
             cursor += segment.durationSeconds / max(0.25, playbackRate)
-            editPoints.append(cursor)
+            if direction < 0, cursor < threshold {
+                if candidate.map({ cursor > $0 }) ?? true { candidate = cursor }
+            } else if direction > 0, cursor > threshold, candidate.map({ cursor < $0 }) ?? true {
+                candidate = cursor
+            }
         }
-        return direction < 0
-            ? editPoints.filter { $0 < outputSeconds - 0.04 }.max()
-            : editPoints.filter { $0 > outputSeconds + 0.04 }.min()
+        return candidate
     }
 
     func selectSegment(_ segment: RecordingEditorSegment) {
@@ -643,7 +651,10 @@ final class RecordingEditorViewModel: ObservableObject {
         var acceptedEvents: [RecordingPointerEvent] = []
         for event in candidates {
             let localTime = (event.timeSeconds - selectedSegment.startSeconds) / playbackRate
-            guard !acceptedEvents.contains(where: { abs(($0.timeSeconds - selectedSegment.startSeconds) / playbackRate - localTime) < 2.6 }) else { continue }
+            if let previous = acceptedEvents.last,
+               abs((previous.timeSeconds - selectedSegment.startSeconds) / playbackRate - localTime) < 2.6 {
+                continue
+            }
             acceptedEvents.append(event)
         }
         guard !acceptedEvents.isEmpty else {

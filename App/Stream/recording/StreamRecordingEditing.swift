@@ -251,6 +251,10 @@ private struct StreamRecordingTimelineBuildResult {
     let frameRate: Float
 }
 
+private enum RecordingEditorColorSpace {
+    static let deviceRGB = CGColorSpaceCreateDeviceRGB()
+}
+
 public final class StreamRecordingExportSessionBox: @unchecked Sendable {
     let session: AVAssetExportSession
 
@@ -472,9 +476,12 @@ public extension StreamRecordingLibrary {
     }
 
     private static func videoComposition(for composition: AVMutableComposition, request: StreamRecordingEditRequest, renderSize: CGSize, frameRate: Float) async throws -> AVMutableVideoComposition {
+        let zoomKeyframes = request.zoomKeyframes
+            .filter { $0.timeSeconds.isFinite && $0.centerX.isFinite && $0.centerY.isFinite && $0.scale.isFinite }
+            .sorted { $0.timeSeconds < $1.timeSeconds }
         let videoComposition = try await withCheckedThrowingContinuation { continuation in
             AVMutableVideoComposition.videoComposition(with: composition, applyingCIFiltersWithHandler: { filterRequest in
-                applyVideoFilters(filterRequest, request: request, renderSize: renderSize)
+                applyVideoFilters(filterRequest, request: request, renderSize: renderSize, zoomKeyframes: zoomKeyframes)
             }) { videoComposition, error in
                 if let videoComposition {
                     continuation.resume(returning: videoComposition)
@@ -489,7 +496,7 @@ public extension StreamRecordingLibrary {
         return videoComposition
     }
 
-    private static func applyVideoFilters(_ filterRequest: AVAsynchronousCIImageFilteringRequest, request: StreamRecordingEditRequest, renderSize: CGSize) {
+    private static func applyVideoFilters(_ filterRequest: AVAsynchronousCIImageFilteringRequest, request: StreamRecordingEditRequest, renderSize: CGSize, zoomKeyframes: [RecordingEditorZoomKeyframe]) {
         let sourceExtent = filterRequest.sourceImage.extent
         let crop = request.crop ?? .fullFrame
         let cropRect = cropRect(for: sourceExtent, crop: crop)
@@ -511,7 +518,7 @@ public extension StreamRecordingLibrary {
         let y = (renderSize.height - scaledHeight) / 2
         image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale).translatedBy(x: x / max(scale, 0.0001), y: y / max(scale, 0.0001)))
         let outputRect = CGRect(origin: .zero, size: renderSize)
-        if let zoom = zoomValue(at: filterRequest.compositionTime.seconds, keyframes: request.zoomKeyframes) {
+        if let zoom = zoomValue(at: filterRequest.compositionTime.seconds, keyframes: zoomKeyframes) {
             let centerX = min(max(zoom.centerX, 0), 1) * renderSize.width
             let centerY = (1 - min(max(zoom.centerY, 0), 1)) * renderSize.height
             image = image.transformed(by: CGAffineTransform(translationX: -centerX, y: -centerY))
@@ -544,13 +551,11 @@ public extension StreamRecordingLibrary {
     }
 
     private static func zoomValue(at time: Double, keyframes: [RecordingEditorZoomKeyframe]) -> (centerX: Double, centerY: Double, scale: Double)? {
-        let valid = keyframes.filter { $0.timeSeconds.isFinite && $0.centerX.isFinite && $0.centerY.isFinite && $0.scale.isFinite }
-            .sorted { $0.timeSeconds < $1.timeSeconds }
-        guard let first = valid.first, let last = valid.last, time >= first.timeSeconds, time <= last.timeSeconds else { return nil }
-        guard let nextIndex = valid.firstIndex(where: { $0.timeSeconds >= time }) else { return (last.centerX, last.centerY, last.scale) }
-        let next = valid[nextIndex]
+        guard let first = keyframes.first, let last = keyframes.last, time >= first.timeSeconds, time <= last.timeSeconds else { return nil }
+        guard let nextIndex = keyframes.firstIndex(where: { $0.timeSeconds >= time }) else { return (last.centerX, last.centerY, last.scale) }
+        let next = keyframes[nextIndex]
         guard nextIndex > 0 else { return (next.centerX, next.centerY, next.scale) }
-        let previous = valid[nextIndex - 1]
+        let previous = keyframes[nextIndex - 1]
         let duration = next.timeSeconds - previous.timeSeconds
         let amount = duration > 0 ? min(max((time - previous.timeSeconds) / duration, 0), 1) : 1
         return (
@@ -590,7 +595,7 @@ public extension StreamRecordingLibrary {
     private static func pointerImage(size: CGSize, x: Double, y: Double, clickAge: Double?) -> CIImage? {
         let width = max(1, Int(size.width.rounded()))
         let height = max(1, Int(size.height.rounded()))
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: RecordingEditorColorSpace.deviceRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         let point = CGPoint(x: x * Double(width), y: (1 - y) * Double(height))
         if let clickAge {
             let progress = min(max(clickAge / 0.55, 0), 1)
