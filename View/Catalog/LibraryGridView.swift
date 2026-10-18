@@ -137,21 +137,38 @@ struct LibraryGridView: View {
     }
 
     private var artworkProgressOverview: LibraryArtworkProgressOverview {
-        let progress = displayedGames.map { game in
-            artworkProgressByIdentity[CatalogSelectionStore.gameIdentity(game)] ?? .queued
-        }
+        var totalGames = 0
+        var readyGames = 0
+        var failedGames = 0
+        var downloadingGames = 0
+        var queuedGames = 0
         var receivedBytes: Int64 = 0
         var countedURLs = Set<URL>()
         for game in displayedGames {
-            guard let url = URL(string: game.bestStorePickerPosterURL), countedURLs.insert(url).inserted else { continue }
-            receivedBytes += artworkProgressByIdentity[CatalogSelectionStore.gameIdentity(game)]?.receivedBytes ?? 0
+            totalGames += 1
+            let identity = CatalogSelectionStore.gameIdentity(game)
+            let progress = artworkProgressByIdentity[identity] ?? .queued
+            switch progress.status {
+            case .loaded:
+                readyGames += 1
+            case .failed:
+                failedGames += 1
+            case .downloading:
+                downloadingGames += 1
+            case .queued:
+                queuedGames += 1
+            }
+
+            if let url = URL(string: game.bestStorePickerPosterURL), countedURLs.insert(url).inserted {
+                receivedBytes += progress.receivedBytes
+            }
         }
         return LibraryArtworkProgressOverview(
-            totalGames: progress.count,
-            readyGames: progress.filter { $0.status == .loaded }.count,
-            failedGames: progress.filter { $0.status == .failed }.count,
-            downloadingGames: progress.filter { $0.status == .downloading }.count,
-            queuedGames: progress.filter { $0.status == .queued }.count,
+            totalGames: totalGames,
+            readyGames: readyGames,
+            failedGames: failedGames,
+            downloadingGames: downloadingGames,
+            queuedGames: queuedGames,
             receivedBytes: receivedBytes
         )
     }
@@ -291,11 +308,12 @@ struct LibraryGridView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollViewReader { proxy in
+                        let selectedIdentity = store.selectedGame.map(CatalogSelectionStore.gameIdentity)
                         ScrollView {
                             LazyVGrid(columns: columns, spacing: 16) {
                                 ForEach(displayedGames, id: \.catalogIdentity) { game in
                                     let identity = CatalogSelectionStore.gameIdentity(game)
-                                    let isSelected = store.selectedGame.map(CatalogSelectionStore.gameIdentity) == identity
+                                    let isSelected = selectedIdentity == identity
                                     GameCardView(
                                         game: game,
                                         isSelected: isSelected,
@@ -343,6 +361,8 @@ struct LibraryGridView: View {
                     let isFavorite: Bool
                     let isLibraryCandidate: Bool
                 }
+
+                let needsReleaseDate = sort == .recent || sort == .oldest
                 
                 let isSearching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 
@@ -352,18 +372,20 @@ struct LibraryGridView: View {
                 
                 if isSearching {
                     var seen = Set<String>()
-                    for game in viewModel.catalogGames + viewModel.allKnownGames {
-                        let identity = CatalogSelectionStore.gameIdentity(game)
-                        guard !identity.isEmpty, seen.insert(identity).inserted else { continue }
-                        gameDictionary[identity] = game
-                        mappedData.append(GameSortData(
-                            identity: identity,
-                            title: game.title,
-                            releaseDate: game.releaseDate,
-                            variantDates: game.variants.map { $0.releaseDate },
-                            isFavorite: game.isFavorited || favorites.contains(identity),
-                            isLibraryCandidate: false // Not needed for search
-                        ))
+                    for games in [viewModel.catalogGames, viewModel.allKnownGames] {
+                        for game in games {
+                            let identity = CatalogSelectionStore.gameIdentity(game)
+                            guard !identity.isEmpty, seen.insert(identity).inserted else { continue }
+                            gameDictionary[identity] = game
+                            mappedData.append(GameSortData(
+                                identity: identity,
+                                title: game.title,
+                                releaseDate: game.releaseDate,
+                                variantDates: needsReleaseDate ? game.variants.map { $0.releaseDate } : [],
+                                isFavorite: game.isFavorited || favorites.contains(identity),
+                                isLibraryCandidate: false // Not needed for search
+                            ))
+                        }
                     }
                 } else {
                     for game in viewModel.libraryGames {
@@ -373,7 +395,7 @@ struct LibraryGridView: View {
                             identity: identity,
                             title: game.title,
                             releaseDate: game.releaseDate,
-                            variantDates: game.variants.map { $0.releaseDate },
+                            variantDates: needsReleaseDate ? game.variants.map { $0.releaseDate } : [],
                             isFavorite: game.isFavorited || favorites.contains(identity),
                             isLibraryCandidate: game.isInLibrary || CatalogViewModel.gameHasOwnedVariant(game)
                         ))
@@ -1049,24 +1071,27 @@ private struct LibrarySidePanel: View {
     }
 
     private func normalizedSupportedLanguages(for game: CatalogGameObject) -> [NormalizedLanguage] {
-        var rawLanguages: [String] = []
-        if let variant = activeVariant, !variant.supportedLanguages.isEmpty {
-            rawLanguages = variant.supportedLanguages
-        } else {
-            for v in game.variants {
-                rawLanguages.append(contentsOf: v.supportedLanguages)
-            }
-        }
-
         var result: [NormalizedLanguage] = []
         var seen = Set<String>()
 
-        for raw in rawLanguages {
+        func appendLanguage(_ raw: String) {
             let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "-", with: "_")
-            guard !clean.isEmpty else { continue }
+            guard !clean.isEmpty else { return }
             let (name, flag) = parseLanguage(clean)
-            guard seen.insert(name.lowercased()).inserted else { continue }
+            guard seen.insert(name.lowercased()).inserted else { return }
             result.append(NormalizedLanguage(id: clean, name: name, flag: flag))
+        }
+
+        if let variant = activeVariant, !variant.supportedLanguages.isEmpty {
+            for language in variant.supportedLanguages {
+                appendLanguage(language)
+            }
+        } else {
+            for variant in game.variants {
+                for language in variant.supportedLanguages {
+                    appendLanguage(language)
+                }
+            }
         }
         return result
     }
@@ -1127,12 +1152,17 @@ private struct LibrarySidePanel: View {
         let rating = game.ratingCategoryTitle.isEmpty ? (game.contentRatings.first ?? "") : game.ratingCategoryTitle
         guard !rating.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         var descriptors: [String] = []
-        for d in game.ratingDescriptors + game.ratingInteractiveElements {
-            let cleaned = d.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cleaned.isEmpty && !descriptors.contains(cleaned) {
-                descriptors.append(cleaned)
+        var seen = Set<String>()
+        func appendDescriptors(from values: [String]) {
+            for d in values {
+                let cleaned = d.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleaned.isEmpty && seen.insert(cleaned).inserted {
+                    descriptors.append(cleaned)
+                }
             }
         }
+        appendDescriptors(from: game.ratingDescriptors)
+        appendDescriptors(from: game.ratingInteractiveElements)
         return (rating, descriptors)
     }
 

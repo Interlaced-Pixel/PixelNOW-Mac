@@ -2364,6 +2364,7 @@ private struct CatalogCategoryRail: View {
             guard !raw.isEmpty, !seen.contains(key), values.count < 8 else { continue }
             seen.insert(key)
             values.append((raw, CatalogGenreCopy.displayName(raw), CatalogGenreCopy.icon(raw)))
+            if values.count == 8 { return values }
         }
         return values
     }
@@ -2863,7 +2864,7 @@ private struct CatalogRailView: View {
                 ZStack {
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 0) {
-                            ForEach(Array(games.enumerated()), id: \.element.catalogIdentity) { _, game in
+                            ForEach(games, id: \.catalogIdentity) { game in
                                 CatalogGameTile(
                                     game: game,
                                     imageURL: viewModel.optimizedImageURL(game.bestWideImageURL, width: 620),
@@ -2992,7 +2993,7 @@ private struct CatalogDestinationGridView: View {
             .padding(.horizontal, CatalogVendorLayout.sectionHeaderMargin)
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                ForEach(Array(visibleGames.enumerated()), id: \.element.catalogIdentity) { _, game in
+                ForEach(visibleGames, id: \.catalogIdentity) { game in
                     CatalogGameTile(
                         game: game,
                         imageURL: viewModel.optimizedImageURL(game.bestWideImageURL, width: 620),
@@ -3220,7 +3221,8 @@ private struct CatalogShowAllOverlay: View {
 
                     ScrollView {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                            ForEach(Array(matchingGames.enumerated()), id: \.offset) { _, game in
+                            ForEach(matchingGames.indices, id: \.self) { index in
+                                let game = matchingGames[index]
                                 CatalogGameTile(
                                     game: game,
                                     imageURL: viewModel.optimizedImageURL(game.bestWideImageURL, width: 620),

@@ -26,7 +26,8 @@ final class CatalogSelectionStore: ObservableObject {
             result.append(game)
         }
         
-        if games.map(Self.gameIdentity) == result.map(Self.gameIdentity) {
+        if games.count == result.count,
+           games.indices.allSatisfy({ Self.gameIdentity(games[$0]) == Self.gameIdentity(result[$0]) }) {
             return
         }
 
@@ -79,6 +80,6 @@ final class CatalogSelectionStore: ObservableObject {
     }
 
     static func gameIdentity(_ game: CatalogGameObject) -> String {
-        [game.id, game.uuid, game.title].joined(separator: "|")
+        "\(game.id)|\(game.uuid)|\(game.title)"
     }
 }
