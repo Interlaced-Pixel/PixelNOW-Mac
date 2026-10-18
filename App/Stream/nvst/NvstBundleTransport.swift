@@ -353,12 +353,25 @@ extension NvstBundle {
     func scheduleDeadline() {
         guard !closed else { return }
         let now = DispatchTime.now().uptimeNanoseconds
-        var deadlines = [dtlsStartNanoseconds, nextPunchNanoseconds, nextHeartbeatNanoseconds,
-                         handshakeDeadlineNanoseconds, nextAudioReportNanoseconds].compactMap { $0 }
-        for milliseconds in [dtls?.nextTimeoutMilliseconds() ?? -1, sctp?.nextTimeoutMilliseconds() ?? -1] where milliseconds >= 0 {
-            deadlines.append(now &+ UInt64(milliseconds) * 1_000_000)
+        var earliestDeadline: UInt64?
+        func include(_ deadline: UInt64?) {
+            guard let deadline else { return }
+            earliestDeadline = min(earliestDeadline ?? deadline, deadline)
         }
-        guard let earliest = deadlines.min() else { deadlineTimer?.schedule(deadline: .distantFuture); return }
+        include(dtlsStartNanoseconds)
+        include(nextPunchNanoseconds)
+        include(nextHeartbeatNanoseconds)
+        include(handshakeDeadlineNanoseconds)
+        include(nextAudioReportNanoseconds)
+        let dtlsMilliseconds = dtls?.nextTimeoutMilliseconds() ?? -1
+        if dtlsMilliseconds >= 0 {
+            include(now &+ UInt64(dtlsMilliseconds) * 1_000_000)
+        }
+        let sctpMilliseconds = sctp?.nextTimeoutMilliseconds() ?? -1
+        if sctpMilliseconds >= 0 {
+            include(now &+ UInt64(sctpMilliseconds) * 1_000_000)
+        }
+        guard let earliest = earliestDeadline else { deadlineTimer?.schedule(deadline: .distantFuture); return }
         deadlineTimer?.schedule(deadline: DispatchTime(uptimeNanoseconds: max(now &+ 100_000, earliest)), leeway: .microseconds(100))
     }
 

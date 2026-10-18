@@ -74,16 +74,19 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
                 return
             }
             let payload = Data(encoded)
-            let redundant = previousMicrophonePayloads.filter {
-                $0.payload.count <= 1023 && microphoneTimestamp &- $0.timestamp <= 16_383
+            var redundantCount = 0
+            var redundantPayloadBytes = 0
+            for block in previousMicrophonePayloads where block.payload.count <= 1023 && microphoneTimestamp &- block.timestamp <= 16_383 {
+                redundantCount += 1
+                redundantPayloadBytes += block.payload.count
             }
-            var writer = NvstByteWriter(capacity: 13 + payload.count + redundant.reduce(0) { $0 + $1.payload.count + 4 })
+            var writer = NvstByteWriter(capacity: 13 + payload.count + redundantPayloadBytes + redundantCount * 4)
             writer.u8(0x80)
             writer.u8(previousMicrophonePayloads.isEmpty ? 0xbf : 63)
             writer.u16BE(microphoneSequence)
             writer.u32BE(microphoneTimestamp)
             writer.u32BE(microphoneSenderSsrc ?? 1)
-            for block in redundant {
+            for block in previousMicrophonePayloads where block.payload.count <= 1023 && microphoneTimestamp &- block.timestamp <= 16_383 {
                 let age = microphoneTimestamp &- block.timestamp
                 writer.u8(0xef)
                 writer.u8(UInt8(age >> 6))
@@ -91,7 +94,9 @@ extension NvstBundle: NvstCoreAudioDeviceOwner {
                 writer.u8(UInt8(truncatingIfNeeded: block.payload.count))
             }
             writer.u8(111)
-            for block in redundant { writer.bytes(block.payload) }
+            for block in previousMicrophonePayloads where block.payload.count <= 1023 && microphoneTimestamp &- block.timestamp <= 16_383 {
+                writer.bytes(block.payload)
+            }
             writer.bytes(payload)
             guard sendProtectedMedia(writer.data, rtcp: false) else { return }
             if microphoneInitialSequence == nil { microphoneInitialSequence = microphoneSequence }

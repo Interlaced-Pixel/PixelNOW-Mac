@@ -126,7 +126,12 @@ final class NvstBundleAudio: @unchecked Sendable {
     }
 
     private func receiveLocked(_ datagram: Data, at now: UInt64) {
-        let bytes = [UInt8](datagram)
+        datagram.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            receiveLocked(bytes, datagramByteCount: datagram.count, at: now)
+        }
+    }
+
+    private func receiveLocked(_ bytes: UnsafeRawBufferPointer, datagramByteCount: Int, at now: UInt64) {
         guard bytes.count >= 12, bytes[0] >> 6 == 2 else { malformed += 1; return }
         var offset = 12 + Int(bytes[0] & 15) * 4
         guard offset <= bytes.count else { malformed += 1; return }
@@ -187,7 +192,7 @@ final class NvstBundleAudio: @unchecked Sendable {
         guard parsed.allSatisfy({ $0.payload.count <= 10_240 }) else { malformed += 1; return }
         receptionState.ssrc = ssrc
         receptionState.packets &+= 1
-        receptionState.bytes &+= UInt64(datagram.count)
+        receptionState.bytes &+= UInt64(datagramByteCount)
         seenSequences.insert(extendedSequence)
         if firstSequence == nil { firstSequence = extendedSequence }
         highestSequence = max(highestSequence ?? extendedSequence, extendedSequence)
@@ -321,7 +326,7 @@ final class NvstBundleAudio: @unchecked Sendable {
                 delaySinceLastSenderReport: delay)
         }
     }
-    private static func read32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
+    private static func read32(_ bytes: UnsafeRawBufferPointer, _ offset: Int) -> UInt32 {
         UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16 | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3])
     }
 }
