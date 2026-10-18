@@ -77,9 +77,9 @@ public final class NVSTCoreVideoRenderer {
         private var renderedFrames: UInt64 = 0
         private var previousPresentation: UInt64?
         private var presentationJitter = 0.0
-        private var intervalSamples: [Double] = []
-        private var latencySamples: [Double] = []
-        private var queueSamples: [Double] = []
+        private var intervalSamples = SampleWindow()
+        private var latencySamples = SampleWindow()
+        private var queueSamples = SampleWindow()
         private var lastPresentationLogAt: UInt64?
         private var lastPresentationLogFrames: UInt64 = 0
         private var latestRenderDiagnostics = PixelNOWVideoRenderDiagnosticsSnapshot()
@@ -88,6 +88,29 @@ public final class NVSTCoreVideoRenderer {
 
         private var latestPixelBuffer: CVPixelBuffer?
         private let snapshotTransfer = PixelNOWPixelBufferTransfer()
+
+        private struct SampleWindow {
+            private static let capacity = 1200
+            private var values: [Double] = []
+            private var nextReplacementIndex = 0
+
+            init() {
+                values.reserveCapacity(Self.capacity)
+            }
+
+            var count: Int { values.count }
+
+            mutating func append(_ value: Double) {
+                guard values.count == Self.capacity else {
+                    values.append(value)
+                    return
+                }
+                values[nextReplacementIndex] = value
+                nextReplacementIndex = (nextReplacementIndex + 1) % Self.capacity
+            }
+
+            var sortedValues: [Double] { values.sorted() }
+        }
 
         init(videoView: NVSTMetalVideoView) {
             self.videoView = videoView
@@ -122,18 +145,17 @@ public final class NVSTCoreVideoRenderer {
             return snapshot
         }
 
-        private static func percentiles(_ values: [Double]) -> (Double, Double, Double) {
-            guard !values.isEmpty else { return (-1, -1, -1) }
-            let sorted = values.sorted()
+        private static func percentiles(_ samples: SampleWindow) -> (Double, Double, Double) {
+            guard samples.count > 0 else { return (-1, -1, -1) }
+            let sorted = samples.sortedValues
             let value: (Double) -> Double = { fraction in
                 sorted[max(0, min(sorted.count - 1, Int(ceil(Double(sorted.count) * fraction)) - 1))]
             }
             return (value(0.5), value(0.95), value(0.99))
         }
 
-        private static func append(_ value: Double, to samples: inout [Double]) {
+        private static func append(_ value: Double, to samples: inout SampleWindow) {
             samples.append(value)
-            if samples.count > 1200 { samples.removeFirst() }
         }
 
         func writeLatestFrameJPEG(to url: URL) -> CGSize? {

@@ -86,6 +86,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     public static let slowFrameMilliseconds = 50.0
     public static let maximumLoggedSlowFrames = 60
     public static let fatalDecodeFailureCount = 30
+    private static let recentDecodeWindowCapacity = 60
     let decoder: NvstVideoToolboxDecoder
     private let clock: NvstSessionClock
     private var displayIntervalMicroseconds: UInt32
@@ -113,6 +114,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
     private var isAwaitingKeyframe = false
     private var keyframeRequestOutstanding = false
     private var recentDecodeDurations: [Double] = []
+    private var recentDecodeDurationNextIndex = 0
 
     private struct QueuedDecodeUnit {
         let unit: NvstAccessUnit
@@ -161,6 +163,7 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         self.onKeyframeNeeded = onKeyframeNeeded
         self.onFatalDecodeError = onFatalDecodeError
         self.qosManager = qosManager
+        recentDecodeDurations.reserveCapacity(Self.recentDecodeWindowCapacity)
         queue.setSpecific(key: queueKey, value: true)
     }
     public func attach(bundle: NvstBundle?) {
@@ -553,9 +556,20 @@ public final class NvstVideoPipeline: @unchecked Sendable {
         counters.framesHandled &+= 1
         counters.peak.raise(to: timings)
         counters.total.add(timings)
-        recentDecodeDurations.append(timings.decode)
-        if recentDecodeDurations.count > 60 { recentDecodeDurations.removeFirst() }
-        counters.recentDecodeMilliseconds = recentDecodeDurations.reduce(0, +) / Double(recentDecodeDurations.count)
+        if recentDecodeDurations.count < Self.recentDecodeWindowCapacity {
+            recentDecodeDurations.append(timings.decode)
+        } else {
+            recentDecodeDurations[recentDecodeDurationNextIndex] = timings.decode
+            recentDecodeDurationNextIndex = (recentDecodeDurationNextIndex + 1) % Self.recentDecodeWindowCapacity
+        }
+        var recentDecodeTotal = 0.0
+        for offset in recentDecodeDurations.indices {
+            let index = recentDecodeDurations.count < Self.recentDecodeWindowCapacity
+                ? offset
+                : (recentDecodeDurationNextIndex + offset) % Self.recentDecodeWindowCapacity
+            recentDecodeTotal += recentDecodeDurations[index]
+        }
+        counters.recentDecodeMilliseconds = recentDecodeTotal / Double(recentDecodeDurations.count)
         let isSlow = timings.total >= Self.slowFrameMilliseconds
         if isSlow { counters.slowFrames += 1 }
         let shouldLog = isSlow && loggedSlowFrames < Self.maximumLoggedSlowFrames
