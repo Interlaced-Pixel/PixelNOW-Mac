@@ -84,6 +84,7 @@ actor CatalogImageCache {
     private var inFlightLoads: [URL: InFlightImageLoad] = [:]
     private var prefetchTask: Task<Void, Never>?
     private var prefetchQueue: [URL] = []
+    private var prefetchQueueHead = 0
     private var queuedPrefetchURLs: Set<URL> = []
     private var metadataIndex: [String: StoredImageMetadata]?
     private var storedByteCount = 0
@@ -229,7 +230,7 @@ actor CatalogImageCache {
             focalX: focalX,
             focalY: focalY
         ), !Task.isCancelled else { return nil }
-        loadingArtworkCache.setObject(CatalogCachedImageBox(value: processed), forKey: key, cost: width * height * 4)
+        loadingArtworkCache.setObject(CatalogCachedImageBox(value: processed), forKey: key, cost: memoryCost(for: processed))
         return processed
     }
 
@@ -245,6 +246,7 @@ actor CatalogImageCache {
             memoryCache.removeAllObjects()
             loadingArtworkCache.removeAllObjects()
             prefetchQueue.removeAll()
+            prefetchQueueHead = 0
             queuedPrefetchURLs.removeAll()
             prefetchTask?.cancel()
             prefetchTask = nil
@@ -281,9 +283,21 @@ actor CatalogImageCache {
     }
 
     private func nextPrefetchURL() -> URL? {
-        guard !prefetchQueue.isEmpty else { return nil }
-        let url = prefetchQueue.removeFirst()
+        guard prefetchQueueHead < prefetchQueue.count else {
+            prefetchQueue.removeAll(keepingCapacity: true)
+            prefetchQueueHead = 0
+            return nil
+        }
+        let url = prefetchQueue[prefetchQueueHead]
+        prefetchQueueHead += 1
         queuedPrefetchURLs.remove(url)
+        if prefetchQueueHead >= prefetchQueue.count {
+            prefetchQueue.removeAll(keepingCapacity: true)
+            prefetchQueueHead = 0
+        } else if prefetchQueueHead >= 256 && prefetchQueueHead >= prefetchQueue.count / 2 {
+            prefetchQueue.removeFirst(prefetchQueueHead)
+            prefetchQueueHead = 0
+        }
         return url
     }
 
@@ -385,7 +399,7 @@ actor CatalogImageCache {
         writeMetadata(metadata, to: metadataURL)
         updateIndexedMetadata(metadata, for: key)
         let imageData = CatalogCachedImageData(data: data, image: image)
-        memoryCache.setObject(CatalogCachedImageBox(value: imageData), forKey: url as NSURL, cost: data.count)
+        memoryCache.setObject(CatalogCachedImageBox(value: imageData), forKey: url as NSURL, cost: memoryCost(for: imageData))
         return StoredImage(imageData: imageData, isFresh: Date().timeIntervalSince(metadata.updatedAt) < maximumCacheAge, eTag: metadata.eTag, lastModified: metadata.lastModified)
     }
 
@@ -531,7 +545,7 @@ actor CatalogImageCache {
             return
         }
         updateIndexedMetadata(metadata, for: key)
-        memoryCache.setObject(CatalogCachedImageBox(value: imageData), forKey: url as NSURL, cost: imageData.data.count)
+        memoryCache.setObject(CatalogCachedImageBox(value: imageData), forKey: url as NSURL, cost: memoryCost(for: imageData))
         if (metadataIndex?.count ?? 0) > maximumStoredEntries || storedByteCount > maximumStoredBytes { pruneIfNeeded() }
     }
 
@@ -563,6 +577,20 @@ actor CatalogImageCache {
         guard metadataIndex != nil else { return }
         let previous = metadataIndex?.updateValue(metadata, forKey: key)
         storedByteCount += metadata.byteCount - (previous?.byteCount ?? 0)
+    }
+
+    private func memoryCost(for imageData: CatalogCachedImageData) -> Int {
+        let decodedCost = imageData.image.representations.reduce(into: 0) { total, representation in
+            guard total < Int.max, representation.pixelsWide > 0, representation.pixelsHigh > 0 else { return }
+            let (pixelCount, pixelCountOverflow) = representation.pixelsWide.multipliedReportingOverflow(by: representation.pixelsHigh)
+            guard !pixelCountOverflow else { total = Int.max; return }
+            let (representationCost, representationCostOverflow) = pixelCount.multipliedReportingOverflow(by: 4)
+            guard !representationCostOverflow else { total = Int.max; return }
+            let (combinedCost, combinedCostOverflow) = total.addingReportingOverflow(representationCost)
+            total = combinedCostOverflow ? Int.max : combinedCost
+        }
+        let (estimatedCost, estimatedCostOverflow) = imageData.data.count.addingReportingOverflow(decodedCost)
+        return estimatedCostOverflow ? Int.max : estimatedCost
     }
 
     private func readMetadata(at url: URL) -> StoredImageMetadata? {
