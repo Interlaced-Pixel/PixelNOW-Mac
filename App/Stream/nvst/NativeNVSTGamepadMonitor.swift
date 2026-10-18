@@ -97,13 +97,16 @@ public final class NativeNVSTGamepadMonitor {
     }
 
     public nonisolated static func connectedGamepadCount() -> Int {
-        min(4, GCController.controllers().filter { $0.extendedGamepad != nil }.count)
+        min(4, GCController.controllers().reduce(into: 0) { count, controller in
+            if controller.extendedGamepad != nil { count += 1 }
+        })
     }
 
     public func start() {
         pollingAllowed = true
-        if Self.connectedGamepadCount() > 0 { startPollingTimer() }
-        NativeNVSTMediaLog.write("nvst.input.gamepad.monitor.start", level: .info, message: "Gamepad monitor started.", attributes: ["connected": String(Self.connectedGamepadCount())])
+        let connectedCount = Self.connectedGamepadCount()
+        if connectedCount > 0 { startPollingTimer() }
+        NativeNVSTMediaLog.write("nvst.input.gamepad.monitor.start", level: .info, message: "Gamepad monitor started.", attributes: ["connected": String(connectedCount)])
     }
 
     public func stop() {
@@ -193,8 +196,15 @@ public final class NativeNVSTGamepadMonitor {
     }
 
     private func pollControllers() {
-        let connectedIdentifiers = Set(GCController.controllers().filter { $0.extendedGamepad != nil }.map(ObjectIdentifier.init))
-        if connectedIdentifiers != Set(controllerSlots.slots.keys) { refreshControllerSlots() }
+        var connectedCount = 0
+        var hasUnassignedController = false
+        for controller in GCController.controllers() where controller.extendedGamepad != nil {
+            connectedCount += 1
+            if controllerSlots.slots[ObjectIdentifier(controller)] == nil {
+                hasUnassignedController = true
+            }
+        }
+        if hasUnassignedController || connectedCount != controllerSlots.slots.count { refreshControllerSlots() }
         for controller in cachedControllers {
             guard let gamepad = controller.extendedGamepad,
                   let playerIndex = controllerSlots.slots[ObjectIdentifier(controller)] else { continue }

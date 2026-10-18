@@ -415,6 +415,24 @@ extension NVSTCoreTransport {
     static let defaultLeftStickDeadzone: Float = 0.12
     static let defaultRightStickDeadzone: Float = 0.13
 
+    private static let gamepadButtonMappings: [(GamepadButtons, UInt16)] = [
+        (.south, NvstGamepadEvent.Button.a),
+        (.east, NvstGamepadEvent.Button.b),
+        (.west, NvstGamepadEvent.Button.x),
+        (.north, NvstGamepadEvent.Button.y),
+        (.leftShoulder, NvstGamepadEvent.Button.leftShoulder),
+        (.rightShoulder, NvstGamepadEvent.Button.rightShoulder),
+        (.select, NvstGamepadEvent.Button.back),
+        (.start, NvstGamepadEvent.Button.start),
+        (.dpadUp, NvstGamepadEvent.Button.dPadUp),
+        (.dpadDown, NvstGamepadEvent.Button.dPadDown),
+        (.dpadLeft, NvstGamepadEvent.Button.dPadLeft),
+        (.dpadRight, NvstGamepadEvent.Button.dPadRight),
+        (.leftStick, NvstGamepadEvent.Button.leftThumb),
+        (.rightStick, NvstGamepadEvent.Button.rightThumb),
+        (.mode, NvstGamepadEvent.Button.guide),
+    ]
+
     static func deadzoned(_ x: Float, _ y: Float, _ deadzone: Float) -> (Float, Float) {
         let magnitude = (x * x + y * y).squareRoot()
         guard magnitude > deadzone else { return (0, 0) }
@@ -424,25 +442,7 @@ extension NVSTCoreTransport {
 
     static func wireButtons(_ buttons: GamepadButtons) -> UInt16 {
         var mask: UInt16 = 0
-        let mapping: [(GamepadButtons, UInt16)] = [
-            (.south, NvstGamepadEvent.Button.a),
-            (.east, NvstGamepadEvent.Button.b),
-            (.west, NvstGamepadEvent.Button.x),
-            (.north, NvstGamepadEvent.Button.y),
-            (.leftShoulder, NvstGamepadEvent.Button.leftShoulder),
-            (.rightShoulder, NvstGamepadEvent.Button.rightShoulder),
-            (.select, NvstGamepadEvent.Button.back),
-            (.start, NvstGamepadEvent.Button.start),
-            (.dpadUp, NvstGamepadEvent.Button.dPadUp),
-            (.dpadDown, NvstGamepadEvent.Button.dPadDown),
-            (.dpadLeft, NvstGamepadEvent.Button.dPadLeft),
-            (.dpadRight, NvstGamepadEvent.Button.dPadRight),
-            (.leftStick, NvstGamepadEvent.Button.leftThumb),
-            (.rightStick, NvstGamepadEvent.Button.rightThumb),
-
-            (.mode, NvstGamepadEvent.Button.guide),
-        ]
-        for (ours, theirs) in mapping where buttons.contains(ours) { mask |= theirs }
+        for (ours, theirs) in gamepadButtonMappings where buttons.contains(ours) { mask |= theirs }
         return mask
     }
 
