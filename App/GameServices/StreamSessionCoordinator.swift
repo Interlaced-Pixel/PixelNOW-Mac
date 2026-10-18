@@ -895,10 +895,10 @@ private struct AllocatedStreamSession: Sendable {
     let seatSetupStep: Int
     let progressState: Int
     let adsRequired: Bool
-    let requiredAdGateObserved: Bool
+    var requiredAdGateObserved: Bool
     let remainingSessionLimitSeconds: Int
     let pendingAd: AllocatedSessionAd?
-    let rawJSON: String
+    var rawJSON: String
     let rawSessionJSON: String
 
     var isReady: Bool {
@@ -935,14 +935,20 @@ private struct AllocatedStreamSession: Sendable {
         remainingSessionLimitSeconds = Self.int(info["remainingSessionLimitSeconds"])
         pendingAd = Self.pendingAd(from: adState)
         rawSessionJSON = Self.string(info["rawSessionJSON"], fallback: "{}")
-        rawJSON = Self.jsonString(info)
+        let ready = (status == 2 || status == 3) && !sessionId.isEmpty && !serverIp.isEmpty
+        rawJSON = ready ? Self.jsonString(info) : "{}"
     }
 
     func markingRequiredAdGateObserved() -> AllocatedStreamSession {
         guard !requiredAdGateObserved else { return self }
-        var dictionary = (try? JSONSerialization.jsonObject(with: Data(rawJSON.utf8))) as? [String: Any] ?? [:]
-        dictionary["requiredAdGateObserved"] = true
-        return AllocatedStreamSession(dictionary)
+        var updated = self
+        updated.requiredAdGateObserved = true
+        if isReady {
+            var dictionary = (try? JSONSerialization.jsonObject(with: Data(rawJSON.utf8))) as? [String: Any] ?? [:]
+            dictionary["requiredAdGateObserved"] = true
+            updated.rawJSON = Self.jsonString(dictionary)
+        }
+        return updated
     }
 
     var reportableSession: [String: Any] {
