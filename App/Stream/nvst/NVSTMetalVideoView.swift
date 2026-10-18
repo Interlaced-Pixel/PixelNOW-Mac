@@ -482,6 +482,15 @@ final class NVSTPixelBufferHolder: @unchecked Sendable {
 
 @MainActor
 public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
+    private static let tenBitPixelFormats: Set<OSType> = [
+        kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
+        kCVPixelFormatType_420YpCbCr10BiPlanarFullRange,
+        kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange,
+        kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange,
+    ]
+    private static let sRGBColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    private static let extendedLinearColorSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) ?? CGColorSpaceCreateDeviceRGB()
+
     private let metalView: MTKView
     private let targetFps: Int
     private var displayLink: CADisplayLink?
@@ -496,7 +505,7 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
     private var uniqueFramesDrawn = 0
     private var lastDrawLogTime = Date()
     private var lastDrawnTime: CMTime?
-    private var colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+    private var colorSpace = NVSTMetalVideoView.sRGBColorSpace
     public var onFramePresented: (@Sendable (NvstVideoFrameLifecycle, UInt64) -> Void)?
     public var onDisplayTiming: ((UInt32) -> Void)?
     public var onPresentationFormat: ((OSType, String, Bool) -> Void)?
@@ -786,14 +795,11 @@ public final class NVSTMetalVideoView: NSView, MTKViewDelegate {
 
     public func draw(in view: MTKView) {
         guard bufferHolder.canSubmitFrame else { return }
-        let tenBitFormats: Set<OSType> = [kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
-            kCVPixelFormatType_420YpCbCr10BiPlanarFullRange, kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange,
-            kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange]
         let extendedRange = metalView.layer?.wantsExtendedDynamicRangeContent == true
-        let highPrecision = extendedRange || bufferHolder.nextPixelFormat.map { tenBitFormats.contains($0) } == true
+        let highPrecision = extendedRange || bufferHolder.nextPixelFormat.map(Self.tenBitPixelFormats.contains) == true
         let desiredFormat: MTLPixelFormat = highPrecision ? .rgba16Float : .bgra8Unorm
         if metalView.colorPixelFormat != desiredFormat { metalView.colorPixelFormat = desiredFormat }
-        colorSpace = CGColorSpace(name: extendedRange ? CGColorSpace.extendedLinearITUR_2020 : CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        colorSpace = extendedRange ? Self.extendedLinearColorSpace : Self.sRGBColorSpace
         (metalView.layer as? CAMetalLayer)?.colorspace = colorSpace
         guard bufferHolder.canSubmitFrame,
               let currentDrawable = metalView.currentDrawable,
