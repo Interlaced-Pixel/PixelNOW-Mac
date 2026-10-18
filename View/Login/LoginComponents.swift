@@ -168,7 +168,7 @@ struct GFNHeroArtwork: View {
                         ForEach(0..<6, id: \.self) { column in
                             let motion = Self.tileMotion(row: row, column: column, motionTime: motionTime, imageHeight: imageHeight, isAnimated: isAnimated)
 
-                            LoginWallGridTile(urlString: Self.orderedTileURLs[row * 6 + column])
+                            LoginWallGridTile(url: Self.orderedTileURLs[row * 6 + column])
                                 .frame(height: imageHeight)
                                 .scaleEffect(motion.scale)
                                 .rotation3DEffect(.degrees(motion.pitch), axis: (x: 1, y: 0, z: 0), perspective: 0.72)
@@ -249,21 +249,21 @@ struct GFNHeroArtwork: View {
 
     private static let reorder = [26, 22, 32, 31, 30, 29, 25, 21, 17, 13, 12, 28, 23, 19, 14, 9, 3, 6, 24, 20, 16, 10, 1, 4, 36, 18, 15, 5, 2, 8, 35, 34, 33, 27, 11, 7]
 
-    private static let orderedTileURLs: [String?] = {
-        var ordered = Array<String?>(repeating: nil, count: 36)
-        for (index, url) in tileURLs.enumerated() {
+    private static let orderedTileURLs: [URL?] = {
+        var ordered = Array<URL?>(repeating: nil, count: 36)
+        for (index, urlString) in tileURLs.enumerated() {
             guard let target = reorder.firstIndex(of: index + 1) else { continue }
-            ordered[target] = url
+            ordered[target] = URL(string: urlString)
         }
         return ordered
     }()
 }
 
 private struct LoginWallGridTile: View {
-    let urlString: String?
+    let url: URL?
 
     var body: some View {
-        if let urlString, let url = URL(string: urlString) {
+        if let url {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
