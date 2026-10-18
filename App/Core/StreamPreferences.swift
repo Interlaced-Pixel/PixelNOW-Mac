@@ -1639,18 +1639,23 @@ public enum StreamPreferences {
         let selectedRegionUrl = loadSelectedRegionUrl()
         let normalizedSelectedUrl = selectedRegionUrl.isEmpty ? "" : normalizedBaseUrl(selectedRegionUrl)
         let cachedLatencyByUrl = Dictionary(uniqueKeysWithValues: loadCachedRegions().map { (normalizedBaseUrl($0.url), $0.latencyMs) })
+        let priorities = regions.map { region -> (selected: Bool, latency: Int, hasLatency: Bool) in
+            let normalizedUrl = normalizedBaseUrl(region.url)
+            let latency = cachedLatencyByUrl[normalizedUrl] ?? Int.max
+            return (
+                selected: !normalizedSelectedUrl.isEmpty && normalizedUrl == normalizedSelectedUrl,
+                latency: latency,
+                hasLatency: latency >= 0 && latency < Int.max
+            )
+        }
         return regions.indices.sorted { lhs, rhs in
             let left = regions[lhs]
             let right = regions[rhs]
-            let leftSelected = !normalizedSelectedUrl.isEmpty && normalizedBaseUrl(left.url) == normalizedSelectedUrl
-            let rightSelected = !normalizedSelectedUrl.isEmpty && normalizedBaseUrl(right.url) == normalizedSelectedUrl
-            if leftSelected != rightSelected { return leftSelected }
-            let leftLatency = cachedLatencyByUrl[normalizedBaseUrl(left.url)] ?? Int.max
-            let rightLatency = cachedLatencyByUrl[normalizedBaseUrl(right.url)] ?? Int.max
-            let leftHasLatency = leftLatency >= 0 && leftLatency < Int.max
-            let rightHasLatency = rightLatency >= 0 && rightLatency < Int.max
-            if leftHasLatency != rightHasLatency { return leftHasLatency }
-            if leftLatency != rightLatency { return leftLatency < rightLatency }
+            let leftPriority = priorities[lhs]
+            let rightPriority = priorities[rhs]
+            if leftPriority.selected != rightPriority.selected { return leftPriority.selected }
+            if leftPriority.hasLatency != rightPriority.hasLatency { return leftPriority.hasLatency }
+            if leftPriority.latency != rightPriority.latency { return leftPriority.latency < rightPriority.latency }
             return left.name < right.name
         }
     }
