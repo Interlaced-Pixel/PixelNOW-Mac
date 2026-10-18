@@ -313,6 +313,7 @@ public final class StreamRecorder: @unchecked Sendable {
     private let firstFrameTimeout: DispatchTimeInterval
     private let maxQueuedEnhancedVideoFrames = 4
     private let pixelBufferContext = CIContext(options: [.cacheIntermediates: false])
+    private let pixelBufferColorSpace = CGColorSpaceCreateDeviceRGB()
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
@@ -425,15 +426,18 @@ public final class StreamRecorder: @unchecked Sendable {
     public func appendGameAudioSamples(_ samples: [Float], sampleRate: Double, channels: UInt32) {
         let channelCount = max(1, Int(channels))
         guard !samples.isEmpty, samples.count % channelCount == 0 else { return }
-        var interleaved = [Int16](unsafeUninitializedCapacity: samples.count) { buffer, initializedCount in
-            for index in 0..<samples.count {
-                let clamped = min(max(samples[index], -1), 1)
-                buffer[index] = Int16(clamped * 32767)
+        let byteCount = samples.count * MemoryLayout<Int16>.size
+        var data = Data(count: byteCount)
+        data.withUnsafeMutableBytes { buffer in
+            for (index, sample) in samples.enumerated() {
+                let clamped = min(max(sample, -1), 1)
+                let value = UInt16(bitPattern: Int16(clamped * 32767)).littleEndian
+                let byteOffset = index * MemoryLayout<Int16>.size
+                buffer[byteOffset] = UInt8(truncatingIfNeeded: value)
+                buffer[byteOffset + 1] = UInt8(truncatingIfNeeded: value >> 8)
             }
-            initializedCount = samples.count
         }
         let frameCount = UInt32(samples.count / channelCount)
-        let data = interleaved.withUnsafeMutableBytes { Data($0) }
         appendGameAudio(data: data, frameCount: frameCount, sampleRate: sampleRate, channels: channels)
     }
 
@@ -813,7 +817,7 @@ public final class StreamRecorder: @unchecked Sendable {
             CIImage(cvPixelBuffer: source),
             to: destination,
             bounds: CGRect(x: 0, y: 0, width: width, height: height),
-            colorSpace: CGColorSpaceCreateDeviceRGB()
+            colorSpace: pixelBufferColorSpace
         )
         return destination
     }
@@ -857,16 +861,19 @@ public final class StreamRecorder: @unchecked Sendable {
     }
 
     private static func audioData(from audioBufferList: UnsafePointer<AudioBufferList>, channels: Int) -> Data {
-        var data = Data()
         let bufferCount = Int(audioBufferList.pointee.mNumberBuffers)
-        withUnsafePointer(to: audioBufferList.pointee.mBuffers) { firstBuffer in
+        return withUnsafePointer(to: audioBufferList.pointee.mBuffers) { firstBuffer in
             let buffers = UnsafeBufferPointer(start: firstBuffer, count: bufferCount)
+            let byteCount = buffers.reduce(into: 0) { total, buffer in
+                total += Int(buffer.mDataByteSize)
+            }
+            var data = Data(capacity: byteCount)
             for buffer in buffers {
                 guard let source = buffer.mData, buffer.mDataByteSize > 0 else { continue }
                 data.append(source.assumingMemoryBound(to: UInt8.self), count: Int(buffer.mDataByteSize))
             }
+            return data
         }
-        return data
     }
 
     private static func makeAudioSampleBuffer(data: Data, frameCount: UInt32, sampleRate: Double, channels: UInt32, presentationTime: CMTime) -> CMSampleBuffer? {
