@@ -881,8 +881,8 @@ final class GameService: @unchecked Sendable {
             """
             let state = PatchStatusPageState()
             let fetchPage = RecursiveCatalogPageFetcher()
-            fetchPage.action = { [weak self, state, fetchPage] page, cursor in
-                guard let self else { return }
+            fetchPage.action = { [weak self, state, weak fetchPage] page, cursor in
+                guard let self, let fetchPage else { return }
                 let variables: NSDictionary = [
                     "vpcId": resolvedVpcId.isEmpty ? "GFN-PC" : resolvedVpcId,
                     "locale": Self.currentGFNCatalogLocale(),
@@ -1220,8 +1220,8 @@ final class GameService: @unchecked Sendable {
         let state = CatalogPageState(result: baseResult)
         let filterBox = NSDictionaryBox(filters)
         let fetchPage = RecursiveCatalogPageFetcher()
-        fetchPage.action = { [weak self, state, fetchPage] page, cursor in
-            guard let self, cancellation?.isCancelled != true else { return }
+        fetchPage.action = { [weak self, state, weak fetchPage] page, cursor in
+            guard let self, let fetchPage, cancellation?.isCancelled != true else { return }
             if let expectedAccountIdentifier,
                AccountStorageKeys.requireUserId(self.userId) != expectedAccountIdentifier {
                 self.dispatchCatalogBrowse(completion, false, CatalogBrowseResult(), "Account changed while loading your library.")
@@ -1253,7 +1253,9 @@ final class GameService: @unchecked Sendable {
                         return
                     }
                     let pageItems = apps["items"] as? [NSDictionary] ?? []
-                    state.collectedApps.append(contentsOf: pageItems)
+                    if progress == nil {
+                        state.collectedApps.append(contentsOf: pageItems)
+                    }
                     state.result.numberReturned += self.safeInt(apps["numberReturned"])
                     state.result.numberSupported = self.safeInt(apps["numberSupported"])
                     let pageInfo = apps["pageInfo"] as? NSDictionary
@@ -1266,6 +1268,7 @@ final class GameService: @unchecked Sendable {
                         let pageGames = pageItems
                             .map { self.parseGameItem($0) }
                             .filter { !$0.id.isEmpty && !$0.title.isEmpty && !$0.variants.isEmpty }
+                        state.parsedGames.append(contentsOf: pageGames)
                         state.partialGames = self.deduplicateGames(state.partialGames + pageGames)
                         var progressResult = state.result
                         progressResult.games = state.partialGames
@@ -1275,7 +1278,12 @@ final class GameService: @unchecked Sendable {
                         fetchPage.action?(page + 1, endCursor)
                         return
                     }
-                    let games = state.collectedApps.map { self.parseGameItem($0) }.filter { !$0.id.isEmpty && !$0.title.isEmpty && !$0.variants.isEmpty }
+                    let games: [GameInfo]
+                    if progress != nil {
+                        games = state.parsedGames
+                    } else {
+                        games = state.collectedApps.map { self.parseGameItem($0) }.filter { !$0.id.isEmpty && !$0.title.isEmpty && !$0.variants.isEmpty }
+                    }
                     state.result.numberSupported = max(state.result.numberSupported, games.count)
                     state.result.totalCount = max(state.result.totalCount, games.count)
                     self.enrichGames(games, vpcId: vpcId, cancellation: cancellation, requestAccessToken: requestAccessToken) { enriched in
@@ -3037,6 +3045,7 @@ private final class CatalogMetadataChunkScheduler: @unchecked Sendable {
 
 private final class CatalogPageState: @unchecked Sendable {
     var collectedApps: [NSDictionary] = []
+    var parsedGames: [GameInfo] = []
     var partialGames: [GameInfo] = []
     var result: CatalogBrowseResult
 
