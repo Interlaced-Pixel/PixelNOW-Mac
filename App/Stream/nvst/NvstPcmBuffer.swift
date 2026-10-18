@@ -40,8 +40,11 @@ final class NvstPcmBuffer: @unchecked Sendable {
             return false
         }
         for frame in 0..<frames {
-            let destination = storage.advanced(by: Int((position &+ UInt64(frame)) % UInt64(Self.capacity)) * 8)
-            destination.update(repeating: 0, count: 8)
+            let destination = storage.advanced(by: Int((position &+ UInt64(frame)) & UInt64(Self.capacity - 1)) * 8)
+            let storedChannels = max(2, channels)
+            if storedChannels < 8 {
+                destination.advanced(by: storedChannels).update(repeating: 0, count: 8 - storedChannels)
+            }
             let source = frame * channels
             switch channels {
             case 1: destination[0] = samples[source]; destination[1] = samples[source]
@@ -71,7 +74,7 @@ final class NvstPcmBuffer: @unchecked Sendable {
             return
         }
         for frame in 0..<frames {
-            let destination = storage.advanced(by: Int((position &+ UInt64(frame)) % UInt64(Self.capacity)) * 8)
+            let destination = storage.advanced(by: Int((position &+ UInt64(frame)) & UInt64(Self.capacity - 1)) * 8)
             var sample: Float = 0
             for channel in 0..<channels { sample += Float(samples[frame * channels + channel]) / 32768 }
             destination[0] = sample / Float(channels)
@@ -91,7 +94,7 @@ final class NvstPcmBuffer: @unchecked Sendable {
         guard frames > 0, write &- read >= UInt64(frames) else { return nil }
         var result = [Int16](repeating: 0, count: frames)
         for frame in 0..<frames {
-            let value = storage[Int((read &+ UInt64(frame)) % UInt64(Self.capacity)) * 8]
+            let value = storage[Int((read &+ UInt64(frame)) & UInt64(Self.capacity - 1)) * 8]
             result[frame] = Self.integerSample(value)
         }
         consumed.store(read &+ UInt64(frames), ordering: .releasing)
@@ -117,7 +120,7 @@ final class NvstPcmBuffer: @unchecked Sendable {
                   Int(buffer.mDataByteSize) >= frames * channels * MemoryLayout<Int16>.size else { continue }
             let output = data.assumingMemoryBound(to: Int16.self)
             for frame in 0..<available {
-                let input = storage.advanced(by: Int((read &+ UInt64(frame)) % UInt64(Self.capacity)) * 8)
+                let input = storage.advanced(by: Int((read &+ UInt64(frame)) & UInt64(Self.capacity - 1)) * 8)
                 let left = input[0] + 0.70710678 * (input[2] + input[4] + input[6]) + 0.5 * input[3]
                 let right = input[1] + 0.70710678 * (input[2] + input[5] + input[7]) + 0.5 * input[3]
                 if channels == 1 { output[frame] = Self.integerSample((left + right) * 0.5) }
