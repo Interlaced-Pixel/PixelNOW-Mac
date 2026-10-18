@@ -62,27 +62,31 @@ enum RecordingEditorProjectStore {
 
     static func load(primaryRecordingID: UUID) throws -> RecordingEditorProject? {
         guard FileManager.default.fileExists(atPath: projectDirectory.path) else { return nil }
-        let projects = try FileManager.default.contentsOfDirectory(at: projectDirectory, includingPropertiesForKeys: [.contentModificationDateKey])
-            .filter { $0.pathExtension == "json" }
-            .compactMap { url -> (RecordingEditorProject, Date)? in
-                guard let data = try? Data(contentsOf: url), var project = try? JSONDecoder().decode(RecordingEditorProject.self, from: data),
-                      (2...currentSchemaVersion).contains(project.schemaVersion), project.primaryRecordingID == primaryRecordingID else { return nil }
-                if project.schemaVersion < currentSchemaVersion {
-                    let playbackRate = max(0.25, project.playbackRate)
-                    project.markers = project.markers.map { marker in
-                        var migrated = marker
-                        migrated.timeSeconds /= playbackRate
-                        return migrated
-                    }
-                    project.timelineSettings.visibleStartSeconds = (project.timelineSettings.visibleStartSeconds ?? 0) / playbackRate
+        let urls = try FileManager.default.contentsOfDirectory(at: projectDirectory, includingPropertiesForKeys: [.contentModificationDateKey])
+        var latestProject: RecordingEditorProject?
+        var latestDate: Date?
+        for url in urls where url.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: url), var project = try? JSONDecoder().decode(RecordingEditorProject.self, from: data),
+                  (2...currentSchemaVersion).contains(project.schemaVersion), project.primaryRecordingID == primaryRecordingID else { continue }
+            if project.schemaVersion < currentSchemaVersion {
+                let playbackRate = max(0.25, project.playbackRate)
+                project.markers = project.markers.map { marker in
+                    var migrated = marker
+                    migrated.timeSeconds /= playbackRate
+                    return migrated
                 }
-                project.schemaVersion = currentSchemaVersion
-                if project.overlays == nil { project.overlays = [] }
-                if project.zoomKeyframes == nil { project.zoomKeyframes = [] }
-                let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return (project, date)
+                project.timelineSettings.visibleStartSeconds = (project.timelineSettings.visibleStartSeconds ?? 0) / playbackRate
             }
-        return projects.max(by: { $0.1 < $1.1 })?.0
+            project.schemaVersion = currentSchemaVersion
+            if project.overlays == nil { project.overlays = [] }
+            if project.zoomKeyframes == nil { project.zoomKeyframes = [] }
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            if latestDate.map({ $0 < date }) ?? true {
+                latestProject = project
+                latestDate = date
+            }
+        }
+        return latestProject
     }
 
     static func save(_ project: RecordingEditorProject) throws {
