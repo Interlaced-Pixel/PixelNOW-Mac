@@ -51,14 +51,14 @@ enum RecordingTimelineWaveformCache {
             var bytePointer: UnsafeMutablePointer<Int8>?
             guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: &bytesAtOffset, totalLengthOut: &totalBytes, dataPointerOut: &bytePointer) == kCMBlockBufferNoErr,
                   let bytePointer else { continue }
-            let samples = bytePointer.withMemoryRebound(to: Int16.self, capacity: totalBytes / MemoryLayout<Int16>.size) { pointer in
-                Array(UnsafeBufferPointer(start: pointer, count: totalBytes / MemoryLayout<Int16>.size))
-            }
-            for sample in samples {
-                let sampleTime = Double(absoluteSampleIndex / channelCount) / sampleRate
-                let bucket = min(bucketCount - 1, max(0, Int(sampleTime / duration * Double(bucketCount))))
-                peaks[bucket] = max(peaks[bucket], Float(min(32_768, abs(Int(sample)))) / 32_768)
-                absoluteSampleIndex += 1
+            bytePointer.withMemoryRebound(to: Int16.self, capacity: totalBytes / MemoryLayout<Int16>.size) { samples in
+                for sampleIndex in 0..<(totalBytes / MemoryLayout<Int16>.size) {
+                    let sample = samples[sampleIndex]
+                    let sampleTime = Double(absoluteSampleIndex / channelCount) / sampleRate
+                    let bucket = min(bucketCount - 1, max(0, Int(sampleTime / duration * Double(bucketCount))))
+                    peaks[bucket] = max(peaks[bucket], Float(min(32_768, abs(Int(sample)))) / 32_768)
+                    absoluteSampleIndex += 1
+                }
             }
         }
         if reader.status == .failed { return emptyWaveform }
